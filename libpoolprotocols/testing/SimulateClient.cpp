@@ -56,7 +56,7 @@ void SimulateClient::submitSolution(const Solution& solution)
     // This is a fake submission only evaluated locally
     std::chrono::steady_clock::time_point submit_start = std::chrono::steady_clock::now();
     bool accepted =
-        EthashAux::eval(solution.work.epoch, solution.work.header, solution.nonce).value <=
+        EthashAux::eval(solution.work.epoch, solution.work.block, solution.work.header, solution.nonce).value <=
         solution.work.boundary;
     std::chrono::milliseconds response_delay_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -88,7 +88,7 @@ void SimulateClient::workLoop()
                                     // is calculated upon block number (see poolmanager)
     current.header = h256::random();
     current.block = m_block;
-    current.boundary = h256(dev::getTargetFromDiff(1));
+    current.boundary = h256(dev::getTargetFromDiff(0.01));
     m_onWorkReceived(current);  // submit new fake job
 
     while (m_session)
