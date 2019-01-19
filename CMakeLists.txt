@@ -20,7 +20,7 @@ HunterGate(
 )
 
 project(progminer)
-set(PROJECT_VERSION 1.1.0)
+set(PROJECT_VERSION 1.1.1)
 
 cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release RelWithDebInfo)
 
