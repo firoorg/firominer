@@ -111,8 +111,8 @@ std::string ProgPow::getKern(uint64_t prog_seed, kernel_t kern)
         ret << "typedef struct __attribute__ ((aligned (16))) {uint32_t s[PROGPOW_DAG_LOADS];} dag_t;\n";
         ret << "\n";
         ret << "// Inner loop for prog_seed " << prog_seed << "\n";
-        ret << "void progPowLoop(const uint32_t loop,\n";
-        ret << "        uint32_t mix[PROGPOW_REGS],\n";
+        ret << "inline void progPowLoop(const uint32_t loop,\n";
+        ret << "        volatile uint32_t mix_arg[PROGPOW_REGS],\n";
         ret << "        __global const dag_t *g_dag,\n";
         ret << "        __local const uint32_t c_dag[PROGPOW_CACHE_WORDS],\n";
         ret << "        __local uint64_t share[GROUP_SHARE],\n";
@@ -122,6 +122,14 @@ std::string ProgPow::getKern(uint64_t prog_seed, kernel_t kern)
 
     ret << "dag_t data_dag;\n";
     ret << "uint32_t offset, data;\n";
+    // Work around AMD OpenCL compiler bug
+    // See https://github.com/gangnamtestnet/progminer/issues/16
+    if (kern == KERNEL_CL)
+    {
+        ret << "uint32_t mix[PROGPOW_REGS];\n";
+        ret << "for(int i=0; i<PROGPOW_REGS; i++)\n";
+        ret << "    mix[i] = mix_arg[i];\n";
+    }
 
     if (kern == KERNEL_CUDA)
         ret << "const uint32_t lane_id = threadIdx.x & (PROGPOW_LANES-1);\n";
@@ -199,6 +207,12 @@ std::string ProgPow::getKern(uint64_t prog_seed, kernel_t kern)
         std::string dest = mix_dst();
         uint32_t    r = rnd();
         ret << merge(dest, "data_dag.s["+std::to_string(i)+"]", r);
+    }
+    // Work around AMD OpenCL compiler bug
+    if (kern == KERNEL_CL)
+    {
+        ret << "for(int i=0; i<PROGPOW_REGS; i++)\n";
+        ret << "    mix_arg[i] = mix[i];\n";
     }
     ret << "}\n";
     ret << "\n";

@@ -211,7 +211,7 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
         fill_mix(hash_seed, lane_id, mix);
 
 #pragma unroll 1
-        for (uint32_t l = 0; l < PROGPOW_CNT_DAG; l++)
+        for (volatile uint32_t l = 0; l < PROGPOW_CNT_DAG; l++)
             progPowLoop(l, mix, g_dag, c_dag, share[0].uint64s, hack_false);
 
         // Reduce mix data to a per-lane 32-bit digest
