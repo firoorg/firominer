@@ -78,7 +78,7 @@ bool CUDAMiner::initDevice()
     return true;
 }
 
-bool CUDAMiner::initEpoch_internal(uint64_t block_number)
+bool CUDAMiner::initEpoch_internal()
 {
     // If we get here it means epoch has changed so it's not necessary
     // to check again dag sizes. They're changed for sure
@@ -144,9 +144,6 @@ bool CUDAMiner::initEpoch_internal(uint64_t block_number)
             get_constants(&dag, NULL, &light, NULL);
         }
 
-        uint64_t period_seed = block_number / PROGPOW_PERIOD;
-        compileKernel(period_seed, m_epochContext.dagNumItems / 2);
-
         CUDA_SAFE_CALL(cudaMemcpy(reinterpret_cast<void*>(light), m_epochContext.lightCache,
             m_epochContext.lightSize, cudaMemcpyHostToDevice));
 
@@ -189,6 +186,7 @@ void CUDAMiner::workLoop()
     WorkPackage current;
     current.header = h256();
     uint64_t old_period_seed = -1;
+    int old_epoch = -1;
 
     m_search_buf.resize(m_settings.streams);
     m_streams.resize(m_settings.streams);
@@ -202,7 +200,6 @@ void CUDAMiner::workLoop()
         {
             // Wait for work or 3 seconds (whichever the first)
             const WorkPackage w = work();
-            uint64_t period_seed = w.block / PROGPOW_PERIOD;
             if (!w)
             {
                 boost::system_time const timeout =
@@ -212,25 +209,21 @@ void CUDAMiner::workLoop()
                 continue;
             }
 
-            // Epoch change ?
-            if (current.epoch != w.epoch)
+            if (old_epoch != w.epoch)
             {
-                if (!initEpoch(w.block))
+                if (!initEpoch())
                     break;  // This will simply exit the thread
-
-                // As DAG generation takes a while we need to
-                // ensure we're on latest job, not on the one
-                // which triggered the epoch change
-                current = w;
-                old_period_seed = period_seed;
+                old_epoch = w.epoch;
                 continue;
             }
-            else if (old_period_seed != period_seed)
+            uint64_t period_seed = w.block / PROGPOW_PERIOD;
+            if (old_period_seed != period_seed)
             {
-                const auto dagNumItems = ethash::calculate_full_dataset_num_items(w.epoch);
-                compileKernel(period_seed, dagNumItems / 2);
+                compileKernel(
+                    period_seed, ethash::calculate_full_dataset_num_items(w.epoch) / 2, m_kernel);
+                old_period_seed = period_seed;
             }
-            old_period_seed = period_seed;
+            // Epoch change ?
 
             // Persist most recent job.
             // Job's differences should be handled at higher level
@@ -331,9 +324,7 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
 #include <iostream>
 #include <fstream>
 
-void CUDAMiner::compileKernel(
-    uint64_t period_seed,
-    uint64_t dag_elms)
+void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunction& kernel)
 {
     cudaDeviceProp device_props;
     CUDA_SAFE_CALL(cudaGetDeviceProperties(&device_props, m_deviceDescriptor.cuDeviceIndex));
@@ -347,19 +338,26 @@ void CUDAMiner::compileKernel(
     std::string text = ProgPow::getKern(period_seed, ProgPow::KERNEL_CUDA);
     text += std::string(CUDAMiner_kernel);
 
-    ofstream write;
-#if defined(_WIN32)
-    write.open("/temp/kernel.cu");
+    std::string tmpDir;
+#ifdef _WIN32
+    tmpDir = getenv("TEMP");
 #else
-    write.open("/tmp/kernel.cu");
+    tmpDir = "/tmp";
 #endif
+    tmpDir.append("/kernel.cu");
+    tmpDir.append(std::to_string(Index()));
+#ifdef DEV_BUILD
+    cudalog << "Dumping " << tmpDir;
+#endif
+    ofstream write;
+    write.open(tmpDir);
     write << text;
     write.close();
 
     nvrtcProgram prog;
     NVRTC_SAFE_CALL(nvrtcCreateProgram(&prog,  // prog
         text.c_str(),                          // buffer
-        "/tmp/kernel.cu",                      // name
+        tmpDir.c_str(),                        // name
         0,                                     // numHeaders
         NULL,                                  // headers
         NULL));                                // includeNames
@@ -406,7 +404,8 @@ void CUDAMiner::compileKernel(
         (void*)(1),
         (void*)(1)
     };
-    CU_SAFE_CALL(cuModuleLoadDataEx(&m_module, ptx, 6, jitOpt, jitOptVal));
+    CUmodule module;
+    CU_SAFE_CALL(cuModuleLoadDataEx(&module, ptx, 6, jitOpt, jitOptVal));
 #ifdef DEV_BUILD
     cudalog << "JIT info: \n" << jitInfo;
     cudalog << "JIT err: \n" << jitErr;
@@ -420,7 +419,7 @@ void CUDAMiner::compileKernel(
 #ifdef DEV_BUILD
     cudalog << "Mangled name: " << mangledName;
 #endif
-    CU_SAFE_CALL(cuModuleGetFunction(&m_kernel, m_module, mangledName));
+    CU_SAFE_CALL(cuModuleGetFunction(&kernel, module, mangledName));
     cudalog << "Compile done";
     // Destroy the program.
     NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
@@ -471,7 +470,7 @@ void CUDAMiner::search(
     {
         // Exit next time around if there's new work awaiting
         bool t = true;
-        done = m_new_work.compare_exchange_strong(t, false);
+        done = m_new_work.compare_exchange_weak(t, false, std::memory_order_relaxed);
 
         // Check on every batch if we need to suspend mining
         if (!done)

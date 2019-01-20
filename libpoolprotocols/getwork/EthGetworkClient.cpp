@@ -40,7 +40,7 @@ void EthGetworkClient::connect()
 {
     // Prevent unnecessary and potentially dangerous recursion
     bool expected = false;
-    if (!m_connecting.compare_exchange_strong(expected, true, memory_order::memory_order_relaxed))
+    if (!m_connecting.compare_exchange_weak(expected, true, memory_order::memory_order_relaxed))
         return;
 
     // Reset status flags
@@ -515,7 +515,7 @@ void EthGetworkClient::send(std::string const& sReq)
     m_txQueue.push(line);
 
     bool ex = false;
-    if (m_txPending.compare_exchange_strong(ex, true, std::memory_order_relaxed))
+    if (m_txPending.compare_exchange_weak(ex, true, std::memory_order_relaxed))
         begin_connect();
 }
 

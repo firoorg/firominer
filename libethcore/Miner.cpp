@@ -123,7 +123,7 @@ float Miner::RetrieveHashRate() noexcept
 void Miner::TriggerHashRateUpdate() noexcept
 {
     bool b = false;
-    if (m_hashRateUpdate.compare_exchange_strong(b, true))
+    if (m_hashRateUpdate.compare_exchange_weak(b, true, std::memory_order_relaxed))
         return;
     // GPU didn't respond to last trigger, assume it's dead.
     // This can happen on CUDA if:
@@ -131,7 +131,7 @@ void Miner::TriggerHashRateUpdate() noexcept
     m_hashRate = 0.0;
 }
 
-bool Miner::initEpoch(uint64_t block_number)
+bool Miner::initEpoch()
 {
     // When loading of DAG is sequential wait for
     // this instance to become current
@@ -150,7 +150,7 @@ bool Miner::initEpoch(uint64_t block_number)
 
     // Run the internal initialization
     // specific for miner
-    bool result = initEpoch_internal(block_number);
+    bool result = initEpoch_internal();
 
     // Advance to next miner or reset to zero for 
     // next run if all have processed
@@ -176,7 +176,7 @@ void Miner::updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept
 {
     m_groupCount += _increment;
     bool b = true;
-    if (!m_hashRateUpdate.compare_exchange_strong(b, false))
+    if (!m_hashRateUpdate.compare_exchange_weak(b, false, std::memory_order_relaxed))
         return;
     using namespace std::chrono;
     auto t = steady_clock::now();

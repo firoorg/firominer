@@ -296,7 +296,7 @@ void PoolManager::setActiveConnectionCommon(unsigned int idx)
 
     // Are there any outstanding operations ?
     bool ex = false;
-    if (!m_async_pending.compare_exchange_strong(ex, true))
+    if (!m_async_pending.compare_exchange_weak(ex, true, std::memory_order_relaxed))
         throw std::runtime_error("Outstanding operations. Retry ...");
 
     if (idx != m_activeConnectionIdx)

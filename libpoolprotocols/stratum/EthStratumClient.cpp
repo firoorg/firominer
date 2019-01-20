@@ -173,7 +173,7 @@ void EthStratumClient::disconnect()
 {
     // Prevent unnecessary recursion
     bool ex = false;
-    if (!m_disconnecting.compare_exchange_strong(ex, true, memory_order_relaxed))
+    if (!m_disconnecting.compare_exchange_weak(ex, true, memory_order_relaxed))
         return;
 
     m_connected.store(false, memory_order_relaxed);
@@ -1789,7 +1789,7 @@ void EthStratumClient::send(Json::Value const& jReq)
     m_txQueue.push(line);
 
     bool ex = false;
-    if (m_txPending.compare_exchange_strong(ex, true, std::memory_order_relaxed))
+    if (m_txPending.compare_exchange_weak(ex, true, std::memory_order_relaxed))
         sendSocketData();
 }
 

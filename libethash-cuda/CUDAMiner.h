@@ -45,7 +45,7 @@ public:
 protected:
     bool initDevice() override;
 
-    bool initEpoch_internal(uint64_t) override;
+    bool initEpoch_internal() override;
 
     void kick_miner() override;
 
@@ -54,7 +54,6 @@ private:
 
     void workLoop() override;
 
-    CUmodule m_module;
     CUfunction m_kernel;
     std::vector<volatile Search_results*> m_search_buf;
     std::vector<cudaStream_t> m_streams;
@@ -68,8 +67,7 @@ private:
     uint64_t m_allocated_memory_dag = 0; // dag_size is a uint64_t in EpochContext struct
     size_t m_allocated_memory_light_cache = 0;
 
-    void compileKernel(uint64_t prog_seed, uint64_t dag_words);
-
+    void compileKernel(uint64_t prog_seed, uint64_t dag_words, CUfunction& kernel);
 };
 
 
