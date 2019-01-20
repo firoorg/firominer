@@ -343,10 +343,28 @@ void CLMiner::workLoop()
             if (current.header != next.header)
             {
                 uint64_t period_seed = next.block / PROGPOW_PERIOD;
+                if (m_nextProgpowPeriod == 0)
+                {
+                    m_nextProgpowPeriod = period_seed;
+                    g_io_service.post(
+                        m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                }
+
                 if (old_period_seed != period_seed)
                 {
-                    compileKernel(period_seed, m_program);
+                    {
+                        boost::mutex::scoped_lock l(x_progpow);
+                        while (!m_progpow_compile_done.load())
+                            m_progpow_signal.wait(l);
+                        m_progpow_compile_done.store(false);
+                    }
+                    m_program = m_nextProgram;
+                    m_searchKernel = m_nextSearchKernel;
                     old_period_seed = period_seed;
+                    m_nextProgpowPeriod = period_seed + 1;
+                    cllog << "Loaded period " << period_seed << " progpow kernel";
+                    g_io_service.post(
+                        m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
                     continue;
                 }
                 if (old_epoch != next.epoch)
@@ -850,16 +868,19 @@ bool CLMiner::initEpoch_internal()
     return true;
 }
 
-bool CLMiner::compileKernel(uint64_t period_seed, cl::Program& program)
+void CLMiner::asyncCompile()
 {
-    cllog << "Compiling OpenCL kernel"
-          << ", seed " << period_seed;
+    compileKernel(m_nextProgpowPeriod, m_nextProgram, m_nextSearchKernel);
+    boost::mutex::scoped_lock lock(x_progpow);
+    m_progpow_compile_done.store(true);
+    m_progpow_signal.notify_one();
+}
 
-    // patch source code
-    // note: The kernels here are simply compiled version of the respective .cl kernels
-    // into a byte array by bin2h.cmake. There is no need to load the file by hand in runtime
-    // See libethash-cl/CMakeLists.txt: add_custom_command()
-    // TODO: Just use C++ raw string literal.
+void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kernel& searchKernel)
+{
+#ifdef DEV_BUILD
+    cllog << "Pre-compiling OpenCL kernel for period " << period_seed;
+#endif
 
     std::string code = ProgPow::getKern(period_seed, ProgPow::KERNEL_CL);
     code += string(CLMiner_kernel);
@@ -898,8 +919,11 @@ bool CLMiner::compileKernel(uint64_t period_seed, cl::Program& program)
 #else
     tmpDir = "/tmp";
 #endif
-    tmpDir.append("/kernel.cl");
+    tmpDir.append("/kernel.");
     tmpDir.append(std::to_string(Index()));
+    tmpDir.append(".");
+    tmpDir.append(std::to_string(period_seed));
+    tmpDir.append(".cl");
     cllog << "Dumping " << tmpDir;
     ofstream write;
     write.open(tmpDir);
@@ -920,14 +944,14 @@ bool CLMiner::compileKernel(uint64_t period_seed, cl::Program& program)
               << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_device);
         cwarn << "OpenCL kernel build error (" << buildErr.err() << "):\n" << buildErr.what();
         pause(MinerPauseEnum::PauseDueToInitEpochError);
-        return true;
+        return;
     }
-    m_searchKernel = cl::Kernel(program, "ethash_search");
+    searchKernel = cl::Kernel(program, "ethash_search");
 
-    m_searchKernel.setArg(1, m_header);
-    m_searchKernel.setArg(5, 0);
+    searchKernel.setArg(1, m_header);
+    searchKernel.setArg(5, 0);
 
+#ifdef DEV_BUILD
     cllog << "Compile done";
-
-    return false;
+#endif
 }
