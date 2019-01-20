@@ -36,7 +36,7 @@ void Worker::startWorking()
     if (m_work)
     {
         WorkerState ex = WorkerState::Stopped;
-        m_state.compare_exchange_strong(ex, WorkerState::Starting);
+        m_state.compare_exchange_weak(ex, WorkerState::Starting, std::memory_order_relaxed);
     }
     else
     {
@@ -47,7 +47,8 @@ void Worker::startWorking()
             while (m_state != WorkerState::Killing)
             {
                 WorkerState ex = WorkerState::Starting;
-                bool ok = m_state.compare_exchange_strong(ex, WorkerState::Started);
+                bool ok = m_state.compare_exchange_weak(
+                    ex, WorkerState::Started, std::memory_order_relaxed);
                 //				cnote << "Trying to set Started: Thread was" << (unsigned)ex << "; "
                 //<< ok;
                 (void)ok;
@@ -66,8 +67,9 @@ void Worker::startWorking()
                     }
                 }
 
-                //				ex = WorkerState::Stopping;
-                //				m_state.compare_exchange_strong(ex, WorkerState::Stopped);
+                // ex = WorkerState::Stopping;
+                // m_state.compare_exchange_weak(ex, WorkerState::Stopped,
+                // std::memory_order_relaxed));
 
                 ex = m_state.exchange(WorkerState::Stopped);
                 //				cnote << "State: Stopped: Thread was" << (unsigned)ex;
@@ -91,7 +93,7 @@ void Worker::triggerStopWorking()
     if (m_work)
     {
         WorkerState ex = WorkerState::Started;
-        m_state.compare_exchange_strong(ex, WorkerState::Stopping);
+        m_state.compare_exchange_weak(ex, WorkerState::Stopping, std::memory_order_relaxed);
     }
 }
 
@@ -102,7 +104,7 @@ void Worker::stopWorking()
     if (m_work)
     {
         WorkerState ex = WorkerState::Started;
-        m_state.compare_exchange_strong(ex, WorkerState::Stopping);
+        m_state.compare_exchange_weak(ex, WorkerState::Stopping, std::memory_order_relaxed);
 
         DEV_BUILD_LOG_PROGRAMFLOW(cnote, "Worker::stopWorking() waiting for WorkerState::Stopped begin");
         while (m_state != WorkerState::Stopped)

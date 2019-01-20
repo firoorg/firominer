@@ -343,18 +343,17 @@ void CLMiner::workLoop()
             if (current.header != next.header)
             {
                 uint64_t period_seed = next.block / PROGPOW_PERIOD;
-                if (old_epoch != next.epoch)
+                if (old_period_seed != period_seed)
                 {
-                    if (!initEpoch(next.block))
-                        break;  // This will simply exit the thread
-                    old_epoch = next.epoch;
+                    compileKernel(period_seed, m_program);
                     old_period_seed = period_seed;
                     continue;
                 }
-                else if (old_period_seed != period_seed)
+                if (old_epoch != next.epoch)
                 {
-                    compileKernel(period_seed);
-                    old_period_seed = period_seed;
+                    if (!initEpoch())
+                        break;  // This will simply exit the thread
+                    old_epoch = next.epoch;
                     continue;
                 }
 
@@ -678,7 +677,7 @@ bool CLMiner::initDevice()
 
 }
 
-bool CLMiner::initEpoch_internal(uint64_t block_number)
+bool CLMiner::initEpoch_internal()
 {
     auto startInit = std::chrono::steady_clock::now();
     size_t RequiredMemory = (m_epochContext.dagSize + m_epochContext.lightSize);
@@ -720,8 +719,6 @@ bool CLMiner::initEpoch_internal(uint64_t block_number)
         m_dagItems = m_epochContext.dagNumItems;
 
         cl::Program binaryProgram;
-        uint64_t period_seed = block_number / PROGPOW_PERIOD;
-        compileKernel(period_seed);
 
         std::string device_name = m_deviceDescriptor.clName;
 
@@ -730,6 +727,7 @@ bool CLMiner::initEpoch_internal(uint64_t block_number)
            the default kernel if loading fails for whatever reason */
         bool loadedBinary = false;
 
+        m_settings.noBinary = true;
         if (!m_settings.noBinary)
         {
             std::ifstream kernel_file;
@@ -852,8 +850,7 @@ bool CLMiner::initEpoch_internal(uint64_t block_number)
     return true;
 }
 
-bool CLMiner::compileKernel(
-    uint64_t period_seed)
+bool CLMiner::compileKernel(uint64_t period_seed, cl::Program& program)
 {
     cllog << "Compiling OpenCL kernel"
           << ", seed " << period_seed;
@@ -871,7 +868,7 @@ bool CLMiner::compileKernel(
     addDefinition(code, "ACCESSES", 64);
     addDefinition(code, "LIGHT_WORDS", m_epochContext.lightNumItems);
     addDefinition(code, "PROGPOW_DAG_BYTES", m_epochContext.dagSize);
-    addDefinition(code, "PROGPOW_DAG_ELEMENTS", m_dagItems / 2);
+    addDefinition(code, "PROGPOW_DAG_ELEMENTS", m_epochContext.dagNumItems / 2);
 
     addDefinition(code, "MAX_OUTPUTS", c_maxSearchResults);
     int platform = 0;
@@ -895,32 +892,37 @@ bool CLMiner::compileKernel(
         addDefinition(code, "LEGACY", 1);
 
 #ifdef DEV_BUILD
-    ofstream write;
-#if defined(_WIN32)
-    write.open("/temp/kernel.cl");
+    std::string tmpDir;
+#ifdef _WIN32
+    tmpDir = getenv("TEMP");
 #else
-    write.open("/tmp/kernel.cl");
+    tmpDir = "/tmp";
 #endif
+    tmpDir.append("/kernel.cl");
+    tmpDir.append(std::to_string(Index()));
+    cllog << "Dumping " << tmpDir;
+    ofstream write;
+    write.open(tmpDir);
     write << code;
     write.close();
 #endif
 
     // create miner OpenCL program
     cl::Program::Sources sources{code.data()};
-    m_program = cl::Program(m_context, sources);
+    program = cl::Program(m_context, sources);
     try
     {
-        m_program.build({m_device}, m_options);
+        program.build({m_device}, m_options);
     }
     catch (cl::BuildError const& buildErr)
     {
         cwarn << "OpenCL kernel build log:\n"
-              << m_program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_device);
+              << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_device);
         cwarn << "OpenCL kernel build error (" << buildErr.err() << "):\n" << buildErr.what();
         pause(MinerPauseEnum::PauseDueToInitEpochError);
         return true;
     }
-    m_searchKernel = cl::Kernel(m_program, "ethash_search");
+    m_searchKernel = cl::Kernel(program, "ethash_search");
 
     m_searchKernel.setArg(1, m_header);
     m_searchKernel.setArg(5, 0);

@@ -53,14 +53,14 @@ public:
 protected:
     bool initDevice() override;
 
-    bool initEpoch_internal(uint64_t) override;
+    bool initEpoch_internal() override;
 
     void kick_miner() override;
 
 private:
     
     void workLoop() override;
-    bool compileKernel(uint64_t prog_seed);
+    bool compileKernel(uint64_t prog_seed, cl::Program& program);
 
     cl::Context m_context;
     cl::CommandQueue m_queue;
@@ -83,6 +83,8 @@ private:
     int m_computeCapability = 0;
 
     atomic<bool> m_kickEnabled = {false};
+
+    atomic<int> m_nextPeriod = {0};
 };
 
 }  // namespace eth
