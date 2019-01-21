@@ -54,7 +54,9 @@ private:
 
     void workLoop() override;
 
-    CUfunction m_kernel;
+    uint8_t m_kernelCompIx = 0;
+    uint8_t m_kernelExecIx = 1;
+    CUfunction m_kernel[2];
     std::vector<volatile Search_results*> m_search_buf;
     std::vector<cudaStream_t> m_streams;
     uint64_t m_current_target = 0;
@@ -68,6 +70,8 @@ private:
     size_t m_allocated_memory_light_cache = 0;
 
     void compileKernel(uint64_t prog_seed, uint64_t dag_words, CUfunction& kernel);
+    void asyncCompile();
+    CUcontext m_context;
 };
 
 

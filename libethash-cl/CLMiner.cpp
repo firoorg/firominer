@@ -346,8 +346,10 @@ void CLMiner::workLoop()
                 if (m_nextProgpowPeriod == 0)
                 {
                     m_nextProgpowPeriod = period_seed;
-                    g_io_service.post(
-                        m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                    // g_io_service.post(
+                    //    m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                    // Use thread, don't want to block the io service
+                    boost::thread(boost::bind(&CLMiner::asyncCompile, this));
                 }
 
                 if (old_period_seed != period_seed)
@@ -363,8 +365,9 @@ void CLMiner::workLoop()
                     old_period_seed = period_seed;
                     m_nextProgpowPeriod = period_seed + 1;
                     cllog << "Loaded period " << period_seed << " progpow kernel";
-                    g_io_service.post(
-                        m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                    // g_io_service.post(
+                    //    m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                    boost::thread(boost::bind(&CLMiner::asyncCompile, this));
                     continue;
                 }
                 if (old_epoch != next.epoch)
@@ -870,7 +873,10 @@ bool CLMiner::initEpoch_internal()
 
 void CLMiner::asyncCompile()
 {
+    auto saveName = getThreadName();
+    setThreadName(name().c_str());
     compileKernel(m_nextProgpowPeriod, m_nextProgram, m_nextSearchKernel);
+    setThreadName(saveName.c_str());
     boost::mutex::scoped_lock lock(x_progpow);
     m_progpow_compile_done.store(true);
     m_progpow_signal.notify_one();
@@ -878,10 +884,6 @@ void CLMiner::asyncCompile()
 
 void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kernel& searchKernel)
 {
-#ifdef DEV_BUILD
-    cllog << "Pre-compiling OpenCL kernel for period " << period_seed;
-#endif
-
     std::string code = ProgPow::getKern(period_seed, ProgPow::KERNEL_CL);
     code += string(CLMiner_kernel);
 
@@ -951,7 +953,5 @@ void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kern
     searchKernel.setArg(1, m_header);
     searchKernel.setArg(5, 0);
 
-#ifdef DEV_BUILD
-    cllog << "Compile done";
-#endif
+    cllog << "Pre-compiled period " << period_seed << " OpenCL ProgPow kernel";
 }

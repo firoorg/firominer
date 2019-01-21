@@ -351,7 +351,7 @@ class Miner : public Worker
 {
 public:
     Miner(std::string const& _name, unsigned _index)
-      : Worker(_name + std::to_string(_index)), m_index(_index), m_progpow_io_strand(g_io_service)
+      : Worker(_name + std::to_string(_index)), m_index(_index)
     {}
 
     ~Miner() override = default;
@@ -467,7 +467,6 @@ protected:
     boost::condition_variable m_dag_loaded_signal;
     uint64_t m_nextProgpowPeriod = 0;
     boost::condition_variable m_progpow_signal;
-    boost::asio::io_service::strand m_progpow_io_strand;
     mutable boost::mutex x_progpow;
     atomic<bool> m_progpow_compile_done = {false};
 

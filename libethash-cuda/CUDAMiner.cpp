@@ -15,14 +15,16 @@ You should have received a copy of the GNU General Public License
 along with progminer.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <libethcore/Farm.h>
-#include "CUDAMiner.h"
-#include "CUDAMiner_kernel.h"
+#include <fstream>
+#include <iostream>
+
 #include <nvrtc.h>
 
+#include <libethcore/Farm.h>
 #include <ethash/ethash.hpp>
 
 #include "CUDAMiner.h"
+#include "CUDAMiner_kernel.h"
 
 using namespace std;
 using namespace dev;
@@ -106,9 +108,8 @@ bool CUDAMiner::initEpoch_internal()
             CUDA_SAFE_CALL(cudaDeviceReset());
 
             CUdevice device;
-            CUcontext context;
             cuDeviceGet(&device, m_deviceDescriptor.cuDeviceIndex);
-            cuCtxCreate(&context, m_settings.schedule, device);
+            cuCtxCreate(&m_context, m_settings.schedule, device);
 
             // Check whether the current device has sufficient memory every time we recreate the dag
             if (m_deviceDescriptor.totalMemory < RequiredMemory)
@@ -217,11 +218,27 @@ void CUDAMiner::workLoop()
                 continue;
             }
             uint64_t period_seed = w.block / PROGPOW_PERIOD;
+            if (m_nextProgpowPeriod == 0)
+            {
+                m_nextProgpowPeriod = period_seed;
+                // g_io_service.post(boost::bind(&CUDAMiner::asyncCompile, this));
+                // Use boost thread, don't want to block the io service
+                boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
+            }
             if (old_period_seed != period_seed)
             {
-                compileKernel(
-                    period_seed, ethash::calculate_full_dataset_num_items(w.epoch) / 2, m_kernel);
+                {
+                    boost::mutex::scoped_lock l(x_progpow);
+                    while (!m_progpow_compile_done.load())
+                        m_progpow_signal.wait(l);
+                    m_progpow_compile_done.store(false);
+                }
                 old_period_seed = period_seed;
+                m_kernelExecIx ^= 1;
+                cudalog << "Launching period " << period_seed << " ProgPow kernel";
+                m_nextProgpowPeriod = period_seed + 1;
+                // g_io_service.post(boost::bind(&CUDAMiner::asyncCompile, this));
+                boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
             }
             // Epoch change ?
 
@@ -321,17 +338,24 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
     }
 }
 
-#include <iostream>
-#include <fstream>
+void CUDAMiner::asyncCompile()
+{
+    cuCtxSetCurrent(m_context);
+    auto saveName = getThreadName();
+    setThreadName(name().c_str());
+    compileKernel(m_nextProgpowPeriod, m_epochContext.dagNumItems / 2, m_kernel[m_kernelCompIx]);
+    setThreadName(saveName.c_str());
+
+    m_kernelCompIx ^= 1;
+    boost::mutex::scoped_lock lock(x_progpow);
+    m_progpow_compile_done.store(true);
+    m_progpow_signal.notify_one();
+}
 
 void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunction& kernel)
 {
     cudaDeviceProp device_props;
     CUDA_SAFE_CALL(cudaGetDeviceProperties(&device_props, m_deviceDescriptor.cuDeviceIndex));
-
-    cudalog << "Compiling CUDA kernel"
-            << ", seed " << period_seed << ", arch " << to_string(device_props.major) << '.'
-            << to_string(device_props.minor);
 
     const char* name = "progpow_search";
 
@@ -420,9 +444,12 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
     cudalog << "Mangled name: " << mangledName;
 #endif
     CU_SAFE_CALL(cuModuleGetFunction(&kernel, module, mangledName));
-    cudalog << "Compile done";
+
     // Destroy the program.
     NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
+
+    cudalog << "Pre-compiled period " << period_seed << " CUDA ProgPow kernel for arch "
+            << to_string(device_props.major) << '.' << to_string(device_props.minor);
 }
 
 void CUDAMiner::search(
@@ -451,12 +478,12 @@ void CUDAMiner::search(
         volatile Search_results *Buffer = &buffer;
         bool hack_false = false;
         void *args[] = {&start_nonce, &current_header, &m_current_target, &dag, &Buffer, &hack_false};
-        CU_SAFE_CALL(cuLaunchKernel(m_kernel,
-            m_settings.gridSize, 1, 1,   // grid dim
-            m_settings.blockSize, 1, 1,  // block dim
-            0,                  // shared mem
-            stream,             // stream
-            args, 0));          // arguments
+        CU_SAFE_CALL(cuLaunchKernel(m_kernel[m_kernelExecIx],  //
+            m_settings.gridSize, 1, 1,                         // grid dim
+            m_settings.blockSize, 1, 1,                        // block dim
+            0,                                                 // shared mem
+            stream,                                            // stream
+            args, 0));                                         // arguments
     }
 
     // process stream batches until we get new work.
@@ -520,12 +547,12 @@ void CUDAMiner::search(
                 volatile Search_results *Buffer = &buffer;
                 bool hack_false = false;
                 void *args[] = {&start_nonce, &current_header, &m_current_target, &dag, &Buffer, &hack_false};
-                CU_SAFE_CALL(cuLaunchKernel(m_kernel,
-                    m_settings.gridSize, 1, 1,   // grid dim
-                    m_settings.blockSize, 1, 1,  // block dim
-                    0,                  // shared mem
-                    stream,             // stream
-                    args, 0));          // arguments
+                CU_SAFE_CALL(cuLaunchKernel(m_kernel[m_kernelExecIx],  //
+                    m_settings.gridSize, 1, 1,                         // grid dim
+                    m_settings.blockSize, 1, 1,                        // block dim
+                    0,                                                 // shared mem
+                    stream,                                            // stream
+                    args, 0));                                         // arguments
             }
             if (found_count)
             {
