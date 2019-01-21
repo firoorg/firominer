@@ -60,12 +60,14 @@ protected:
 private:
     
     void workLoop() override;
-    bool compileKernel(uint64_t prog_seed, cl::Program& program);
+    void compileKernel(uint64_t prog_seed, cl::Program& program, cl::Kernel& searchKernel);
+    void asyncCompile();
 
     cl::Context m_context;
     cl::CommandQueue m_queue;
     cl::CommandQueue m_abortqueue;
     cl::Kernel m_searchKernel;
+    cl::Kernel m_nextSearchKernel;
     cl::Kernel m_dagKernel;
     cl::Device m_device;
     cl::Buffer m_header;
@@ -79,12 +81,12 @@ private:
     unsigned m_dagItems = 0;
 
     cl::Program m_program;
+    cl::Program m_nextProgram;
     char m_options[256] = {0};
     int m_computeCapability = 0;
 
     atomic<bool> m_kickEnabled = {false};
 
-    atomic<int> m_nextPeriod = {0};
 };
 
 }  // namespace eth

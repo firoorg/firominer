@@ -27,13 +27,17 @@
 #include <libdevcore/Log.h>
 #include <libdevcore/Worker.h>
 
+#include <boost/asio.hpp>
 #include <boost/format.hpp>
 #include <boost/thread.hpp>
+
 
 #define DAG_LOAD_MODE_PARALLEL 0
 #define DAG_LOAD_MODE_SEQUENTIAL 1
 
 using namespace std;
+
+extern boost::asio::io_service g_io_service;
 
 namespace dev
 {
@@ -347,7 +351,7 @@ class Miner : public Worker
 {
 public:
     Miner(std::string const& _name, unsigned _index)
-      : Worker(_name + std::to_string(_index)), m_index(_index)
+      : Worker(_name + std::to_string(_index)), m_index(_index), m_progpow_io_strand(g_io_service)
     {}
 
     ~Miner() override = default;
@@ -461,6 +465,11 @@ protected:
     mutable boost::mutex x_pause;
     boost::condition_variable m_new_work_signal;
     boost::condition_variable m_dag_loaded_signal;
+    uint64_t m_nextProgpowPeriod = 0;
+    boost::condition_variable m_progpow_signal;
+    boost::asio::io_service::strand m_progpow_io_strand;
+    mutable boost::mutex x_progpow;
+    atomic<bool> m_progpow_compile_done = {false};
 
 private:
     bitset<MinerPauseEnum::Pause_MAX> m_pauseFlags;
