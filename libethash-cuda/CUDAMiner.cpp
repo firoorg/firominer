@@ -221,24 +221,16 @@ void CUDAMiner::workLoop()
             if (m_nextProgpowPeriod == 0)
             {
                 m_nextProgpowPeriod = period_seed;
-                // g_io_service.post(boost::bind(&CUDAMiner::asyncCompile, this));
-                // Use boost thread, don't want to block the io service
-                boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
+                m_compileThread = new boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
             }
             if (old_period_seed != period_seed)
             {
-                {
-                    boost::mutex::scoped_lock l(x_progpow);
-                    while (!m_progpow_compile_done.load())
-                        m_progpow_signal.wait(l);
-                    m_progpow_compile_done.store(false);
-                }
+                m_compileThread->join();
                 old_period_seed = period_seed;
                 m_kernelExecIx ^= 1;
                 cudalog << "Launching period " << period_seed << " ProgPow kernel";
                 m_nextProgpowPeriod = period_seed + 1;
-                // g_io_service.post(boost::bind(&CUDAMiner::asyncCompile, this));
-                boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
+                m_compileThread = new boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
             }
             // Epoch change ?
 
@@ -343,13 +335,12 @@ void CUDAMiner::asyncCompile()
     cuCtxSetCurrent(m_context);
     auto saveName = getThreadName();
     setThreadName(name().c_str());
+
     compileKernel(m_nextProgpowPeriod, m_epochContext.dagNumItems / 2, m_kernel[m_kernelCompIx]);
+
     setThreadName(saveName.c_str());
 
     m_kernelCompIx ^= 1;
-    boost::mutex::scoped_lock lock(x_progpow);
-    m_progpow_compile_done.store(true);
-    m_progpow_signal.notify_one();
 }
 
 void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunction& kernel)

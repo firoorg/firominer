@@ -466,9 +466,7 @@ protected:
     boost::condition_variable m_new_work_signal;
     boost::condition_variable m_dag_loaded_signal;
     uint64_t m_nextProgpowPeriod = 0;
-    boost::condition_variable m_progpow_signal;
-    mutable boost::mutex x_progpow;
-    atomic<bool> m_progpow_compile_done = {false};
+    boost::thread* m_compileThread = nullptr;
 
 private:
     bitset<MinerPauseEnum::Pause_MAX> m_pauseFlags;
