@@ -332,9 +332,22 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
 
 void CUDAMiner::asyncCompile()
 {
-    cuCtxSetCurrent(m_context);
     auto saveName = getThreadName();
     setThreadName(name().c_str());
+
+#if defined(__linux__)
+    // Non Posix hack to lower compile thread's priority. Under POSIX
+    // the nice value is a process attribute, under Linux it's a thread
+    // attribute
+    if (nice(5) == -1)
+        cudalog << "Unable to lower compiler priority.";
+#endif
+#ifdef WIN32
+    if (!SetThreadPriority(m_compileThread->native_handle(), THREAD_PRIORITY_BELOW_NORMAL))
+        cudalog << "Unable to lower compiler priority.";
+#endif
+
+    cuCtxSetCurrent(m_context);
 
     compileKernel(m_nextProgpowPeriod, m_epochContext.dagNumItems / 2, m_kernel[m_kernelCompIx]);
 
