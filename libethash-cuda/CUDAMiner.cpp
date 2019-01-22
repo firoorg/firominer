@@ -344,18 +344,8 @@ void CUDAMiner::asyncCompile()
     auto saveName = getThreadName();
     setThreadName(name().c_str());
 
-#if defined(__linux__)
-    // Non Posix hack to lower compile thread's priority. Under POSIX
-    // the nice value is a process attribute, under Linux it's a thread
-    // attribute
-    if (nice(5) == -1)
+    if (!dropThreadPriority())
         cudalog << "Unable to lower compiler priority.";
-#elif defined(WIN32)
-    if (!SetThreadPriority(m_compileThread->native_handle(), THREAD_PRIORITY_BELOW_NORMAL))
-        cudalog << "Unable to lower compiler priority.";
-#else
-    cudalog << "Unable to lower compiler priority.";
-#endif
 
     cuCtxSetCurrent(m_context);
 

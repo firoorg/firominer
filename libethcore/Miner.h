@@ -446,6 +446,8 @@ protected:
 
     void updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept;
 
+    bool dropThreadPriority();
+
     static unsigned s_minersCount;   // Total Number of Miners
     static unsigned s_dagLoadMode;   // Way dag should be loaded
     static unsigned s_dagLoadIndex;  // In case of serialized load of dag this is the index of miner

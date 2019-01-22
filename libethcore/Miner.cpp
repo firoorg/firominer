@@ -188,6 +188,20 @@ void Miner::updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept
     m_groupCount = 0;
 }
 
+bool Miner::dropThreadPriority()
+{
+#if defined(__linux__)
+    // Non Posix hack to lower compile thread's priority. Under POSIX
+    // the nice value is a process attribute, under Linux it's a thread
+    // attribute
+    return nice(5) != -1;
+#elif defined(WIN32)
+    return SetThreadPriority(m_compileThread->native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
+#else
+    return false;
+#endif
+}
+
 
 }  // namespace eth
 }  // namespace dev
