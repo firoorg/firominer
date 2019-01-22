@@ -14,8 +14,6 @@ PoolManager::PoolManager(PoolSettings _settings)
     m_failovertimer(g_io_service),
     m_submithrtimer(g_io_service)
 {
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "PoolManager::PoolManager() begin");
-
     m_this = this;
 
     m_currentWp.header = h256();
@@ -50,9 +48,6 @@ PoolManager::PoolManager(PoolSettings _settings)
 
         return false;
     });
-
-
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "PoolManager::PoolManager() end");
 }
 
 void PoolManager::setClientHandlers()
@@ -223,7 +218,6 @@ void PoolManager::setClientHandlers()
 
 void PoolManager::stop()
 {
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "PoolManager::stop() begin");
     if (m_running.load(std::memory_order_relaxed))
     {
         m_async_pending.store(true, std::memory_order_relaxed);
@@ -251,7 +245,6 @@ void PoolManager::stop()
             }
         }
     }
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "PoolManager::stop() end");
 }
 
 void PoolManager::addConnection(std::string _connstring)

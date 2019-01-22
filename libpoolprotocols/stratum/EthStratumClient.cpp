@@ -126,7 +126,6 @@ void EthStratumClient::connect()
     // Prevent unnecessary and potentially dangerous recursion
     if (m_connecting.load(std::memory_order::memory_order_relaxed))
         return;
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::connect() begin");
 
     // Start timing operations
     m_workloop_timer.expires_from_now(boost::posix_time::milliseconds(m_workloop_interval));
@@ -165,8 +164,6 @@ void EthStratumClient::connect()
             boost::asio::ip::address::from_string(m_conn->Host()), m_conn->Port()));
         m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::start_connect, this)));
     }
-
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::connect() end");
 }
 
 void EthStratumClient::disconnect()
@@ -177,8 +174,6 @@ void EthStratumClient::disconnect()
         return;
 
     m_connected.store(false, memory_order_relaxed);
-
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::disconnect() begin");
 
     // Cancel any outstanding async operation
     if (m_socket)
@@ -202,7 +197,6 @@ void EthStratumClient::disconnect()
 
 
                 // Rest of disconnection is performed asynchronously
-                DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::disconnect() end");
                 return;
             }
             else
@@ -218,7 +212,6 @@ void EthStratumClient::disconnect()
     }
 
     disconnect_finalize();
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::disconnect() end");
 }
 
 void EthStratumClient::disconnect_finalize()
@@ -475,8 +468,6 @@ void EthStratumClient::workloop_timer_elapsed(const boost::system::error_code& e
 
 void EthStratumClient::connect_handler(const boost::system::error_code& ec)
 {
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::connect_handler() begin");
-
     // Set status completion
     m_connecting.store(false, std::memory_order_relaxed);
 
@@ -500,7 +491,6 @@ void EthStratumClient::connect_handler(const boost::system::error_code& ec)
         m_endpoints.pop();
         m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::start_connect, this)));
 
-        DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::connect_handler() end1");
         return;
     }
 
@@ -559,7 +549,6 @@ void EthStratumClient::connect_handler(const boost::system::error_code& ec)
             // not ip address. Trying other IPs would end up with the very same error.
             m_conn->MarkUnrecoverable();
             m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-            DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::connect_handler() end2");
             return;
         }
     }
@@ -658,8 +647,6 @@ void EthStratumClient::connect_handler(const boost::system::error_code& ec)
     */
     enqueue_response_plea();
     send(jReq);
-
-    DEV_BUILD_LOG_PROGRAMFLOW(cnote, "EthStratumClient::connect_handler() end");
 }
 
 void EthStratumClient::startSession()

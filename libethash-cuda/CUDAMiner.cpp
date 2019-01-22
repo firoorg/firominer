@@ -48,10 +48,8 @@ CUDAMiner::CUDAMiner(unsigned _index, CUSettings _settings, DeviceDescriptor& _d
 
 CUDAMiner::~CUDAMiner()
 {
-    DEV_BUILD_LOG_PROGRAMFLOW(cudalog, "cuda-" << m_index << " CUDAMiner::~CUDAMiner() begin");
     stopWorking();
     kick_miner();
-    DEV_BUILD_LOG_PROGRAMFLOW(cudalog, "cuda-" << m_index << " CUDAMiner::~CUDAMiner() end");
 }
 
 bool CUDAMiner::initDevice()
@@ -372,8 +370,9 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
 #else
     tmpDir = "/tmp";
 #endif
-    tmpDir.append("/kernel.cu");
+    tmpDir.append("/kernel.");
     tmpDir.append(std::to_string(Index()));
+    tmpDir.append(".cu");
 #ifdef DEV_BUILD
     cudalog << "Dumping " << tmpDir;
 #endif
@@ -399,13 +398,16 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
         sizeof(opts) / sizeof(opts[0]),                    // numOptions
         opts);                                             // options
 #ifdef DEV_BUILD
-    // Obtain compilation log from the program.
-    size_t logSize;
-    NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
-    char *log = new char[logSize];
-    NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log));
-    cudalog << "Compile log: " << log;
-    delete[] log;
+    if (g_logOptions & LOG_COMPILE)
+    {
+        // Obtain compilation log from the program.
+        size_t logSize;
+        NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
+        char* log = new char[logSize];
+        NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log));
+        cudalog << "Compile log: " << log;
+        delete[] log;
+    }
 #endif
     NVRTC_SAFE_CALL(compileResult);
     // Obtain PTX from the program.
@@ -435,8 +437,11 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
     CUmodule module;
     CU_SAFE_CALL(cuModuleLoadDataEx(&module, ptx, 6, jitOpt, jitOptVal));
 #ifdef DEV_BUILD
-    cudalog << "JIT info: \n" << jitInfo;
-    cudalog << "JIT err: \n" << jitErr;
+    if (g_logOptions & LOG_COMPILE)
+    {
+        cudalog << "JIT info: \n" << jitInfo;
+        cudalog << "JIT err: \n" << jitErr;
+    }
 #endif
     delete[] jitInfo;
     delete[] jitErr;
@@ -445,7 +450,10 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
     const char* mangledName;
     NVRTC_SAFE_CALL(nvrtcGetLoweredName(prog, name, &mangledName));
 #ifdef DEV_BUILD
-    cudalog << "Mangled name: " << mangledName;
+    if (g_logOptions & LOG_COMPILE)
+    {
+        cudalog << "Mangled name: " << mangledName;
+    }
 #endif
     CU_SAFE_CALL(cuModuleGetFunction(&kernel, module, mangledName));
 
