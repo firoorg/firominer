@@ -64,6 +64,8 @@ public:
     /// Whether or not this worker should stop
     bool shouldStop() const { return m_state != WorkerState::Started; }
 
+    std::string name() { return m_name; }
+
 private:
     virtual void workLoop() = 0;
 

@@ -424,7 +424,8 @@ void PoolManager::rotateConnect()
             p_client = std::unique_ptr<PoolClient>(
                 new EthStratumClient(m_Settings.noWorkTimeout, m_Settings.noResponseTimeout));
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::SIMULATION)
-            p_client = std::unique_ptr<PoolClient>(new SimulateClient(m_Settings.benchmarkBlock));
+            p_client = std::unique_ptr<PoolClient>(
+                new SimulateClient(m_Settings.benchmarkBlock, m_Settings.benchmarkDiff));
 
         if (p_client)
             setClientHandlers();

@@ -32,6 +32,7 @@ struct PoolSettings
         h256::random().hex(HexPrefix::Add);  // Unique identifier for HashRate submission
     unsigned connectionMaxRetries = 3;  // Max number of connection retries
     unsigned benchmarkBlock = 0;        // Block number used by SimulateClient to test performances
+    float benchmarkDiff = 1.0;          // Difficulty used by SimulateClient to test performances
 };
 
 class PoolManager

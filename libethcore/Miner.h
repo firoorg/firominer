@@ -351,7 +351,7 @@ class Miner : public Worker
 {
 public:
     Miner(std::string const& _name, unsigned _index)
-      : Worker(_name + std::to_string(_index)), m_index(_index), m_progpow_io_strand(g_io_service)
+      : Worker(_name + std::to_string(_index)), m_index(_index)
     {}
 
     ~Miner() override = default;
@@ -446,6 +446,8 @@ protected:
 
     void updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept;
 
+    bool dropThreadPriority();
+
     static unsigned s_minersCount;   // Total Number of Miners
     static unsigned s_dagLoadMode;   // Way dag should be loaded
     static unsigned s_dagLoadIndex;  // In case of serialized load of dag this is the index of miner
@@ -466,10 +468,7 @@ protected:
     boost::condition_variable m_new_work_signal;
     boost::condition_variable m_dag_loaded_signal;
     uint64_t m_nextProgpowPeriod = 0;
-    boost::condition_variable m_progpow_signal;
-    boost::asio::io_service::strand m_progpow_io_strand;
-    mutable boost::mutex x_progpow;
-    atomic<bool> m_progpow_compile_done = {false};
+    boost::thread* m_compileThread = nullptr;
 
 private:
     bitset<MinerPauseEnum::Pause_MAX> m_pauseFlags;

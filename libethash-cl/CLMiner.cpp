@@ -346,25 +346,32 @@ void CLMiner::workLoop()
                 if (m_nextProgpowPeriod == 0)
                 {
                     m_nextProgpowPeriod = period_seed;
-                    g_io_service.post(
-                        m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                    // g_io_service.post(
+                    //    m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                    // Use thread, don't want to block the io service
+                    m_compileThread = new boost::thread(boost::bind(&CLMiner::asyncCompile, this));
                 }
 
                 if (old_period_seed != period_seed)
                 {
+                    m_compileThread->join();
+                    // sanity check the next kernel
+                    if (period_seed != m_nextProgpowPeriod)
                     {
-                        boost::mutex::scoped_lock l(x_progpow);
-                        while (!m_progpow_compile_done.load())
-                            m_progpow_signal.wait(l);
-                        m_progpow_compile_done.store(false);
+                        // This shouldn't happen!!! Try to recover
+                        m_nextProgpowPeriod = period_seed;
+                        m_compileThread =
+                            new boost::thread(boost::bind(&CLMiner::asyncCompile, this));
+                        m_compileThread->join();
                     }
                     m_program = m_nextProgram;
                     m_searchKernel = m_nextSearchKernel;
                     old_period_seed = period_seed;
                     m_nextProgpowPeriod = period_seed + 1;
                     cllog << "Loaded period " << period_seed << " progpow kernel";
-                    g_io_service.post(
-                        m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                    // g_io_service.post(
+                    //    m_progpow_io_strand.wrap(boost::bind(&CLMiner::asyncCompile, this)));
+                    m_compileThread = new boost::thread(boost::bind(&CLMiner::asyncCompile, this));
                     continue;
                 }
                 if (old_epoch != next.epoch)
@@ -870,18 +877,18 @@ bool CLMiner::initEpoch_internal()
 
 void CLMiner::asyncCompile()
 {
+    auto saveName = getThreadName();
+    setThreadName(name().c_str());
+    if (!dropThreadPriority())
+        cllog << "Unable to lower compiler priority.";
+
     compileKernel(m_nextProgpowPeriod, m_nextProgram, m_nextSearchKernel);
-    boost::mutex::scoped_lock lock(x_progpow);
-    m_progpow_compile_done.store(true);
-    m_progpow_signal.notify_one();
+
+    setThreadName(saveName.c_str());
 }
 
 void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kernel& searchKernel)
 {
-#ifdef DEV_BUILD
-    cllog << "Pre-compiling OpenCL kernel for period " << period_seed;
-#endif
-
     std::string code = ProgPow::getKern(period_seed, ProgPow::KERNEL_CL);
     code += string(CLMiner_kernel);
 
@@ -951,7 +958,5 @@ void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kern
     searchKernel.setArg(1, m_header);
     searchKernel.setArg(5, 0);
 
-#ifdef DEV_BUILD
-    cllog << "Compile done";
-#endif
+    cllog << "Pre-compiled period " << period_seed << " OpenCL ProgPow kernel";
 }
