@@ -355,6 +355,15 @@ void CLMiner::workLoop()
                 if (old_period_seed != period_seed)
                 {
                     m_compileThread->join();
+                    // sanity check the next kernel
+                    if (period_seed != m_nextProgpowPeriod)
+                    {
+                        // This shouldn't happen!!! Try to recover
+                        m_nextProgpowPeriod = period_seed;
+                        m_compileThread =
+                            new boost::thread(boost::bind(&CLMiner::asyncCompile, this));
+                        m_compileThread->join();
+                    }
                     m_program = m_nextProgram;
                     m_searchKernel = m_nextSearchKernel;
                     old_period_seed = period_seed;
@@ -877,10 +886,11 @@ void CLMiner::asyncCompile()
     // attribute
     if (nice(5) == -1)
         cllog << "Unable to lower compiler priority.";
-#endif
-#ifdef WIN32
+#elif defined(WIN32)
     if (!SetThreadPriority(m_compileThread->native_handle(), THREAD_PRIORITY_BELOW_NORMAL))
         cllog << "Unable to lower compiler priority.";
+#else
+    cllog << "Unable to lower compiler priority.";
 #endif
 
     compileKernel(m_nextProgpowPeriod, m_nextProgram, m_nextSearchKernel);

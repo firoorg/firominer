@@ -226,6 +226,15 @@ void CUDAMiner::workLoop()
             if (old_period_seed != period_seed)
             {
                 m_compileThread->join();
+                // sanity check the next kernel
+                if (period_seed != m_nextProgpowPeriod)
+                {
+                    // This shouldn't happen!!! Try to recover
+                    m_nextProgpowPeriod = period_seed;
+                    m_compileThread =
+                        new boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
+                    m_compileThread->join();
+                }
                 old_period_seed = period_seed;
                 m_kernelExecIx ^= 1;
                 cudalog << "Launching period " << period_seed << " ProgPow kernel";
@@ -341,10 +350,11 @@ void CUDAMiner::asyncCompile()
     // attribute
     if (nice(5) == -1)
         cudalog << "Unable to lower compiler priority.";
-#endif
-#ifdef WIN32
+#elif defined(WIN32)
     if (!SetThreadPriority(m_compileThread->native_handle(), THREAD_PRIORITY_BELOW_NORMAL))
         cudalog << "Unable to lower compiler priority.";
+#else
+    cudalog << "Unable to lower compiler priority.";
 #endif
 
     cuCtxSetCurrent(m_context);

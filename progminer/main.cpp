@@ -364,6 +364,9 @@ public:
 #endif
         auto sim_opt = app.add_option("-Z,--simulation,-M,--benchmark", m_PoolSettings.benchmarkBlock, "", true);
 
+        app.add_option("--diff", m_PoolSettings.benchmarkDiff, "")
+            ->check(CLI::Range(0.00001, 10000.0));
+
         app.add_option("--tstop", m_FarmSettings.tempStop, "", true)->check(CLI::Range(30, 100));
         app.add_option("--tstart", m_FarmSettings.tempStart, "", true)->check(CLI::Range(30, 100));
 
@@ -838,6 +841,11 @@ public:
                  << "    -M,--benchmark      UINT [0 ..] Default not set" << endl
                  << "                        Mining test. Used to test hashing speed." << endl
                  << "                        Specify the block number to test on." << endl
+                 << endl
+                 << "    --diff              FLOAT [>0.0] Default " << m_PoolSettings.benchmarkDiff
+                 << endl
+                 << "                        Mining test. Used to test hashing speed." << endl
+                 << "                        Specify the difficulty level to test on." << endl
                  << endl
                  << "    -Z,--simulation     UINT [0 ..] Default not set" << endl
                  << "                        Mining test. Used to test hashing speed." << endl
