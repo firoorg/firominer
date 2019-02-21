@@ -199,7 +199,7 @@ void EthGetworkClient::handle_write(const boost::system::error_code& ec)
     {
         // Transmission succesfully sent.
         // Read the response async. 
-        async_read(m_socket, m_response, boost::asio::transfer_at_least(1),
+        boost::asio::async_read_until(m_socket, m_response, "}",
             m_io_strand.wrap(boost::bind(&EthGetworkClient::handle_read, this,
                 boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred)));
     }
