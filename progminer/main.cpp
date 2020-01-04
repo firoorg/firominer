@@ -215,7 +215,7 @@ public:
     {
         std::queue<string> warnings;
 
-        CLI::App app("Progminer - GPU Ethash miner");
+        CLI::App app("Progminer - GPU ProgPOW(0.9.3) miner for Zing");
 
         bool bhelp = false;
         string shelpExt;
@@ -744,7 +744,7 @@ public:
 
     void help()
     {
-        cout << "Progminer - GPU ethash miner" << endl
+        cout << "Progminer - GPU ProgPOW(0.9.3) miner for Zing" << endl
              << "minimal usage : progminer [DEVICES_TYPE] [OPTIONS] -P... [-P...]" << endl
              << endl
              << "Devices type options :" << endl

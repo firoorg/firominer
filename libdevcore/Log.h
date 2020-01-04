@@ -45,6 +45,18 @@
 #define LOG_NEXT 512
 #endif
 
+#define LOG_PROGRAMFLOW 256
+#if DEV_BUILD
+#define DEV_BUILD_LOG_PROGRAMFLOW(_S, _V) \
+    if (g_logOptions & LOG_PROGRAMFLOW)   \
+    {                                     \
+        _S << _V;                         \
+    }                                     \
+    ((void)(0))
+#else
+#define DEV_BUILD_LOG_PROGRAMFLOW(_S, _V) ((void)(0))
+#endif
+
 extern unsigned g_logOptions;
 extern bool g_logNoColor;
 extern bool g_logSyslog;

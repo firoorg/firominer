@@ -30,7 +30,7 @@ along with progminer.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 #include <libethcore/Farm.h>
-#include <ethash/ethash.hpp>
+#include <ethash/progpow.hpp>
 
 #include <boost/version.hpp>
 
@@ -234,9 +234,9 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
 {
     constexpr size_t blocksize = 30;
 
-    const auto& context = ethash::get_global_epoch_context_full(w.epoch);
-    const auto header = ethash::hash256_from_bytes(w.header.data());
-    const auto boundary = ethash::hash256_from_bytes(w.boundary.data());
+    const auto& context = progpow::get_global_epoch_context_full(w.epoch);
+    auto header = progpow::hash256_from_bytes(w.header.data());
+    auto boundary = progpow::hash256_from_bytes(w.boundary.data());
     auto nonce = w.startNonce;
 
     while (true)
@@ -251,7 +251,8 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
             break;
 
 
-        auto r = ethash::search(context, header, boundary, nonce, blocksize);
+        auto r = progpow::search(context, w.block, header, boundary, nonce, blocksize);
+
         if (r.solution_found)
         {
             h256 mix{reinterpret_cast<byte*>(r.mix_hash.bytes), h256::ConstructFromPointer};
