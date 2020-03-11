@@ -73,6 +73,43 @@ Connecting to [progpool.pro](https://progpool.pro):
 
 `kawpowminer.exe -P stratum1+tcp://0xaa16a61dec2d3e260cd1348e48cd259a5fb03f49.test@progpool.pro:8008`
 
+## Build
+
+After cloning this repository into `kawpowminer`, it can be built with commands like:
+
+```
+cd kawpowminer
+git submodule update --init --recursive
+mkdir build
+cd build
+cmake .. -DETHASHCUDA=ON
+make -sj8
+```
+
+ProgPoW can be tuned using the following parameters.  The proposed settings have been tuned for a range of existing, commodity GPUs:
+
+* `PROGPOW_PERIOD`: Number of blocks before changing the random program
+* `PROGPOW_LANES`: The number of parallel lanes that coordinate to calculate a single hash instance
+* `PROGPOW_REGS`: The register file usage size
+* `PROGPOW_DAG_LOADS`: Number of uint32 loads from the DAG per lane
+* `PROGPOW_CACHE_BYTES`: The size of the cache
+* `PROGPOW_CNT_DAG`: The number of DAG accesses, defined as the outer loop of the algorithm (64 is the same as Ethash)
+* `PROGPOW_CNT_CACHE`: The number of cache accesses per loop
+* `PROGPOW_CNT_MATH`: The number of math operations per loop
+
+The value of these parameters has been tweaked between version 0.9.2 (live on the Gangnam testnet) and 0.9.3 (proposed for Ethereum adoption).  See [this medium post](https://medium.com/@ifdefelse/progpow-progress-da5bb31a651b) for details.
+
+| Parameter             | 0.9.2 | 0.9.3 |
+|-----------------------|-------|-------|
+| `PROGPOW_PERIOD`      | `50`  | `10`  |
+| `PROGPOW_LANES`       | `16`  | `16`  |
+| `PROGPOW_REGS`        | `32`  | `32`  |
+| `PROGPOW_DAG_LOADS`   | `4`   | `4`   |
+| `PROGPOW_CACHE_BYTES` | `16x1024` | `16x1024` |
+| `PROGPOW_CNT_DAG`     | `64`  | `64`  |
+| `PROGPOW_CNT_CACHE`   | `12`  | `11`  |
+| `PROGPOW_CNT_MATH`    | `20`  | `18`  |
+
 ## Maintainers & Authors
 
 [![Discord](https://img.shields.io/badge/discord-join%20chat-blue.svg)](https://discord.gg/ZYfFbMH)
