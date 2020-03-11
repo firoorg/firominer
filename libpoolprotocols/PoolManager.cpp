@@ -1,6 +1,7 @@
 #include <chrono>
 
 #include "PoolManager.h"
+#include "libprogpow/ProgPow.h"
 
 using namespace std;
 using namespace dev;
@@ -176,7 +177,7 @@ void PoolManager::setClientHandlers()
             if (wp.epoch == -1)
             {
                 if (m_currentWp.block > 0)
-                    m_currentWp.epoch = m_currentWp.block / 30000;
+                    m_currentWp.epoch = m_currentWp.block / EPOCH_LENGTH;
                 else
                     m_currentWp.epoch = ethash::find_epoch_number(
                         ethash::hash256_from_bytes(m_currentWp.seed.data()));

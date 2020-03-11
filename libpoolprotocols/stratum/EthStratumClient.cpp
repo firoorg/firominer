@@ -1323,20 +1323,13 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 {
                     string sHeaderHash = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
                     string sSeedHash = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
-                    string sShareTarget =
-                        jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
+                    string sShareTarget = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
+                    bool fCancelJob = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asBool();
+                    uint64_t iBlockHeight = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asInt64();
 
-                    // check block number info
-                    m_current.block = -1;
-                    if (jPrm.size() > prmIdx &&
-                        jPrm.get(Json::Value::ArrayIndex(prmIdx), "").asString().substr(0, 2) ==
-                            "0x")
                     {
                         try
                         {
-                            m_current.block =
-                                std::stoul(jPrm.get(Json::Value::ArrayIndex(prmIdx), "").asString(),
-                                    nullptr, 16);
                             /*
                             check if the block number is in a valid range
                             A year has ~31536000 seconds
@@ -1344,7 +1337,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                             assuming a (very fast) blocktime of 10s:
                             ==> in 50 years we get 157680000 (=0x9660180) blocks
                             */
-                            if (m_current.block > 0x9660180)
+                            if (iBlockHeight > 0x9660180)
                                 throw new std::exception();
                         }
                         catch (const std::exception&)
@@ -1362,6 +1355,8 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     m_current.header = h256(sHeaderHash);
                     m_current.boundary = h256(sShareTarget);
                     m_current_timestamp = std::chrono::steady_clock::now();
+                    m_current.startNonce = m_session->extraNonce;
+                    m_current.block = iBlockHeight;
 
                     // This will signal to dispatch the job
                     // at the end of the transmission.
