@@ -123,7 +123,7 @@ std::string ProgPow::getKern(uint64_t prog_seed, kernel_t kern)
     ret << "dag_t data_dag;\n";
     ret << "uint32_t offset, data;\n";
     // Work around AMD OpenCL compiler bug
-    // See https://github.com/gangnamtestnet/progminer/issues/16
+    // See https://github.com/gangnamtestnet/kawpowminer/issues/16
     if (kern == KERNEL_CL)
     {
         ret << "uint32_t mix[PROGPOW_REGS];\n";

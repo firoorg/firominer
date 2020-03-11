@@ -1,13 +1,13 @@
-# progminer (ethminer fork with ProgPoW implementation)
+# kawpowminer (ethminer fork with ProgPoW implementation)
 
-![progminer](progminer.png)
+![kawpowminer](kawpowminer.png)
 
 [![Discord](https://img.shields.io/badge/discord-join%20chat-blue.svg)](https://discord.gg/ZYfFbMH)
-[![Releases](https://img.shields.io/github/downloads/gangnamtestnet/progminer/total.svg)][Releases]
+[![Releases](https://img.shields.io/github/downloads/gangnamtestnet/kawpowminer/total.svg)][Releases]
 
 > Ethereum ProgPoW miner with OpenCL, CUDA and stratum support
 
-**Progminer** is an ProgPoW GPU mining worker: with progminer you can mine every coin which relies on an ProgPoW Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of progminer. It originates from [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
+**kawpowminer** is an ProgPoW GPU mining worker: with kawpowminer you can mine every coin which relies on an ProgPoW Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of kawpowminer. It originates from [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
 
 ## Features
 
@@ -37,16 +37,16 @@
 
 ## Install
 
-[![Releases](https://img.shields.io/github/downloads/gangnamtestnet/progminer/total.svg)][Releases]
+[![Releases](https://img.shields.io/github/downloads/gangnamtestnet/kawpowminer/total.svg)][Releases]
 
 Standalone **executables** for *Linux*, *macOS* and *Windows* are provided in
 the [Releases] section.
 Download an archive for your operating system and unpack the content to a place
-accessible from command line. The progminer is ready to go.
+accessible from command line. The kawpowminer is ready to go.
 
 | Builds | Release | Date |
 | ------ | ------- | ---- |
-| Last   | [![GitHub release](https://img.shields.io/github/release/gangnamtestnet/progminer/all.svg)](https://github.com/gangnamtestnet/progminer/releases) | [![GitHub Release Date](https://img.shields.io/github/release-date-pre/gangnamtestnet/progminer.svg)](https://github.com/gangnamtestnet/progminer/releases) |
+| Last   | [![GitHub release](https://img.shields.io/github/release/gangnamtestnet/kawpowminer/all.svg)](https://github.com/gangnamtestnet/kawpowminer/releases) | [![GitHub Release Date](https://img.shields.io/github/release-date-pre/gangnamtestnet/kawpowminer.svg)](https://github.com/gangnamtestnet/kawpowminer/releases) |
 
 For AMD-only rigs please use the version with -amd tagged , cuda version wouldn't work for you rig.
 
@@ -54,30 +54,30 @@ If you have trouble with missing .dll or CUDA errors please install the latest v
 
 ## Usage
 
-The **progminer** is a command line program. This means you launch it either
+The **kawpowminer** is a command line program. This means you launch it either
 from a Windows command prompt or Linux console, or create shortcuts to
 predefined command lines using a Linux Bash script or Windows batch/cmd file.
 For a full list of available command, please run:
 
 ```sh
-progminer --help
+kawpowminer --help
 ```
 
-Note that Progminer doesn't support mining Bitcoin-based ProgPoW implementations such as Bitcoin Interest, etc. (See https://github.com/gangnamtestnet/progminer/issues/9 for more information)
+Note that kawpowminer doesn't support mining Bitcoin-based ProgPoW implementations such as Bitcoin Interest, etc. (See https://github.com/gangnamtestnet/kawpowminer/issues/9 for more information)
 
 ### Examples connecting to pools
 
 Connecting to [progpool.pro](https://progpool.pro):
 
-`./progminer -P stratum1+tcp://0xaa16a61dec2d3e260cd1348e48cd259a5fb03f49.test@progpool.pro:8008` or
+`./kawpowminer -P stratum1+tcp://0xaa16a61dec2d3e260cd1348e48cd259a5fb03f49.test@progpool.pro:8008` or
 
-`progminer.exe -P stratum1+tcp://0xaa16a61dec2d3e260cd1348e48cd259a5fb03f49.test@progpool.pro:8008`
+`kawpowminer.exe -P stratum1+tcp://0xaa16a61dec2d3e260cd1348e48cd259a5fb03f49.test@progpool.pro:8008`
 
 ## Maintainers & Authors
 
 [![Discord](https://img.shields.io/badge/discord-join%20chat-blue.svg)](https://discord.gg/ZYfFbMH)
 
-The list of current and past maintainers, authors and contributors to the progminer project.
+The list of current and past maintainers, authors and contributors to the kawpowminer project.
 Ordered alphabetically. [Contributors statistics since 2015-08-20].
 
 | Name                  | Contact                                                      |     |
@@ -136,7 +136,7 @@ The default parameters are fine in most scenario's (CUDA). For OpenCL it varies 
 
 [@davilizh](https://github.com/davilizh) made improvements to the CUDA kernel hashing process and added this flag to allow changing the number of tasks it runs in parallel. These improvements were optimised for GTX 1060 GPUs which saw a large increase in hashrate, GTX 1070 and GTX 1080/Ti GPUs saw some, but less, improvement. The default value is 4 (which does not need to be set with the flag) and in most cases this will provide the best performance.
 
-### What is progminer's relationship with [Genoil's fork]?
+### What is kawpowminer's relationship with [Genoil's fork]?
 
 [Genoil's fork] was the original source of this version, but as Genoil is no longer consistently maintaining that fork it became almost impossible for developers to get new code merged there. In the interests of progressing development without waiting for reviews this fork should be considered the active one and Genoil's as legacy code.
 
@@ -157,11 +157,11 @@ This can be done with one of the 2 ways:
 
 * Linux:
     * Adapt the `/etc/environment` file and add a line `CUDA_DEVICE_ORDER=PCI_BUS_ID`
-    * Adapt your start script launching progminer and add a line `export CUDA_DEVICE_ORDER=PCI_BUS_ID`
+    * Adapt your start script launching kawpowminer and add a line `export CUDA_DEVICE_ORDER=PCI_BUS_ID`
 
 * Windows:
     * Adapt your environment using the control panel (just search `setting environment windows control panel` using your favorite search engine)
-    * Adapt your start (.bat) file launching progminer and add a line `set CUDA_DEVICE_ORDER=PCI_BUS_ID` or `setx CUDA_DEVICE_ORDER PCI_BUS_ID`. For more info about `set` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/set_1), for more info about `setx` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/setx)
+    * Adapt your start (.bat) file launching kawpowminer and add a line `set CUDA_DEVICE_ORDER=PCI_BUS_ID` or `setx CUDA_DEVICE_ORDER PCI_BUS_ID`. For more info about `set` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/set_1), for more info about `setx` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/setx)
 
 ### Insufficient CUDA driver
 
@@ -173,10 +173,10 @@ You have to upgrade your Nvidia drivers. On Linux, install `nvidia-396` package 
 
 
 [Amazon S3 is needed]: https://docs.travis-ci.com/user/uploading-artifacts/
-[AppVeyor]: https://ci.appveyor.com/project/gangnamtestnet/progminer
+[AppVeyor]: https://ci.appveyor.com/project/gangnamtestnet/kawpowminer
 [cpp-ethereum]: https://github.com/ethereum/cpp-ethereum
-[Contributors statistics since 2015-08-20]: https://github.com/gangnamtestnet/progminer/graphs/contributors?from=2015-08-20
+[Contributors statistics since 2015-08-20]: https://github.com/gangnamtestnet/kawpowminer/graphs/contributors?from=2015-08-20
 [Genoil's fork]: https://github.com/Genoil/cpp-ethereum
-[Gitter]: https://gitter.im/gangnamtestnet/progminer
-[Releases]: https://github.com/gangnamtestnet/progminer/releases
-[Travis CI]: https://travis-ci.org/gangnamtestnet/progminer
+[Gitter]: https://gitter.im/gangnamtestnet/kawpowminer
+[Releases]: https://github.com/gangnamtestnet/kawpowminer/releases
+[Travis CI]: https://travis-ci.org/gangnamtestnet/kawpowminer

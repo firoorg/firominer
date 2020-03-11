@@ -82,12 +82,12 @@ script: |
       cmake -DHUNTER_JOBS_NUMBER=4 -DETHASHCUDA=$CUDA -DETHASHCL=ON -DAPICORE=ON -H. -Bbuild
     fi
     cmake --build build --target package -- -j4
-    #build/progminer/progminer --help
-    if [ "$TRAVIS_OS_NAME" = linux ]; then ldd -v build/progminer/progminer; fi
-    if [ "$TRAVIS_OS_NAME" = osx ]; then otool -L build/progminer/progminer; fi
-    . build/progminer/buildinfo.sh
+    #build/kawpowminer/kawpowminer --help
+    if [ "$TRAVIS_OS_NAME" = linux ]; then ldd -v build/kawpowminer/kawpowminer; fi
+    if [ "$TRAVIS_OS_NAME" = osx ]; then otool -L build/kawpowminer/kawpowminer; fi
+    . build/kawpowminer/buildinfo.sh
     mkdir package
-    mv build/progminer.tar.gz package/$PROJECT_NAME-$PROJECT_VERSION-cuda-$CUDA_VERSION-$SYSTEM_NAME-$SYSTEM_PROCESSOR.tar.gz
+    mv build/kawpowminer.tar.gz package/$PROJECT_NAME-$PROJECT_VERSION-cuda-$CUDA_VERSION-$SYSTEM_NAME-$SYSTEM_PROCESSOR.tar.gz
 
 
 deploy:

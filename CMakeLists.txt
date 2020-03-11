@@ -19,7 +19,7 @@ HunterGate(
     LOCAL
 )
 
-project(progminer)
+project(kawpowminer)
 set(PROJECT_VERSION 1.1.3)
 
 cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release RelWithDebInfo)
@@ -104,7 +104,7 @@ if (APICORE)
 	add_subdirectory(libapicore)
 endif()
 
-add_subdirectory(progminer)
+add_subdirectory(kawpowminer)
 
 
 if(WIN32)
