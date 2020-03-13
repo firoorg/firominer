@@ -160,3 +160,4 @@ private:
         return verbose_verification<Verifier>(verifier);
     }
 };
+

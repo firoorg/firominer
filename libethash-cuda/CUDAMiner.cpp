@@ -244,7 +244,8 @@ void CUDAMiner::workLoop()
             // Persist most recent job.
             // Job's differences should be handled at higher level
             current = w;
-            uint64_t upper64OfBoundary = (uint64_t)(u64)((u256)current.boundary >> 192);
+            std::cout << "Using boundary: " << w.get_boundary().hex() << std::endl;
+            uint64_t upper64OfBoundary = (uint64_t)(u64)((u256)w.get_boundary() >> 192);
 
             // Eventually start searching
             search(current.header.data(), upper64OfBoundary, current.startNonce, w);

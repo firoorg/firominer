@@ -57,7 +57,7 @@ void SimulateClient::submitSolution(const Solution& solution)
     std::chrono::steady_clock::time_point submit_start = std::chrono::steady_clock::now();
     bool accepted =
         EthashAux::eval(solution.work.epoch, solution.work.block, solution.work.header, solution.nonce).value <=
-        solution.work.boundary;
+        solution.work.get_boundary();
     std::chrono::milliseconds response_delay_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - submit_start);

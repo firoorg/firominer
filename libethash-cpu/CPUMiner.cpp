@@ -236,7 +236,7 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
 
     const auto& context = progpow::get_global_epoch_context_full(w.epoch);
     auto header = progpow::hash256_from_bytes(w.header.data());
-    auto boundary = progpow::hash256_from_bytes(w.boundary.data());
+    auto boundary = progpow::hash256_from_bytes(w.get_boundary().data());
     auto nonce = w.startNonce;
 
     while (true)

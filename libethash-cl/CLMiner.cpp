@@ -381,7 +381,7 @@ void CLMiner::workLoop()
                 }
 
                 // Upper 64 bits of the boundary.
-                const uint64_t target = (uint64_t)(u64)((u256)next.boundary >> 192);
+                const uint64_t target = (uint64_t)(u64)((u256)next.get_boundary() >> 192);
                 assert(target > 0);
 
                 startNonce = next.startNonce;

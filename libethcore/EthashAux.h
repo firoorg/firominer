@@ -61,6 +61,17 @@ struct WorkPackage
     h256 boundary;
     h256 header;  ///< When h256() means "pause until notified a new work package is available".
     h256 seed;
+    h256 block_boundary;
+
+    h256 get_boundary() const
+    {
+        if (block_boundary == h256{})
+            return boundary;
+        else if (boundary < block_boundary)
+            return block_boundary;
+        else
+            return boundary;
+    }
 
     int epoch = -1;
     int block = -1;

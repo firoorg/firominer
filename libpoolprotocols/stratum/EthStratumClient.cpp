@@ -1,6 +1,8 @@
 #include <kawpowminer/buildinfo.h>
 #include <libdevcore/Log.h>
 #include <ethash/ethash.hpp>
+#include <libpoolprotocols/stratum/arith_uint256.h>
+
 
 #include "EthStratumClient.h"
 
@@ -1293,6 +1295,8 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 prmIdx = 1;
             }
 
+            std::cout << jPrm.toStyledString() << std::endl;
+
 
             if (jPrm.isArray() && !jPrm.empty())
             {
@@ -1326,6 +1330,12 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     string sShareTarget = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
                     bool fCancelJob = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asBool();
                     uint64_t iBlockHeight = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asInt64();
+                    uint32_t nBlockTargetBits =  strtoul(jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString().c_str(), nullptr, 16);
+                    std::cout << "got nbits: " << std::hex << nBlockTargetBits << std::endl;
+
+                    arith_uint256 hashTarget = arith_uint256().SetCompact(nBlockTargetBits);
+                    std::string sBlockTarget = hashTarget.GetHex();
+                    std::cout << sBlockTarget << std::endl;
 
                     {
                         try
@@ -1354,6 +1364,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     m_current.seed = h256(sSeedHash);
                     m_current.header = h256(sHeaderHash);
                     m_current.boundary = h256(sShareTarget);
+                    m_current.block_boundary = h256(sBlockTarget);
                     m_current_timestamp = std::chrono::steady_clock::now();
                     m_current.startNonce = m_session->extraNonce;
                     m_current.block = iBlockHeight;
@@ -1485,6 +1496,14 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             string enonce = jPrm.get("extranonce", "").asString();
             if (!enonce.empty())
                 processExtranonce(enonce);
+        }
+        else if (_method == "mining.set_target") {
+            jPrm = responseObject.get("params", Json::Value::null);
+            prmIdx = 0;
+
+            string sShareTarget = jPrm.get(Json::Value::ArrayIndex(prmIdx), "").asString();
+            m_current.boundary = h256(sShareTarget);
+            cnote << "New target set to: "  << sShareTarget;
         }
         else if (_method == "mining.bye" && m_conn->StratumMode() == ETHEREUMSTRATUM2)
         {
