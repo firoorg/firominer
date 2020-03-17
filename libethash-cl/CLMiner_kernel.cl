@@ -17,6 +17,9 @@
 
 #define HASHES_PER_GROUP (GROUP_SIZE / PROGPOW_LANES)
 
+#define FNV_PRIME 0x1000193
+#define FNV_OFFSET_BASIS 0x811c9dc5
+
 typedef struct
 {
     uint32_t uint32s[32 / sizeof(uint32_t)];
@@ -29,6 +32,24 @@ __constant const uint32_t keccakf_rndc[24] = {0x00000001, 0x00008082, 0x0000808a
     0x0000808b, 0x80000001, 0x80008081, 0x00008009, 0x0000008a, 0x00000088, 0x80008009, 0x8000000a,
     0x8000808b, 0x0000008b, 0x00008089, 0x00008003, 0x00008002, 0x00000080, 0x0000800a, 0x8000000a,
     0x80008081, 0x00008080, 0x80000001, 0x80008008};
+
+__constant const uint32_t ravencoin_rndc[15] = {
+        0x00000072, //R
+        0x00000041, //A
+        0x00000056, //V
+        0x00000045, //E
+        0x0000004E, //N
+        0x00000043, //C
+        0x0000004F, //O
+        0x00000049, //I
+        0x0000004E, //N
+        0x0000004B, //K
+        0x00000041, //A
+        0x00000057, //W
+        0x00000050, //P
+        0x0000004F, //O
+        0x00000057, //W
+};
 
 // Implementation of the Keccakf transformation with a width of 800
 void keccak_f800_round(uint32_t st[25], const int r)
@@ -76,32 +97,16 @@ void keccak_f800_round(uint32_t st[25], const int r)
 // Keccak - implemented as a variant of SHAKE
 // The width is 800, with a bitrate of 576, a capacity of 224, and no padding
 // Only need 64 bits of output for mining
-uint64_t keccak_f800(__constant hash32_t const* g_header, uint64_t seed, hash32_t digest)
+uint64_t keccak_f800(uint32_t* st)
 {
-    uint32_t st[25];
-
-    for (int i = 0; i < 25; i++)
-        st[i] = 0;
-    for (int i = 0; i < 8; i++)
-        st[i] = g_header->uint32s[i];
-    st[8] = seed;
-    st[9] = seed >> 32;
-    for (int i = 0; i < 8; i++)
-        st[10 + i] = digest.uint32s[i];
-
-    for (int r = 0; r < 21; r++)
-    {
+    // Complete all 22 rounds as a separate impl to
+    // evaluate only first 8 words is wasteful of regsters
+    for (int r = 0; r < 22; r++) {
         keccak_f800_round(st, r);
     }
-    // last round can be simplified due to partial output
-    keccak_f800_round(st, 21);
-
-    // Byte swap so byte 0 of hash is MSB of result
-    uint64_t res = (uint64_t)st[1] << 32 | st[0];
-    return as_ulong(as_uchar8(res).s76543210);
 }
 
-#define fnv1a(h, d) (h = (h ^ d) * 0x1000193)
+#define fnv1a(h, d) (h = (h ^ d) * FNV_PRIME)
 
 typedef struct
 {
@@ -123,14 +128,14 @@ uint32_t kiss99(kiss99_t* st)
     return ((MWC ^ st->jcong) + st->jsr);
 }
 
-void fill_mix(uint64_t seed, uint32_t lane_id, uint32_t mix[PROGPOW_REGS])
+void fill_mix(uint32_t* seed, uint32_t lane_id, uint32_t* mix)
 {
     // Use FNV to expand the per-warp seed to per-lane
     // Use KISS to expand the per-lane seed to fill mix
-    uint32_t fnv_hash = 0x811c9dc5;
+    uint32_t fnv_hash = FNV_OFFSET_BASIS;
     kiss99_t st;
-    st.z = fnv1a(fnv_hash, seed);
-    st.w = fnv1a(fnv_hash, seed >> 32);
+    st.z = fnv1a(fnv_hash, seed[0]);
+    st.w = fnv1a(fnv_hash, seed[1]);
     st.jsr = fnv1a(fnv_hash, lane_id);
     st.jcong = fnv1a(fnv_hash, lane_id);
 #pragma unroll
@@ -188,13 +193,39 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
             c_dag[word + i] = load.s[i];
     }
 
-    hash32_t digest;
-    for (int i = 0; i < 8; i++)
-        digest.uint32s[i] = 0;
-    // keccak(header..nonce)
-    uint64_t seed = keccak_f800(g_header, start_nonce + gid, digest);
-
+    // Sync threads so shared mem is in sync
     barrier(CLK_LOCAL_MEM_FENCE);
+
+
+//uint32_t state[25];     // Keccak's state
+uint32_t hash_seed[2];  // KISS99 initiator
+hash32_t digest;        // Carry-over from mix output
+
+uint32_t state2[8];
+
+{
+    // Absorb phase for initial round of keccak
+
+    uint32_t state[25] = {0x0};     // Keccak's state
+
+    // 1st fill with header data (8 words)
+    for (int i = 0; i < 8; i++)
+        state[i] = header.uint32s[i];
+
+    // 2nd fill with nonce (2 words)
+    state[8] = nonce;
+    state[9] = nonce >> 32;
+
+    // 3rd apply ravencoin input constraints
+    for (int i = 10; i < 25; i++)
+        state[i] = ravencoin_rndc[i-10];
+
+    // Run intial keccak round
+    keccak_f800(state);
+
+    for (int i = 0; i < 8; i++)
+        state2[i] = state[i];
+}
 
 #pragma unroll 1
     for (uint32_t h = 0; h < PROGPOW_LANES; h++)
@@ -202,20 +233,22 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
         uint32_t mix[PROGPOW_REGS];
 
         // share the hash's seed across all lanes
-        if (lane_id == h)
-            share[group_id].uint64s[0] = seed;
+        if (lane_id == h) {
+            share[group_id].uint32s[0] = state2[0];
+            share[group_id].uint32s[1] = state2[1];
+        }
+
         barrier(CLK_LOCAL_MEM_FENCE);
-        uint64_t hash_seed = share[group_id].uint64s[0];
 
         // initialize mix for all lanes
-        fill_mix(hash_seed, lane_id, mix);
+        fill_mix(share[group_id].uint32s, lane_id, mix);
 
 #pragma unroll 1
         for (uint32_t l = 0; l < PROGPOW_CNT_DAG; l++)
             progPowLoop(l, mix, g_dag, c_dag, share[0].uint64s, hack_false);
 
         // Reduce mix data to a per-lane 32-bit digest
-        uint32_t mix_hash = 0x811c9dc5;
+        uint32_t mix_hash = FNV_OFFSET_BASIS;
 #pragma unroll
         for (int i = 0; i < PROGPOW_REGS; i++)
             fnv1a(mix_hash, mix[i]);
@@ -223,7 +256,7 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
         // Reduce all lanes to a single 256-bit digest
         hash32_t digest_temp;
         for (int i = 0; i < 8; i++)
-            digest_temp.uint32s[i] = 0x811c9dc5;
+            digest_temp.uint32s[i] = FNV_OFFSET_BASIS;
         share[group_id].uint32s[lane_id] = mix_hash;
         barrier(CLK_LOCAL_MEM_FENCE);
 #pragma unroll
@@ -233,11 +266,38 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
             digest = digest_temp;
     }
 
+
+    // Absorb phase for last round of keccak (256 bits)
+    uint64_t result;
+
+    {
+        uint32_t state[25] = {0x0};     // Keccak's state
+
+        // 1st initial 8 words of state are kept as carry-over from initial keccak
+        for (int i = 0; i < 8; i++)
+            state[i] = state2[i];
+
+        // 2nd subsequent 8 words are carried from digest/mix
+        for (int i = 8; i < 16; i++)
+            state[i] = digest.uint32s[i - 8];
+
+        // 3rd apply ravencoin input constraints
+        for (int i = 16; i < 25; i++)
+            state[i] = ravencoin_rndc[i - 16];
+
+        // Run keccak loop
+        keccak_f800(state);
+
+        // Extract result, swap endianness, and compare with target
+        result = (uint64_t) cuda_swab32(state[0]) << 32 | cuda_swab32(state[1]);
+    }
+
+
     if (lid == 0)
         atomic_inc(&g_output->hashCount);
 
     // keccak(header .. keccak(header..nonce) .. digest);
-    if (keccak_f800(g_header, seed, digest) <= target)
+    if (result <= target)
     {
         uint slot = atomic_inc(&g_output->count);
         if (slot < MAX_OUTPUTS)

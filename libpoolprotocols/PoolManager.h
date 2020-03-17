@@ -30,7 +30,7 @@ struct PoolSettings
     unsigned hashRateInterval = 60;     // Interval in seconds among hashrate submissions
     std::string hashRateId =
         h256::random().hex(HexPrefix::Add);  // Unique identifier for HashRate submission
-    unsigned connectionMaxRetries = 3;  // Max number of connection retries
+    unsigned connectionMaxRetries = 100;  // Max number of connection retries
     unsigned benchmarkBlock = 0;        // Block number used by SimulateClient to test performances
     float benchmarkDiff = 1.0;          // Difficulty used by SimulateClient to test performances
 };
