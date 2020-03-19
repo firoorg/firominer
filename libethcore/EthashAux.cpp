@@ -66,9 +66,6 @@ Result EthashAux::eval(int epoch, int _block_number, h256 const& _headerHash, ui
     auto headerHash = ethash::hash256_from_bytes(_headerHash.data());
     auto& context = ethash::get_global_epoch_context(epoch);
     auto result = progpow::hash(context, _block_number, headerHash, _nonce);
-//    std::cout << "header: " << to_hex(headerHash) << std::endl;
-//    std::cout << "nonce : " << _nonce << std::endl;
-//    std::cout << "mix_hash: " << to_hex(result.mix_hash) << std::endl;
     h256 mix{reinterpret_cast<byte*>(result.mix_hash.bytes), h256::ConstructFromPointer};
     h256 final{reinterpret_cast<byte*>(result.final_hash.bytes), h256::ConstructFromPointer};
     return {final, mix};

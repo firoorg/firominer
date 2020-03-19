@@ -1295,9 +1295,6 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 prmIdx = 1;
             }
 
-            std::cout << jPrm.toStyledString() << std::endl;
-
-
             if (jPrm.isArray() && !jPrm.empty())
             {
                 m_current.job = jPrm.get(Json::Value::ArrayIndex(0), "").asString();
@@ -1331,11 +1328,9 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     bool fCancelJob = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asBool();
                     uint64_t iBlockHeight = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asInt64();
                     uint32_t nBlockTargetBits =  strtoul(jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString().c_str(), nullptr, 16);
-                    std::cout << "got nbits: " << std::hex << nBlockTargetBits << std::endl;
 
                     arith_uint256 hashTarget = arith_uint256().SetCompact(nBlockTargetBits);
                     std::string sBlockTarget = hashTarget.GetHex();
-                    std::cout << sBlockTarget << std::endl;
 
                     {
                         try
