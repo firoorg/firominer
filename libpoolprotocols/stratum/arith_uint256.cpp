@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <endian.h>
 
 template <unsigned int BITS>
 base_uint<BITS>::base_uint(const std::string& str)
