@@ -7,6 +7,7 @@ set(SOURCES
 	stratum/utilstrencodings.h stratum/utilstrencodings.cpp
 	stratum/uint256.h stratum/uint256.cpp
 	stratum/arith_uint256.h stratum/arith_uint256.cpp
+	stratum/endianosx.h
 	getwork/EthGetworkClient.h getwork/EthGetworkClient.cpp
 )
 
