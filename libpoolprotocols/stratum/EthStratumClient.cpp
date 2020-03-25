@@ -1602,7 +1602,7 @@ void EthStratumClient::submitSolution(const Solution& solution)
     case EthStratumClient::STRATUM:
 
         jReq["jsonrpc"] = "2.0";
-        jReq["params"].append(m_conn->User());
+        jReq["params"].append(m_conn->UserDotWorker());
         jReq["params"].append(solution.work.job);
         jReq["params"].append(toHex(solution.nonce, HexPrefix::Add));
         jReq["params"].append(solution.work.header.hex(HexPrefix::Add));
