@@ -128,7 +128,7 @@ uint32_t kiss99(kiss99_t* st)
     return ((MWC ^ st->jcong) + st->jsr);
 }
 
-void fill_mix(uint32_t* seed, uint32_t lane_id, uint32_t* mix)
+void fill_mix(local uint32_t* seed, uint32_t lane_id, uint32_t* mix)
 {
     // Use FNV to expand the per-warp seed to per-lane
     // Use KISS to expand the per-lane seed to fill mix
@@ -210,7 +210,7 @@ uint32_t state2[8];
 
     // 1st fill with header data (8 words)
     for (int i = 0; i < 8; i++)
-        state[i] = header.uint32s[i];
+        state[i] = g_header->uint32s[i];
 
     // 2nd fill with nonce (2 words)
     state[8] = nonce;
@@ -288,8 +288,8 @@ uint32_t state2[8];
         // Run keccak loop
         keccak_f800(state);
 
-        // Extract result, swap endianness, and compare with target
-        result = (uint64_t) cuda_swab32(state[0]) << 32 | cuda_swab32(state[1]);
+        uint64_t res = (uint64_t)state[1] << 32 | state[0];
+        result = as_ulong(as_uchar8(res).s76543210);
     }
 
 
