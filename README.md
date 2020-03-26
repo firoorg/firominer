@@ -58,8 +58,6 @@ For a full list of available command, please run:
 kawpowminer --help
 ```
 
-Note that kawpowminer doesn't support mining Bitcoin-based ProgPoW implementations such as Bitcoin Interest, etc. (See https://github.com/RavenCommunity/kawpowminer/issues/9 for more information)
-
 ### Examples connecting to pools
 
 Connecting to [MinerMore Testnet](https://minermore.com):
