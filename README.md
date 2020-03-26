@@ -195,13 +195,15 @@ This can be done with one of the 2 ways:
     * Adapt your environment using the control panel (just search `setting environment windows control panel` using your favorite search engine)
     * Adapt your start (.bat) file launching kawpowminer and add a line `set CUDA_DEVICE_ORDER=PCI_BUS_ID` or `setx CUDA_DEVICE_ORDER PCI_BUS_ID`. For more info about `set` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/set_1), for more info about `setx` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/setx)
 
-### Insufficient CUDA driver
+### nvrtc64_102_0.dll not found...
 
 ```text
-Error: Insufficient CUDA driver: 9010
+Error: The code execution cannot be processed because nvrtc64_102_0.dll was not found.
+or
+error while loading shared libraries: libnvrtc.so.10.2: cannot open shared object file: No such file or directory
 ```
 
-You have to upgrade your Nvidia drivers. On Linux, install `nvidia-396` package or newer.
+You have to upgrade your Nvidia drivers. Install cuda 10.2.
 
 
 [Amazon S3 is needed]: https://docs.travis-ci.com/user/uploading-artifacts/
