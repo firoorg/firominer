@@ -32,16 +32,16 @@
 
 ## Install
 
-[![Releases][Releases]
+[Releases][Releases]
 
 Standalone **executables** for *Linux*, *macOS* and *Windows* are provided in
 the [Releases] section.
 Download an archive for your operating system and unpack the content to a place
 accessible from command line. The kawpowminer is ready to go.
 
-| Builds | Release | Date |
-| ------ | ------- | ---- |
-| Last   | [![GitHub release](https://github.com/RavenCommunity/kawpowminer/releases) | [![GitHub Release Date](https://img.shields.io/github/release-date-pre/RavenCommunity/kawpowminer.svg)](https://github.com/RavenCommunity/kawpowminer/releases) |
+| Builds | Release |
+| ------ | ------- |
+| Last   | [GitHub release](https://github.com/RavenCommunity/kawpowminer/releases) 
 
 For AMD-only rigs please use the version with -amd tagged , cuda version wouldn't work for you rig.
 
@@ -62,11 +62,11 @@ Note that kawpowminer doesn't support mining Bitcoin-based ProgPoW implementatio
 
 ### Examples connecting to pools
 
-Connecting to [progpool.pro](https://progpool.pro):
+Connecting to [MinerMore Testnet](https://minermore.com):
 
-`./kawpowminer -P stratum1+tcp://0xaa16a61dec2d3e260cd1348e48cd259a5fb03f49.test@progpool.pro:8008` or
+`./kawpowminer -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505` or
 
-`kawpowminer.exe -P stratum1+tcp://0xaa16a61dec2d3e260cd1348e48cd259a5fb03f49.test@progpool.pro:8008`
+`kawpowminer.exe -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505`
 
 ## Build
 
@@ -78,7 +78,7 @@ git submodule update --init --recursive
 mkdir build
 cd build
 cmake .. -DETHASHCUDA=ON
-make -sj8
+make -sj $(nproc)
 ```
 
 ProgPoW can be tuned using the following parameters.  The proposed settings have been tuned for a range of existing, commodity GPUs:
@@ -107,13 +107,15 @@ The value of these parameters has been tweaked between version 0.9.2 (live on th
 
 ## Maintainers & Authors
 
-[![Discord](https://img.shields.io/badge/discord-join%20chat-blue.svg)](https://discord.gg/ZYfFbMH)
+[![Discord](https://img.shields.io/badge/discord-join%20chat-blue.svg)](https://discord.gg/uvyuqWm)
 
 The list of current and past maintainers, authors and contributors to the kawpowminer project.
 Ordered alphabetically. [Contributors statistics since 2015-08-20].
 
 | Name                  | Contact                                                      |     |
 | --------------------- | ------------------------------------------------------------ | --- |
+| Jeremy Anderson       | [@Blondfrogs](https://github.com/Blondfrogs)     | --- |
+| Traysi                | [@traysi](https://github.com/traysi)                         | --  |
 | Andrea Lanfranchi     | [@AndreaLanfranchi](https://github.com/AndreaLanfranchi)     | ETH: 0xa7e593bde6b5900262cf94e4d75fb040f7ff4727 |
 | EoD                   | [@EoD](https://github.com/EoD)                               |     |
 | Genoil                | [@Genoil](https://github.com/Genoil)                         |     |
