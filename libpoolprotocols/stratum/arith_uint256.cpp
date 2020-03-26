@@ -11,11 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifdef __APPLE__
-#include "endianosx.h"
-#endif
-
-
+#include "portable_endian.h"
 
 template <unsigned int BITS>
 base_uint<BITS>::base_uint(const std::string& str)
