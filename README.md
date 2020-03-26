@@ -1,13 +1,8 @@
 # kawpowminer (ethminer fork with ProgPoW implementation)
 
-![kawpowminer](kawpowminer.png)
+> kawpow miner with OpenCL, CUDA and stratum support
 
-[![Discord](https://img.shields.io/badge/discord-join%20chat-blue.svg)](https://discord.gg/ZYfFbMH)
-[![Releases](https://img.shields.io/github/downloads/gangnamtestnet/kawpowminer/total.svg)][Releases]
-
-> Ethereum ProgPoW miner with OpenCL, CUDA and stratum support
-
-**kawpowminer** is an ProgPoW GPU mining worker: with kawpowminer you can mine every coin which relies on an ProgPoW Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of kawpowminer. It originates from [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
+**kawpowminer** is an ProgPoW GPU mining worker: with kawpowminer you can mine Ravencoin, which relies on an ProgPoW-based Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of kawpowminer. It originates from the [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
 
 ## Features
 
@@ -37,7 +32,7 @@
 
 ## Install
 
-[![Releases](https://img.shields.io/github/downloads/gangnamtestnet/kawpowminer/total.svg)][Releases]
+[![Releases][Releases]
 
 Standalone **executables** for *Linux*, *macOS* and *Windows* are provided in
 the [Releases] section.
@@ -46,7 +41,7 @@ accessible from command line. The kawpowminer is ready to go.
 
 | Builds | Release | Date |
 | ------ | ------- | ---- |
-| Last   | [![GitHub release](https://img.shields.io/github/release/gangnamtestnet/kawpowminer/all.svg)](https://github.com/gangnamtestnet/kawpowminer/releases) | [![GitHub Release Date](https://img.shields.io/github/release-date-pre/gangnamtestnet/kawpowminer.svg)](https://github.com/gangnamtestnet/kawpowminer/releases) |
+| Last   | [![GitHub release](https://github.com/RavenCommunity/kawpowminer/releases) | [![GitHub Release Date](https://img.shields.io/github/release-date-pre/RavenCommunity/kawpowminer.svg)](https://github.com/RavenCommunity/kawpowminer/releases) |
 
 For AMD-only rigs please use the version with -amd tagged , cuda version wouldn't work for you rig.
 
@@ -63,7 +58,7 @@ For a full list of available command, please run:
 kawpowminer --help
 ```
 
-Note that kawpowminer doesn't support mining Bitcoin-based ProgPoW implementations such as Bitcoin Interest, etc. (See https://github.com/gangnamtestnet/kawpowminer/issues/9 for more information)
+Note that kawpowminer doesn't support mining Bitcoin-based ProgPoW implementations such as Bitcoin Interest, etc. (See https://github.com/RavenCommunity/kawpowminer/issues/9 for more information)
 
 ### Examples connecting to pools
 
@@ -210,10 +205,10 @@ You have to upgrade your Nvidia drivers. On Linux, install `nvidia-396` package 
 
 
 [Amazon S3 is needed]: https://docs.travis-ci.com/user/uploading-artifacts/
-[AppVeyor]: https://ci.appveyor.com/project/gangnamtestnet/kawpowminer
+[AppVeyor]: https://ci.appveyor.com/project/RavenCommunity/kawpowminer
 [cpp-ethereum]: https://github.com/ethereum/cpp-ethereum
-[Contributors statistics since 2015-08-20]: https://github.com/gangnamtestnet/kawpowminer/graphs/contributors?from=2015-08-20
+[Contributors statistics since 2015-08-20]: https://github.com/RavenCommunity/kawpowminer/graphs/contributors?from=2015-08-20
 [Genoil's fork]: https://github.com/Genoil/cpp-ethereum
-[Gitter]: https://gitter.im/gangnamtestnet/kawpowminer
-[Releases]: https://github.com/gangnamtestnet/kawpowminer/releases
-[Travis CI]: https://travis-ci.org/gangnamtestnet/kawpowminer
+[Gitter]: https://gitter.im/RavenCommunity/kawpowminer
+[Releases]: https://github.com/RavenCommunity/kawpowminer/releases
+[Travis CI]: https://travis-ci.org/RavenCommunity/kawpowminer
