@@ -45,7 +45,7 @@ accessible from command line. The kawpowminer is ready to go.
 
 For AMD-only rigs please use the version with -amd tagged , cuda version wouldn't work for you rig.
 
-If you have trouble with missing .dll or CUDA errors please install the latest version of CUDA driver or report to project maintainers.
+If you have trouble with missing .dll or CUDA errors, [please install the latest version of CUDA drivers](https://developer.nvidia.com/cuda-downloads) or report to project maintainers.
 
 ## Usage
 
