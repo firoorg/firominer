@@ -6,7 +6,7 @@
 
 ## Features
 
-* First commercial ProgPoW miner software for miners.
+* First commercial KawPow miner software for miners.
 * OpenCL mining
 * Nvidia CUDA mining
 * realistic benchmarking against arbitrary epoch/DAG/blocknumber
@@ -92,16 +92,18 @@ ProgPoW can be tuned using the following parameters.  The proposed settings have
 
 The value of these parameters has been tweaked between version 0.9.2 (live on the Gangnam testnet) and 0.9.3 (proposed for Ethereum adoption).  See [this medium post](https://medium.com/@ifdefelse/progpow-progress-da5bb31a651b) for details.
 
-| Parameter             | 0.9.2 | 0.9.3 |
-|-----------------------|-------|-------|
-| `PROGPOW_PERIOD`      | `50`  | `10`  |
-| `PROGPOW_LANES`       | `16`  | `16`  |
-| `PROGPOW_REGS`        | `32`  | `32`  |
-| `PROGPOW_DAG_LOADS`   | `4`   | `4`   |
-| `PROGPOW_CACHE_BYTES` | `16x1024` | `16x1024` |
-| `PROGPOW_CNT_DAG`     | `64`  | `64`  |
-| `PROGPOW_CNT_CACHE`   | `12`  | `11`  |
-| `PROGPOW_CNT_MATH`    | `20`  | `18`  |
+| Parameter             | 0.9.2 | 0.9.3 | KAWPOW |
+|-----------------------|-------|-------|--------|
+| `PROGPOW_PERIOD`      | `50`  | `10`  |  `3`   |
+| `PROGPOW_LANES`       | `16`  | `16`  |  `16`  |
+| `PROGPOW_REGS`        | `32`  | `32`  |  `32`  |
+| `PROGPOW_DAG_LOADS`   | `4`   | `4`   |  `4`   |
+| `PROGPOW_CACHE_BYTES` | `16x1024` | `16x1024` | `16x1024` |
+| `PROGPOW_CNT_DAG`     | `64`  | `64`  | `64`  |
+| `PROGPOW_CNT_CACHE`   | `12`  | `11`  | `11`  |
+| `PROGPOW_CNT_MATH`    | `20`  | `18`  | `18`  |
+
+KAWPOW_EPOCH_LENGTH = 7500
 
 ## Maintainers & Authors
 
