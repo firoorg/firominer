@@ -82,7 +82,7 @@ make -sj $(nproc)
 
 Windows
 
-1. Install Visual Studios (with the additional installation package "C++ Cmake Tools for Windows"
+1. Install Visual Studios (2019) (with the additional installation package "C++ Cmake Tools for Windows)
 2. Open cmakelists.txt file with File->Open->CMake
 3. Wait for intelligence to build the cache (this can take some time)
 4. Build the project (CTRL+SHIFT+B) or find the build command in the menu
