@@ -70,6 +70,7 @@ Connecting to [MinerMore Testnet](https://minermore.com):
 
 After cloning this repository into `kawpowminer`, it can be built with commands like:
 
+Ubuntu / OSX
 ```
 cd kawpowminer
 git submodule update --init --recursive
@@ -78,6 +79,14 @@ cd build
 cmake .. -DETHASHCUDA=ON
 make -sj $(nproc)
 ```
+
+Windows
+
+1. Install Visual Studios (with the additional installation package "C++ Cmake Tools for Windows"
+2. Open cmakelists.txt file with File->Open->CMake
+3. Wait for intelligence to build the cache (this can take some time)
+4. Build the project (CTRL+SHIFT+B) or find the build command in the menu
+
 
 ProgPoW can be tuned using the following parameters.  The proposed settings have been tuned for a range of existing, commodity GPUs:
 
