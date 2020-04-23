@@ -87,9 +87,23 @@ bool CUDAMiner::initEpoch_internal()
     auto startInit = std::chrono::steady_clock::now();
     size_t RequiredMemory = (m_epochContext.dagSize + m_epochContext.lightSize);
 
+    size_t FreeMemory = m_deviceDescriptor.freeMemory;
+    FreeMemory += m_allocated_memory_dag;
+    FreeMemory += m_allocated_memory_light_cache;
+
     // Release the pause flag if any
     resume(MinerPauseEnum::PauseDueToInsufficientMemory);
     resume(MinerPauseEnum::PauseDueToInitEpochError);
+
+    if (FreeMemory < RequiredMemory)
+    {
+        cudalog << "Epoch " << m_epochContext.epochNumber << " requires "
+            << dev::getFormattedMemory((double)RequiredMemory) << " memory.";
+        cudalog << "Only " << dev::getFormattedMemory((double)FreeMemory) << " available. Mining suspended on device ...";
+        pause(MinerPauseEnum::PauseDueToInsufficientMemory);
+        return true;  // This will prevent to exit the thread and
+                      // Eventually resume mining when changing coin or epoch (NiceHash)
+    }
 
     try
     {
@@ -108,17 +122,6 @@ bool CUDAMiner::initEpoch_internal()
             CUdevice device;
             cuDeviceGet(&device, m_deviceDescriptor.cuDeviceIndex);
             cuCtxCreate(&m_context, m_settings.schedule, device);
-
-            // Check whether the current device has sufficient memory every time we recreate the dag
-            if (m_deviceDescriptor.totalMemory < RequiredMemory)
-            {
-                cudalog << "Epoch " << m_epochContext.epochNumber << " requires "
-                        << dev::getFormattedMemory((double)RequiredMemory) << " memory.";
-                cudalog << "This device hasn't available. Mining suspended ...";
-                pause(MinerPauseEnum::PauseDueToInsufficientMemory);
-                return true;  // This will prevent to exit the thread and
-                              // Eventually resume mining when changing coin or epoch (NiceHash)
-            }
 
             cudalog << "Generating DAG + Light : "
                     << dev::getFormattedMemory((double)RequiredMemory);
@@ -327,7 +330,7 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
                 (to_string(props.major) + "." + to_string(props.minor));
             deviceDescriptor.cuComputeMajor = props.major;
             deviceDescriptor.cuComputeMinor = props.minor;
-
+            CUDA_SAFE_CALL(cudaMemGetInfo(&deviceDescriptor.freeMem, &deviceDescriptor.totalMem));
             _DevicesCollection[uniqueId] = deviceDescriptor;
         }
         catch (const cuda_runtime_error& _e)

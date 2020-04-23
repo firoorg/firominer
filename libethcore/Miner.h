@@ -170,7 +170,8 @@ struct DeviceDescriptor
     DeviceSubscriptionTypeEnum subscriptionType = DeviceSubscriptionTypeEnum::None;
 
     string uniqueId;     // For GPUs this is the PCI ID
-    size_t totalMemory;  // Total memory available by device
+    size_t totalMemory;  // Total memory available on device
+    size_t freeMemory;   // Free memory available on device
     string name;         // Device Name
 
     bool clDetected;  // For OpenCL detected devices
