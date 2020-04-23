@@ -330,7 +330,7 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
                 (to_string(props.major) + "." + to_string(props.minor));
             deviceDescriptor.cuComputeMajor = props.major;
             deviceDescriptor.cuComputeMinor = props.minor;
-            CUDA_SAFE_CALL(cudaMemGetInfo(&deviceDescriptor.freeMem, &deviceDescriptor.totalMem));
+            CUDA_SAFE_CALL(cudaMemGetInfo(&deviceDescriptor.freeMemory, &deviceDescriptor.totalMemory));
             _DevicesCollection[uniqueId] = deviceDescriptor;
         }
         catch (const cuda_runtime_error& _e)
@@ -359,9 +359,6 @@ void CUDAMiner::asyncCompile()
 
 void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunction& kernel)
 {
-    cudaDeviceProp device_props;
-    CUDA_SAFE_CALL(cudaGetDeviceProperties(&device_props, m_deviceDescriptor.cuDeviceIndex));
-
     const char* name = "progpow_search";
 
     std::string text = ProgPow::getKern(period_seed, ProgPow::KERNEL_CUDA);
@@ -393,7 +390,7 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
         NULL));                                // includeNames
 
     NVRTC_SAFE_CALL(nvrtcAddNameExpression(prog, name));
-    std::string op_arch = "--gpu-architecture=compute_" + to_string(device_props.major) + to_string(device_props.minor);
+    std::string op_arch = "--gpu-architecture=compute_" + to_string(m_deviceDescriptor.cuComputeMajor) + to_string(m_deviceDescriptor.cuComputeMinor);
     std::string op_dag = "-DPROGPOW_DAG_ELEMENTS=" + to_string(dag_elms);
 
     const char* opts[] = {op_arch.c_str(), op_dag.c_str(), "-lineinfo"};
