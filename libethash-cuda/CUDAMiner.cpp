@@ -107,8 +107,6 @@ bool CUDAMiner::initEpoch_internal()
 
     try
     {
-        hash64_t* dag;
-        hash64_t* light;
 
         // If we have already enough memory allocated, we just have to
         // copy light_cache and regenerate the DAG
@@ -127,9 +125,9 @@ bool CUDAMiner::initEpoch_internal()
                     << dev::getFormattedMemory((double)RequiredMemory);
 
             // create buffer for cache
-            CUDA_SAFE_CALL(cudaMalloc(reinterpret_cast<void**>(&light), m_epochContext.lightSize));
+            CUDA_SAFE_CALL(cudaMalloc(reinterpret_cast<void**>(&m_device_light), m_epochContext.lightSize));
             m_allocated_memory_light_cache = m_epochContext.lightSize;
-            CUDA_SAFE_CALL(cudaMalloc(reinterpret_cast<void**>(&dag), m_epochContext.dagSize));
+            CUDA_SAFE_CALL(cudaMalloc(reinterpret_cast<void**>(&m_device_dag), m_epochContext.dagSize));
             m_allocated_memory_dag = m_epochContext.dagSize;
 
             // create mining buffers
@@ -143,17 +141,16 @@ bool CUDAMiner::initEpoch_internal()
         {
             cudalog << "Generating DAG + Light (reusing buffers): "
                     << dev::getFormattedMemory((double)RequiredMemory);
-            get_constants(&dag, NULL, &light, NULL);
         }
 
-        CUDA_SAFE_CALL(cudaMemcpy(reinterpret_cast<void*>(light), m_epochContext.lightCache,
+        CUDA_SAFE_CALL(cudaMemcpy(reinterpret_cast<void*>(m_device_light), m_epochContext.lightCache,
             m_epochContext.lightSize, cudaMemcpyHostToDevice));
 
-        set_constants(dag, m_epochContext.dagNumItems, light,
+        set_constants(m_device_dag, m_epochContext.dagNumItems, m_device_light,
             m_epochContext.lightNumItems);  // in ethash_cuda_miner_kernel.cu
 
         ethash_generate_dag(
-            dag, m_epochContext.dagSize, light, m_epochContext.lightNumItems, m_settings.gridSize, m_settings.blockSize, m_streams[0], m_deviceDescriptor.cuDeviceIndex);
+            m_device_dag, m_epochContext.dagSize, m_device_light, m_epochContext.lightNumItems, m_settings.gridSize, m_settings.blockSize, m_streams[0], m_deviceDescriptor.cuDeviceIndex);
 
         cudalog << "Generated DAG + Light in "
                 << std::chrono::duration_cast<std::chrono::milliseconds>(
