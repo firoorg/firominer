@@ -461,7 +461,7 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
     NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
 
     cudalog << "Pre-compiled period " << period_seed << " CUDA ProgPow kernel for arch "
-            << to_string(device_props.major) << '.' << to_string(device_props.minor);
+            << to_string(m_deviceDescriptor.cuComputeMajor) << '.' << to_string(m_deviceDescriptor.cuComputeMinor);
 }
 
 void CUDAMiner::search(
