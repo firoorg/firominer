@@ -71,7 +71,9 @@ private:
 
     void compileKernel(uint64_t prog_seed, uint64_t dag_words, CUfunction& kernel);
     void asyncCompile();
+
     CUcontext m_context;
+    CUdevice m_device;
 
     hash64_t* m_device_dag = nullptr;
     hash64_t* m_device_light = nullptr;

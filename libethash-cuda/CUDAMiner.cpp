@@ -65,8 +65,11 @@ bool CUDAMiner::initDevice()
 
     try
     {
-        CUDA_SAFE_CALL(cudaSetDevice(m_deviceDescriptor.cuDeviceIndex));
-        CUDA_SAFE_CALL(cudaDeviceReset());
+        CU_SAFE_CALL(cuDeviceGet(&m_device, m_deviceDescriptor.cuDeviceIndex));
+        CU_SAFE_CALL(cuDevicePrimaryCtxRelease(m_device));
+        CU_SAFE_CALL(cuDevicePrimaryCtxSetFlags(m_device, m_settings.schedule));
+        CU_SAFE_CALL(cuDevicePrimaryCtxRetain(&m_context, m_device));
+        CU_SAFE_CALL(cuCtxSetCurrent(m_context));
     }
     catch (const cuda_runtime_error& ec)
     {
@@ -113,13 +116,9 @@ bool CUDAMiner::initEpoch_internal()
         if (m_allocated_memory_dag < m_epochContext.dagSize ||
             m_allocated_memory_light_cache < m_epochContext.lightSize)
         {
-            // We need to reset the device and (re)create the dag
-            // cudaDeviceReset() frees all previous allocated memory
-            CUDA_SAFE_CALL(cudaDeviceReset());
-
-            CUdevice device;
-            cuDeviceGet(&device, m_deviceDescriptor.cuDeviceIndex);
-            cuCtxCreate(&m_context, m_settings.schedule, device);
+            // Release previously allocated memory for dag and light
+            if (m_device_light) CUDA_SAFE_CALL(cudaFree(reinterpret_cast<void*>(m_device_light)));
+            if (m_device_dag) CUDA_SAFE_CALL(cudaFree(reinterpret_cast<void*>(m_device_dag)));
 
             cudalog << "Generating DAG + Light : "
                     << dev::getFormattedMemory((double)RequiredMemory);
