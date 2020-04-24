@@ -70,6 +70,15 @@ bool CUDAMiner::initDevice()
         CU_SAFE_CALL(cuDevicePrimaryCtxSetFlags(m_device, m_settings.schedule));
         CU_SAFE_CALL(cuDevicePrimaryCtxRetain(&m_context, m_device));
         CU_SAFE_CALL(cuCtxSetCurrent(m_context));
+
+        // Create mining buffers
+        for (unsigned i = 0; i != m_settings.streams; ++i)
+        {
+            CUDA_SAFE_CALL(cudaMallocHost(&m_search_buf[i], sizeof(Search_results)));
+            CUDA_SAFE_CALL(cudaStreamCreateWithFlags(&m_streams[i], cudaStreamNonBlocking));
+        }
+
+
     }
     catch (const cuda_runtime_error& ec)
     {
@@ -129,12 +138,6 @@ bool CUDAMiner::initEpoch_internal()
             CUDA_SAFE_CALL(cudaMalloc(reinterpret_cast<void**>(&m_device_dag), m_epochContext.dagSize));
             m_allocated_memory_dag = m_epochContext.dagSize;
 
-            // create mining buffers
-            for (unsigned i = 0; i != m_settings.streams; ++i)
-            {
-                CUDA_SAFE_CALL(cudaMallocHost(&m_search_buf[i], sizeof(Search_results)));
-                CUDA_SAFE_CALL(cudaStreamCreateWithFlags(&m_streams[i], cudaStreamNonBlocking));
-            }
         }
         else
         {
