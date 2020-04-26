@@ -70,7 +70,7 @@ Connecting to [MinerMore Testnet](https://minermore.com):
 
 After cloning this repository into `kawpowminer`, it can be built with commands like:
 
-Ubuntu / OSX
+### Ubuntu / OSX
 ```
 cd kawpowminer
 git submodule update --init --recursive
@@ -80,13 +80,31 @@ cmake .. -DETHASHCUDA=ON
 make -sj $(nproc)
 ```
 
-Windows
 
+### Windows
+
+### Prerequisites:
 1. Install Visual Studios (2019) (with the additional installation package "C++ Cmake Tools for Windows)
-2. Open cmakelists.txt file with File->Open->CMake
-3. Wait for intelligence to build the cache (this can take some time)
-4. Build the project (CTRL+SHIFT+B) or find the build command in the menu
+2. Install latest perl to C:\Perl (https://www.perl.org/get.html)
+   Follow the steps outlined and the default perl installtion should work
 
+### Building via Visual Studios Command Line:
+Open "Developer Command Prompt for VS 2019"
+1. Open StartMenu and search for "Developer Command Prompt for VS 2019"
+2. Follow these steps:
+```
+cd C:\Users\USER_NAME\PATH_TO_KAWPOW\kawpowminer
+mkdir build
+cd build
+cmake .. -DETHASHCUDA=ON
+devenv kawpowminer.sln /build
+```
+
+### Building via Visual Studios GUI (This build doesn't seem to work for some 20XX Nvidia cards)
+   1. Open Visual Studios
+   2. Open CMakeLists.txt file with File->Open->CMake
+   3. Wait for intelligence to build the cache (this can take some time)
+   4. Build the project (CTRL+SHIFT+B) or find the build command in the menu
 
 ProgPoW can be tuned using the following parameters.  The proposed settings have been tuned for a range of existing, commodity GPUs:
 
