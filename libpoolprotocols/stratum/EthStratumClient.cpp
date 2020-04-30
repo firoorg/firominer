@@ -704,7 +704,7 @@ void EthStratumClient::processExtranonce(std::string& enonce)
     m_session->extraNonceSizeBytes = enonce.length();
     cnote << "Extranonce set to " EthWhite << enonce << EthReset;
     enonce.resize(16, '0');
-    m_session->extraNonce = std::stoul(enonce, nullptr, 16);
+    m_session->extraNonce = std::stoull(enonce, nullptr, 16);
 }
 
 void EthStratumClient::processResponse(Json::Value& responseObject)
@@ -720,7 +720,6 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
     string _method = "";           // The method of the notification (or request from pool)
     unsigned _id = 0;  // This SHOULD be the same id as the request it is responding to (known
                        // exception is ethermine.org using 999)
-
 
     // Retrieve essential values
     _id = responseObject.get("id", unsigned(0)).asUInt();
@@ -951,7 +950,6 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 break;
 
             case EthStratumClient::STRATUM:
-
                 if (_isSuccess)
                 {
                     // Selected flavour is confirmed
@@ -969,6 +967,12 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     jReq["params"].append(m_conn->UserDotWorker() + m_conn->Path());
                     jReq["params"].append(m_conn->Pass());
                     enqueue_response_plea();
+                    
+                    // Set the starting nonce to the value given in the second index in the array
+                    Json::Value jPrm;
+                    jPrm = responseObject.get("result", Json::Value::null);
+                    std::string nnonce = jPrm.get(Json::Value::ArrayIndex(1), "").asString();
+                    processExtranonce(nnonce);
                 }
                 else
                 {
@@ -1362,6 +1366,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     m_current.block_boundary = h256(sBlockTarget);
                     m_current_timestamp = std::chrono::steady_clock::now();
                     m_current.startNonce = m_session->extraNonce;
+                    m_current.exSizeBytes = m_session->extraNonceSizeBytes;
                     m_current.block = iBlockHeight;
 
                     // This will signal to dispatch the job
@@ -1600,7 +1605,6 @@ void EthStratumClient::submitSolution(const Solution& solution)
     switch (m_conn->StratumMode())
     {
     case EthStratumClient::STRATUM:
-
         jReq["jsonrpc"] = "2.0";
         jReq["params"].append(m_conn->UserDotWorker());
         jReq["params"].append(solution.work.job);
