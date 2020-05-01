@@ -1514,8 +1514,12 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             if (jPrm.isArray())
             {
                 std::string enonce = jPrm.get(Json::Value::ArrayIndex(0), "").asString();
-                if (!enonce.empty())
-                    processExtranonce(enonce);
+                if (!processExtranonce(enonce))
+                {
+                    cwarn << "Disconnecting ...";
+                    m_io_service.post(
+                        m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+                }
             }
         }
         else if (_method == "mining.set" && m_conn->StratumMode() == ETHEREUMSTRATUM2)
@@ -1557,8 +1561,12 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
 
             m_session->algo = jPrm.get("algo", "ethash").asString();
             string enonce = jPrm.get("extranonce", "").asString();
-            if (!enonce.empty())
-                processExtranonce(enonce);
+            if (!processExtranonce(enonce))
+            {
+                cwarn << "Disconnecting ...";
+                m_io_service.post(
+                    m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+            }
         }
         else if (_method == "mining.set_target") {
             jPrm = responseObject.get("params", Json::Value::null);
