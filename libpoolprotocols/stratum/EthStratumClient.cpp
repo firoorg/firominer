@@ -699,10 +699,13 @@ std::string EthStratumClient::processError(Json::Value& responseObject)
     return retVar;
 }
 
-void EthStratumClient::processExtranonce(std::string& enonce)
+bool EthStratumClient::processExtranonce(std::string& enonce)
 {
     // Nothing to do with an empty enonce
-    if (enonce.empty()) return;
+    if (enonce.empty()) {
+        cwarn << "Error while setting Extranonce : empty string";
+        return false;
+    }
 
     /*
     Should not happen but I've seen so many errors :(
@@ -746,13 +749,13 @@ void EthStratumClient::processExtranonce(std::string& enonce)
         hexPart.resize(16, '0');
         m_session->extraNonce = std::stoull(hexPart, nullptr, 16);
         cnote << "Extranonce set to " EthWhiteBold << enonce << EthReset;
-
+        return true;
     }
     catch (const std::exception& _ex)
     {
         cwarn << "Error while setting Extranonce : " << _ex.what();
+        return false;
     }
-
  }
 
 void EthStratumClient::processResponse(Json::Value& responseObject)
@@ -1016,15 +1019,21 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     jReq["params"].append(m_conn->Pass());
                     enqueue_response_plea();
 
-                    // Set the starting nonce (or extranonce ???) to the value given in the second index in the array
-                    // Not all pools may provide it
+                    // Set the extranonce nonce to the value given in the second index in the array
+                    // All pools must provide this or this miner will disconnect from the pools
                     if (
                         responseObject.isMember("result")           // Is member present ?
                         && responseObject["result"].isArray()       // Is it an array ?
                         && responseObject["result"].size() > 1      // Does it have 2 elements ?
                         )
                     {
-                        processExtranonce(responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString());
+                        std::string strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
+                        if (!processExtranonce(strNonce)) {
+                            cwarn << "Disconnecting from stratum because of invalid extranonce";
+                            // Disconnect from stratum if it fails to set the extra nonce
+                            m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+                            return;
+                        }
                     }
                 }
                 else
