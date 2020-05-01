@@ -1020,19 +1020,20 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
 
                     // Set the extranonce nonce to the value given in the second index in the array
                     // All pools must provide this or this miner will disconnect from the pools
+                    std::string strNonce = {};
                     if (
                         responseObject.isMember("result")           // Is member present ?
                         && responseObject["result"].isArray()       // Is it an array ?
                         && responseObject["result"].size() > 1      // Does it have 2 elements ?
                         )
                     {
-                        std::string strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
-                        if (!processExtranonce(strNonce)) {
-                            cwarn << "Disconnecting from stratum because of invalid extranonce";
-                            // Disconnect from stratum if it fails to set the extra nonce
-                            m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-                            return;
-                        }
+                        strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
+                    }
+                    if (!processExtranonce(strNonce)) {
+                        cwarn << "Disconnecting from stratum because of invalid extranonce";
+                        // Disconnect from stratum if it fails to set the extra nonce
+                        m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+                        return;
                     }
                 }
                 else
