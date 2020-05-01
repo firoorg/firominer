@@ -701,12 +701,6 @@ std::string EthStratumClient::processError(Json::Value& responseObject)
 
 bool EthStratumClient::processExtranonce(std::string& enonce)
 {
-    // Nothing to do with an empty enonce
-    if (enonce.empty()) {
-        cwarn << "Error while setting Extranonce : empty string";
-        return false;
-    }
-
     /*
     Should not happen but I've seen so many errors :(
     Extranonce should be always represented by pairs
@@ -724,6 +718,9 @@ bool EthStratumClient::processExtranonce(std::string& enonce)
 
     try
     {
+        // Nothing to do with an empty enonce
+        if (enonce.empty()) throw std::invalid_argument("Empty hex value");
+
         // Check is a proper hex format
         if (!std::regex_search(enonce, matches, rgxHex, std::regex_constants::match_default))
             throw std::invalid_argument("Invalid hex value " + enonce);
@@ -754,8 +751,10 @@ bool EthStratumClient::processExtranonce(std::string& enonce)
     catch (const std::exception& _ex)
     {
         cwarn << "Error while setting Extranonce : " << _ex.what();
-        return false;
     }
+
+    return false;
+
  }
 
 void EthStratumClient::processResponse(Json::Value& responseObject)
@@ -1019,8 +1018,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     jReq["params"].append(m_conn->Pass());
                     enqueue_response_plea();
 
-                    // Set the extranonce nonce to the value given in the second index in the array
-                    // All pools must provide this or this miner will disconnect from the pools
+                    // If pool provides it then set Extranonce now
                     if (
                         responseObject.isMember("result")           // Is member present ?
                         && responseObject["result"].isArray()       // Is it an array ?
@@ -1028,7 +1026,8 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                         )
                     {
                         std::string strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
-                        if (!processExtranonce(strNonce)) {
+                        if (strNonce.size() && !processExtranonce(strNonce))
+                        {
                             cwarn << "Disconnecting from stratum because of invalid extranonce";
                             // Disconnect from stratum if it fails to set the extra nonce
                             m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
@@ -1513,8 +1512,12 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             if (jPrm.isArray())
             {
                 std::string enonce = jPrm.get(Json::Value::ArrayIndex(0), "").asString();
-                if (!enonce.empty())
-                    processExtranonce(enonce);
+                if (!processExtranonce(enonce))
+                {
+                    cwarn << "Disconnecting ...";
+                    m_io_service.post(
+                        m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+                }
             }
         }
         else if (_method == "mining.set" && m_conn->StratumMode() == ETHEREUMSTRATUM2)
@@ -1556,8 +1559,12 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
 
             m_session->algo = jPrm.get("algo", "ethash").asString();
             string enonce = jPrm.get("extranonce", "").asString();
-            if (!enonce.empty())
-                processExtranonce(enonce);
+            if (!processExtranonce(enonce))
+            {
+                cwarn << "Disconnecting ...";
+                m_io_service.post(
+                    m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+            }
         }
         else if (_method == "mining.set_target") {
             jPrm = responseObject.get("params", Json::Value::null);
