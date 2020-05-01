@@ -699,13 +699,64 @@ std::string EthStratumClient::processError(Json::Value& responseObject)
     return retVar;
 }
 
-void EthStratumClient::processExtranonce(std::string& enonce)
+bool EthStratumClient::processExtranonce(std::string& enonce)
 {
-    m_session->extraNonceSizeBytes = enonce.length();
-    cnote << "Extranonce set to " EthWhite << enonce << EthReset;
-    enonce.resize(16, '0');
-    m_session->extraNonce = std::stoull(enonce, nullptr, 16);
-}
+    // Nothing to do with an empty enonce
+    if (enonce.empty()) {
+        cwarn << "Error while setting Extranonce : empty string";
+        return false;
+    }
+
+    /*
+    Should not happen but I've seen so many errors :(
+    Extranonce should be always represented by pairs
+    of hex chars. Having extranonce set "0xf"
+    IS NOT the same as setting to "0x0f". The int values
+    from stoul are the same but the length is different so the
+    subsequent submit solution creates a wrong hex substr
+    For this reason work provider MUST send an even number
+    of characters making explicit the choice among "0x0f" or "0xf0"
+    */
+
+    static std::regex rgxHex("^(0x)?([A-Fa-f0-9]{2,})$");
+    std::smatch matches;
+    std::string hexPart;
+
+    try
+    {
+        // Check is a proper hex format
+        if (!std::regex_search(enonce, matches, rgxHex, std::regex_constants::match_default))
+            throw std::invalid_argument("Invalid hex value " + enonce);
+
+        // Get the hex part
+        hexPart = matches[2].str();
+        if (hexPart.length() & 1)
+            throw std::invalid_argument("Odd number of hex chars " + enonce);
+
+        // Ensure we're not exceeding 4 bytes length
+        // any greater value shrinks available nonce range making
+        // it easily exhaustible in seconds.
+        // stoul throws if out_of_range
+        if (hexPart.length() > 8)
+            throw std::invalid_argument("Too wide hex value " + enonce);
+
+        // This is improper wording. We're not counting size of
+        // enonce in bytes rather the length of hexadecimal string representation
+        m_session->extraNonceSizeBytes = hexPart.length();
+
+        // Eventually get the real value to start nonce range from
+        // For sure stoull won't throw
+        hexPart.resize(16, '0');
+        m_session->extraNonce = std::stoull(hexPart, nullptr, 16);
+        cnote << "Extranonce set to " EthWhiteBold << enonce << EthReset;
+        return true;
+    }
+    catch (const std::exception& _ex)
+    {
+        cwarn << "Error while setting Extranonce : " << _ex.what();
+        return false;
+    }
+ }
 
 void EthStratumClient::processResponse(Json::Value& responseObject)
 {
@@ -967,12 +1018,23 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     jReq["params"].append(m_conn->UserDotWorker() + m_conn->Path());
                     jReq["params"].append(m_conn->Pass());
                     enqueue_response_plea();
-                    
-                    // Set the starting nonce to the value given in the second index in the array
-                    Json::Value jPrm;
-                    jPrm = responseObject.get("result", Json::Value::null);
-                    std::string nnonce = jPrm.get(Json::Value::ArrayIndex(1), "").asString();
-                    processExtranonce(nnonce);
+
+                    // Set the extranonce nonce to the value given in the second index in the array
+                    // All pools must provide this or this miner will disconnect from the pools
+                    if (
+                        responseObject.isMember("result")           // Is member present ?
+                        && responseObject["result"].isArray()       // Is it an array ?
+                        && responseObject["result"].size() > 1      // Does it have 2 elements ?
+                        )
+                    {
+                        std::string strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
+                        if (!processExtranonce(strNonce)) {
+                            cwarn << "Disconnecting from stratum because of invalid extranonce";
+                            // Disconnect from stratum if it fails to set the extra nonce
+                            m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+                            return;
+                        }
+                    }
                 }
                 else
                 {
@@ -1157,7 +1219,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             }
             else
             {
-                
+
                 if (m_onSolutionRejected)
                 {
                     cwarn << "Reject reason : "
@@ -1634,14 +1696,14 @@ void EthStratumClient::submitSolution(const Solution& solution)
         jReq["params"].append(
             toHex(solution.nonce, HexPrefix::DontAdd).substr(solution.work.exSizeBytes));
         break;
-        
+
     case EthStratumClient::ETHEREUMSTRATUM2:
 
         jReq["params"].append(solution.work.job);
         jReq["params"].append(
             toHex(solution.nonce, HexPrefix::DontAdd).substr(solution.work.exSizeBytes));
         jReq["params"].append(m_session->workerId);
-        break;        
+        break;
     }
 
     enqueue_response_plea();

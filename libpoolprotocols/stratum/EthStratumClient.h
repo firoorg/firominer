@@ -97,7 +97,7 @@ private:
 
     void processResponse(Json::Value& responseObject);
     std::string processError(Json::Value& erroresponseObject);
-    void processExtranonce(std::string& enonce);
+    bool processExtranonce(std::string& enonce);
 
     void recvSocketData();
     void onRecvSocketDataCompleted(
