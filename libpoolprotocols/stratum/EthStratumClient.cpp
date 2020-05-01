@@ -1028,12 +1028,10 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                         std::string strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
                         if (strNonce.size() && !processExtranonce(strNonce))
                         {
-                            if (!processExtranonce(strNonce)) {
-                                cwarn << "Disconnecting from stratum because of invalid extranonce";
-                                // Disconnect from stratum if it fails to set the extra nonce
-                                m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
-                                return;
-                            }
+                            cwarn << "Disconnecting from stratum because of invalid extranonce";
+                            // Disconnect from stratum if it fails to set the extra nonce
+                            m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+                            return;
                         }
                     }
                 }
