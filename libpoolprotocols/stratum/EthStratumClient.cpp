@@ -745,7 +745,7 @@ void EthStratumClient::processExtranonce(std::string& enonce)
         // For sure stoull won't throw
         hexPart.resize(16, '0');
         m_session->extraNonce = std::stoull(hexPart, nullptr, 16);
-
+        cnote << "Extranonce set to " EthWhiteBold << enonce << EthReset;
 
     }
     catch (const std::exception& _ex)
