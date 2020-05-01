@@ -1019,15 +1019,14 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     enqueue_response_plea();
 
                     // If pool provides it then set Extranonce now
-                    std::string strNonce = {};
                     if (
                         responseObject.isMember("result")           // Is member present ?
                         && responseObject["result"].isArray()       // Is it an array ?
                         && responseObject["result"].size() > 1      // Does it have 2 elements ?
                         )
                     {
-                        strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
-                        if (strNonce.size())
+                        std::string strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
+                        if (strNonce.size() && !processExtranonce(strNonce))
                         {
                             if (!processExtranonce(strNonce)) {
                                 cwarn << "Disconnecting from stratum because of invalid extranonce";
