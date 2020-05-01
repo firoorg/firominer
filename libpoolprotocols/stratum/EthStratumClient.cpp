@@ -701,12 +701,6 @@ std::string EthStratumClient::processError(Json::Value& responseObject)
 
 bool EthStratumClient::processExtranonce(std::string& enonce)
 {
-    // Nothing to do with an empty enonce
-    if (enonce.empty()) {
-        cwarn << "Error while setting Extranonce : empty string";
-        return false;
-    }
-
     /*
     Should not happen but I've seen so many errors :(
     Extranonce should be always represented by pairs
@@ -724,6 +718,9 @@ bool EthStratumClient::processExtranonce(std::string& enonce)
 
     try
     {
+        // Nothing to do with an empty enonce
+        if (enonce.empty()) throw std::invalid_argument("Empty hex value");
+
         // Check is a proper hex format
         if (!std::regex_search(enonce, matches, rgxHex, std::regex_constants::match_default))
             throw std::invalid_argument("Invalid hex value " + enonce);
@@ -754,8 +751,10 @@ bool EthStratumClient::processExtranonce(std::string& enonce)
     catch (const std::exception& _ex)
     {
         cwarn << "Error while setting Extranonce : " << _ex.what();
-        return false;
     }
+
+    return false;
+
  }
 
 void EthStratumClient::processResponse(Json::Value& responseObject)
