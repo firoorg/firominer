@@ -38,7 +38,8 @@ wrap_nvml_handle* wrap_nvml_create()
      */
 #if defined(_WIN32)
     /* Windows */
-#define libnvidia_ml "%PROGRAMFILES%/NVIDIA Corporation/NVSMI/nvml.dll"
+//#define libnvidia_ml "%PROGRAMFILES%/NVIDIA Corporation/NVSMI/nvml.dll"
+#define libnvidia_ml "%WINDIR%/System32/nvml.dll"
 #elif defined(__linux) && (defined(__i386__) || defined(__ARM_ARCH_7A__))
 /* In rpm based linux distributions link name is with extension .1 */
     /* 32-bit linux assumed */
@@ -66,7 +67,7 @@ wrap_nvml_handle* wrap_nvml_create()
         cwarn << "NVIDIA hardware monitoring disabled";
         return nullptr;
     }
-        
+
 
     nvmlh = (wrap_nvml_handle*)calloc(1, sizeof(wrap_nvml_handle));
 
