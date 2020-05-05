@@ -600,6 +600,7 @@ void EthStratumClient::connect_handler(const boost::system::error_code& ec)
     case EthStratumClient::STRATUM:
 
         jReq["jsonrpc"] = "2.0";
+        jReq["params"].append(std::string(kawpowminer_get_buildinfo()->project_name) + "/" + std::string(kawpowminer_get_buildinfo()->project_version));
 
         break;
 
