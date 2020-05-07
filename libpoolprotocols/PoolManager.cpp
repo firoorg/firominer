@@ -389,11 +389,16 @@ void PoolManager::rotateConnect()
     }
     else if (m_connectionAttempt >= m_Settings.connectionMaxRetries)
     {
-        // If this is the only connection we can't rotate
-        // forever
-        if (m_Settings.connections.size() == 1)
-        {
-            m_Settings.connections.erase(m_Settings.connections.begin() + m_activeConnectionIdx);
+        // If this is the only connection rotate forever
+        if (m_Settings.connections.size() == 1) {
+
+            // All other miners keep retrying until they are stopped manually
+            // Switching m_connectionAttempt back to zero restarted the connection loop
+            // This will allow the miner to keep trying connections forever
+            m_connectionAttempt = 0;
+
+            // If we want to stop the mining from trying forever, the connection can be erased using the following code
+            // m_Settings.connections.erase(m_Settings.connections.begin() + m_activeConnectionIdx);
         }
         // Rotate connections if above max attempts threshold
         else
