@@ -70,11 +70,13 @@ __global__ void ethash_calculate_dag_item(uint32_t start)
     uint32_t const node_index = start + blockIdx.x * blockDim.x + threadIdx.x;
     if (((node_index >> 1) & (~1)) >= d_dag_size)
         return;
-
-    hash200_t dag_node;
+    union {
+       hash128_t dag_node;
+       uint2 dag_node_mem[25];
+    };
     copy(dag_node.uint4s, d_light[node_index % d_light_size].uint4s, 4);
     dag_node.words[0] ^= node_index;
-    SHA3_512(dag_node.uint2s);
+    SHA3_512(dag_node_mem);
 
     const int thread_id = threadIdx.x & 3;
 
@@ -96,7 +98,7 @@ __global__ void ethash_calculate_dag_item(uint32_t start)
             }
         }
     }
-    SHA3_512(dag_node.uint2s);
+    SHA3_512(dag_node_mem);
     hash64_t* dag_nodes = (hash64_t*)d_dag;
 
     for (uint32_t t = 0; t < 4; t++)
