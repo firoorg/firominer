@@ -66,7 +66,16 @@ bool CUDAMiner::initDevice()
     try
     {
         CU_SAFE_CALL(cuDeviceGet(&m_device, m_deviceDescriptor.cuDeviceIndex));
-        CU_SAFE_CALL(cuDevicePrimaryCtxRelease(m_device));
+
+        try
+        {
+                CU_SAFE_CALL(cuDevicePrimaryCtxRelease(m_device));
+        }
+        catch(const cuda_runtime_error& ec)
+        {
+            cudalog << "Releasing a primary context that has not been previously retained will fail with CUDA_ERROR_INVALID_CONTEXT, this is normal";
+//            cudalog << " Error : " << ec.what();
+        }
         CU_SAFE_CALL(cuDevicePrimaryCtxSetFlags(m_device, m_settings.schedule));
         CU_SAFE_CALL(cuDevicePrimaryCtxRetain(&m_context, m_device));
         CU_SAFE_CALL(cuCtxSetCurrent(m_context));

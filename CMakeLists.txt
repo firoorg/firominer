@@ -20,7 +20,7 @@ HunterGate(
 )
 
 project(kawpowminer)
-set(PROJECT_VERSION 1.2.3)
+set(PROJECT_VERSION 1.2.4)
 
 cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release RelWithDebInfo)
 
