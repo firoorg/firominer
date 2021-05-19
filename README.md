@@ -43,7 +43,6 @@ accessible from command line. The kawpowminer is ready to go.
 | ------ | ------- |
 | Last   | [GitHub release](https://github.com/RavenCommunity/kawpowminer/releases) 
 
-For AMD-only rigs please use the version with -amd tagged , cuda version wouldn't work for you rig.
 
 If you have trouble with missing .dll or CUDA errors, [please install the latest version of CUDA drivers](https://developer.nvidia.com/cuda-downloads) or report to project maintainers.
 
@@ -76,7 +75,7 @@ cd kawpowminer
 git submodule update --init --recursive
 mkdir build
 cd build
-cmake .. -DETHASHCUDA=ON
+cmake .. -DETHASHCUDA=ON -DETHASHCL=ON -DAPICORE=ON
 make -sj $(nproc)
 ```
 
@@ -94,11 +93,14 @@ Open "Developer Command Prompt for VS 2019"
 2. Follow these steps:
 ```
 cd C:\Users\USER_NAME\PATH_TO_KAWPOW\kawpowminer
+git submodule update --init --recursive
 mkdir build
 cd build
-cmake .. -DETHASHCUDA=ON
-devenv kawpowminer.sln /build
+cmake -G "Visual Studio 16 2019" -A X64 -H. -Bbuild -DETHASHCL=ON -DETHASHCUDA=ON -DAPICORE=ON ..
+cd build
+cmake --build . --config Release
 ```
+(Yes, two nested build/build directories.)
 
 ### Building via Visual Studios GUI (This build doesn't seem to work for some 20XX Nvidia cards)
    1. Open Visual Studios
