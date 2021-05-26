@@ -7,17 +7,17 @@ include(CableBuildType)
 include(CableToolchains)
 include(HunterGate)
 
-include(defaults/HunterCacheServers)
-
 cable_configure_toolchain(DEFAULT cxx11)
 
 set(HUNTER_CONFIGURATION_TYPES Release CACHE STRING "Build type of Hunter packages")
 set(HUNTER_JOBS_NUMBER 6 CACHE STRING "Number of parallel builds used by Hunter")
+set(HUNTER_USE_CACHE_SERVERS NO)
 HunterGate(
-    URL "https://github.com/ruslo/hunter/archive/v0.23.214.tar.gz"
-    SHA1 "e14bc153a7f16d6a5eeec845fb0283c8fad8c358"
-	LOCAL
+  URL "https://github.com/cpp-pm/hunter/archive/v0.23.267.tar.gz"
+  SHA1 "9c5c7fa6e17c2ae15dd922184bc7c51235aaae70"
+  LOCAL
 )
+
 
 project(firominer)
 set(PROJECT_VERSION 1.2.4)
