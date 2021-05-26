@@ -1,5 +1,5 @@
 # ethash-kernels
-For whatever reason, Zawawawa released his Ethash kernels as open source code. This repo is a verbaitm copy of that code with a simplistic build environment and [kawpowminer](https://github.com/gangnamtestnet/kawpowminer) as a target. Although the code for kawpowminer has yet to be released.
+For whatever reason, Zawawawa released his Ethash kernels as open source code. This repo is a verbaitm copy of that code with a simplistic build environment and [firominer](https://github.com/gangnamtestnet/firominer) as a target. Although the code for firominer has yet to be released.
 
 ## Requirements
 On Linux, all you need is [clrxasm](https://github.com/CLRX/CLRX-mirror) installed. Everything should build fairly quickly, just make sure to ```mkdir build``` before you ```make```. MacOS should be the same. Windows ¯\_(ツ)_/¯

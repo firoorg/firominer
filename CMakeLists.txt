@@ -19,7 +19,7 @@ HunterGate(
 	LOCAL
 )
 
-project(kawpowminer)
+project(firominer)
 set(PROJECT_VERSION 1.2.4)
 
 cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release RelWithDebInfo)
@@ -104,7 +104,7 @@ if (APICORE)
 	add_subdirectory(libapicore)
 endif()
 
-add_subdirectory(kawpowminer)
+add_subdirectory(firominer)
 
 
 if(WIN32)

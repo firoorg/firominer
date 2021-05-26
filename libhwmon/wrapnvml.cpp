@@ -12,7 +12,7 @@
  *
  * John E. Stone - john.stone@gmail.com
  *
- * Modified to work with kawpowminer by
+ * Modified to work with firominer by
  *
  * Philipp Andreas - github@smurfy.de
  */

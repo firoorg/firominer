@@ -1,5 +1,5 @@
-// kawpowminer -- Ethereum miner with OpenCL, CUDA and stratum support.
-// Copyright 2018 kawpowminer Authors.
+// firominer -- Ethereum miner with OpenCL, CUDA and stratum support.
+// Copyright 2018 firominer Authors.
 // Licensed under GNU General Public License, Version 3. See the LICENSE file.
 
 /// @file

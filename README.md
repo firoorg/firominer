@@ -1,8 +1,8 @@
-# kawpowminer (ethminer fork with ProgPoW implementation)
+# firominer (ethminer fork with ProgPoW implementation)
 
 > kawpow miner with OpenCL, CUDA and stratum support
 
-**kawpowminer** is an ProgPoW GPU mining worker: with kawpowminer you can mine Ravencoin, which relies on an ProgPoW-based Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of kawpowminer. It originates from the [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
+**firominer** is an ProgPoW GPU mining worker: with firominer you can mine Ravencoin, which relies on an ProgPoW-based Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of firominer. It originates from the [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
 
 ## Features
 
@@ -37,41 +37,41 @@
 Standalone **executables** for *Linux*, *macOS* and *Windows* are provided in
 the [Releases] section.
 Download an archive for your operating system and unpack the content to a place
-accessible from command line. The kawpowminer is ready to go.
+accessible from command line. The firominer is ready to go.
 
 | Builds | Release |
 | ------ | ------- |
-| Last   | [GitHub release](https://github.com/RavenCommunity/kawpowminer/releases) 
+| Last   | [GitHub release](https://github.com/RavenCommunity/firominer/releases) 
 
 
 If you have trouble with missing .dll or CUDA errors, [please install the latest version of CUDA drivers](https://developer.nvidia.com/cuda-downloads) or report to project maintainers.
 
 ## Usage
 
-The **kawpowminer** is a command line program. This means you launch it either
+The **firominer** is a command line program. This means you launch it either
 from a Windows command prompt or Linux console, or create shortcuts to
 predefined command lines using a Linux Bash script or Windows batch/cmd file.
 For a full list of available command, please run:
 
 ```sh
-kawpowminer --help
+firominer --help
 ```
 
 ### Examples connecting to pools
 
 Connecting to [MinerMore Testnet](https://minermore.com):
 
-`./kawpowminer -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505` or
+`./firominer -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505` or
 
-`kawpowminer.exe -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505`
+`firominer.exe -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505`
 
 ## Build
 
-After cloning this repository into `kawpowminer`, it can be built with commands like:
+After cloning this repository into `firominer`, it can be built with commands like:
 
 ### Ubuntu / OSX
 ```
-cd kawpowminer
+cd firominer
 git submodule update --init --recursive
 mkdir build
 cd build
@@ -92,7 +92,7 @@ Open "Developer Command Prompt for VS 2019"
 1. Open StartMenu and search for "Developer Command Prompt for VS 2019"
 2. Follow these steps:
 ```
-cd C:\Users\USER_NAME\PATH_TO_KAWPOW\kawpowminer
+cd C:\Users\USER_NAME\PATH_TO_KAWPOW\firominer
 git submodule update --init --recursive
 mkdir build
 cd build
@@ -138,7 +138,7 @@ KAWPOW_EPOCH_LENGTH = 7500
 
 [![Discord](https://img.shields.io/badge/discord-join%20chat-blue.svg)](https://discord.gg/uvyuqWm)
 
-The list of current and past maintainers, authors and contributors to the kawpowminer project.
+The list of current and past maintainers, authors and contributors to the firominer project.
 Ordered alphabetically. [Contributors statistics since 2015-08-20].
 
 | Name                  | Contact                                                      |     |
@@ -199,7 +199,7 @@ The default parameters are fine in most scenario's (CUDA). For OpenCL it varies 
 
 [@davilizh](https://github.com/davilizh) made improvements to the CUDA kernel hashing process and added this flag to allow changing the number of tasks it runs in parallel. These improvements were optimised for GTX 1060 GPUs which saw a large increase in hashrate, GTX 1070 and GTX 1080/Ti GPUs saw some, but less, improvement. The default value is 4 (which does not need to be set with the flag) and in most cases this will provide the best performance.
 
-### What is kawpowminer's relationship with [Genoil's fork]?
+### What is firominer's relationship with [Genoil's fork]?
 
 [Genoil's fork] was the original source of this version, but as Genoil is no longer consistently maintaining that fork it became almost impossible for developers to get new code merged there. In the interests of progressing development without waiting for reviews this fork should be considered the active one and Genoil's as legacy code.
 
@@ -220,11 +220,11 @@ This can be done with one of the 2 ways:
 
 * Linux:
     * Adapt the `/etc/environment` file and add a line `CUDA_DEVICE_ORDER=PCI_BUS_ID`
-    * Adapt your start script launching kawpowminer and add a line `export CUDA_DEVICE_ORDER=PCI_BUS_ID`
+    * Adapt your start script launching firominer and add a line `export CUDA_DEVICE_ORDER=PCI_BUS_ID`
 
 * Windows:
     * Adapt your environment using the control panel (just search `setting environment windows control panel` using your favorite search engine)
-    * Adapt your start (.bat) file launching kawpowminer and add a line `set CUDA_DEVICE_ORDER=PCI_BUS_ID` or `setx CUDA_DEVICE_ORDER PCI_BUS_ID`. For more info about `set` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/set_1), for more info about `setx` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/setx)
+    * Adapt your start (.bat) file launching firominer and add a line `set CUDA_DEVICE_ORDER=PCI_BUS_ID` or `setx CUDA_DEVICE_ORDER PCI_BUS_ID`. For more info about `set` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/set_1), for more info about `setx` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/setx)
 
 ### nvrtc64_102_0.dll not found...
 
@@ -238,10 +238,10 @@ You have to upgrade your Nvidia drivers. Install cuda 10.2.
 
 
 [Amazon S3 is needed]: https://docs.travis-ci.com/user/uploading-artifacts/
-[AppVeyor]: https://ci.appveyor.com/project/RavenCommunity/kawpowminer
+[AppVeyor]: https://ci.appveyor.com/project/RavenCommunity/firominer
 [cpp-ethereum]: https://github.com/ethereum/cpp-ethereum
-[Contributors statistics since 2015-08-20]: https://github.com/RavenCommunity/kawpowminer/graphs/contributors?from=2015-08-20
+[Contributors statistics since 2015-08-20]: https://github.com/RavenCommunity/firominer/graphs/contributors?from=2015-08-20
 [Genoil's fork]: https://github.com/Genoil/cpp-ethereum
-[Gitter]: https://gitter.im/RavenCommunity/kawpowminer
-[Releases]: https://github.com/RavenCommunity/kawpowminer/releases
-[Travis CI]: https://travis-ci.org/RavenCommunity/kawpowminer
+[Gitter]: https://gitter.im/RavenCommunity/firominer
+[Releases]: https://github.com/RavenCommunity/firominer/releases
+[Travis CI]: https://travis-ci.org/RavenCommunity/firominer

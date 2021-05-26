@@ -102,7 +102,7 @@ sudo apt-get install mesa-common-dev
 
 Complete sample Windows batch file - **adapt it to your system**. Assumes that:
 
-* it's placed one folder up from the kawpowminer source folder
+* it's placed one folder up from the firominer source folder
 * you have CMake installed
 * you have Perl installed
 
@@ -117,8 +117,8 @@ rem add Perl in PATH; it's needed for OpenSSL build
 set "PERL_PATH=C:\Perl\perl\bin"
 set "PATH=%PERL_PATH%;%PATH%"
 
-rem switch to kawpowminer's source folder
-cd "%~dp0\kawpowminer\"
+rem switch to firominer's source folder
+cd "%~dp0\firominer\"
 
 if not exist "build\" mkdir "build\"
 
