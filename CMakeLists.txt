@@ -7,7 +7,8 @@ include(CableBuildType)
 include(CableToolchains)
 include(HunterGate)
 
-cable_configure_toolchain(DEFAULT cxx11)
+cable_configure_toolchain(DEFAULT cxx17)
+cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release RelWithDebInfo)
 
 set(HUNTER_CONFIGURATION_TYPES Release CACHE STRING "Build type of Hunter packages")
 set(HUNTER_JOBS_NUMBER 6 CACHE STRING "Number of parallel builds used by Hunter")
@@ -22,7 +23,6 @@ HunterGate(
 project(firominer)
 set(PROJECT_VERSION 1.2.4)
 
-cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release RelWithDebInfo)
 
 option(ETHASHCL "Build with OpenCL mining" ON)
 option(ETHASHCUDA "Build with CUDA mining" ON)
