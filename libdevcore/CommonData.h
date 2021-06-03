@@ -199,29 +199,6 @@ inline std::string toCompactHex(uint32_t _n, HexPrefix _prefix = HexPrefix::Dont
     return (_prefix == HexPrefix::Add) ? "0x" + ret.str() : ret.str();
 }
 
-
-
-// Algorithms for string and string-like collections.
-
-/// Escapes a string into the C-string representation.
-/// @p _all if true will escape all characters, not just the unprintable ones.
-std::string escaped(std::string const& _s, bool _all = true);
-
-// General datatype convenience functions.
-
-/// Determine bytes required to encode the given integer value. @returns 0 if @a _i is zero.
-template <class T>
-inline unsigned bytesRequired(T _i)
-{
-    static_assert(std::is_same<bigint, T>::value || !std::numeric_limits<T>::is_signed,
-        "only unsigned types or bigint supported");  // bigint does not carry sign bit on shift
-    unsigned i = 0;
-    for (; _i != 0; ++i, _i >>= 8)
-    {
-    }
-    return i;
-}
-
 /// Sets environment variable.
 ///
 /// Portable wrapper for setenv / _putenv C library functions.
