@@ -30,6 +30,9 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 	# disable unsafe CRT Library functions warnings
 	add_definitions(/D_WIN32_WINNT=0x0600 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS)
 
+    add_definitions(-DVC_EXTRALEAN)             # Faster headers
+    add_definitions(-DWIN32_LEAN_AND_MEAN)      # Prevent winsock mismatch with Boost's
+
 	# enable parallel compilation
 	# specify Exception Handling Model
 	# enable LTCG for faster builds
