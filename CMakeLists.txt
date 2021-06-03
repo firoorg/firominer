@@ -54,13 +54,14 @@ function(configureProject)
 endfunction()
 
 hunter_add_package(Boost COMPONENTS system filesystem thread)
-find_package(Boost CONFIG REQUIRED COMPONENTS system filesystem thread)
-
 hunter_add_package(jsoncpp)
-find_package(jsoncpp CONFIG REQUIRED)
+# hunter_add_package(ethash)
+hunter_add_package(intx)
 
-hunter_add_package(ethash)
-find_package(ethash CONFIG REQUIRED)
+find_package(Boost CONFIG REQUIRED COMPONENTS system filesystem thread)
+find_package(jsoncpp CONFIG REQUIRED)
+# find_package(ethash CONFIG REQUIRED)
+find_package(intx CONFIG REQUIRED)
 
 configureProject()
 
@@ -85,6 +86,7 @@ endif()
 
 cable_add_buildinfo_library(PROJECT_NAME ${PROJECT_NAME})
 
+add_subdirectory(libcrypto)
 add_subdirectory(libprogpow)
 add_subdirectory(libdevcore)
 add_subdirectory(libethcore)
