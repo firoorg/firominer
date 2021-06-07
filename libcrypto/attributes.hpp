@@ -22,6 +22,15 @@
 #define ALWAYS_INLINE
 #endif
 
+// [[noinline]]
+#if __has_cpp_attribute(gnu::noinline)
+#define ATTRIBUTE_NOINLINE [[gnu::noinline]]
+#elif _MSC_VER
+#define ATTRIBUTE_NOINLINE __declspec(noinline)
+#else
+#define ATTRIBUTE_NOINLINE
+#endif
+
 // [[no_sanitize()]]
 #if __clang__
 #define NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
