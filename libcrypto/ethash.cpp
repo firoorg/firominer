@@ -4,12 +4,40 @@
 
 // Modified by Firominer's authors 2021
 
+#include <mutex>
+
 #include "ethash.hpp"
 
 namespace ethash
 {
 namespace detail
 {
+std::mutex shared_context_mutex;
+std::shared_ptr<epoch_context> shared_context;
+thread_local std::shared_ptr<epoch_context> thread_local_context;
+
+ATTRIBUTE_NOINLINE
+void update_local_context(int epoch_number, bool full)
+{
+    // Release the shared pointer of the obsoleted context.
+    thread_local_context.reset();
+
+    // Local context invalid, check the shared context.
+    std::lock_guard<std::mutex> lock{shared_context_mutex};
+
+    if (!shared_context || shared_context->epoch_number != epoch_number ||
+        full != (shared_context->full_dataset != nullptr))
+    {
+        // Release the shared pointer of the obsoleted context.
+        shared_context.reset();
+
+        // Build new context.
+        shared_context = {create_epoch_context(epoch_number, full), destroy_epoch_context};
+    }
+
+    thread_local_context = shared_context;
+}
+
 /**
  * The implementation of FNV-1 hash.
  *
@@ -68,8 +96,8 @@ struct item_state
 
 hash1024 calculate_dataset_item_1024(const epoch_context& context, uint32_t index) noexcept
 {
-    item_state item0{context, index * 2};
-    item_state item1{context, index * 2 + 1};
+    item_state item0{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 2)};
+    item_state item1{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 2) + 1};
 
     for (uint32_t i{0}; i < full_dataset_item_parents; ++i)
     {
@@ -78,6 +106,24 @@ hash1024 calculate_dataset_item_1024(const epoch_context& context, uint32_t inde
     }
 
     return hash1024{{item0.final(), item1.final()}};
+}
+
+hash2048 calculate_dataset_item_2048(const epoch_context& context, uint32_t index) noexcept
+{
+    item_state item0{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 4)};
+    item_state item1{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 4) + 1};
+    item_state item2{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 4) + 2};
+    item_state item3{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 4) + 3};
+
+    for (uint32_t i{0}; i < full_dataset_item_parents; ++i)
+    {
+        item0.update(i);
+        item1.update(i);
+        item2.update(i);
+        item3.update(i);
+    }
+
+    return hash2048{{item0.final(), item1.final(), item2.final(), item3.final()}};
 }
 
 void build_light_cache(
@@ -118,6 +164,30 @@ hash512 hash_seed(const hash256& header, uint64_t nonce) noexcept
 
 hash256 hash_mix(const epoch_context& context, const hash512& seed)
 {
+    static const auto lazy_lookup = [](const epoch_context& ctx, uint32_t index) noexcept {
+        // l1_cache has the first 128 hash1024 items
+        static constexpr uint32_t l1_cache_num_items{l1_cache_size / sizeof(hash1024)};
+        if (index < l1_cache_num_items)
+        {
+            const hash1024& item = (reinterpret_cast<const hash1024*>(ctx.l1_cache))[index];
+            return item;
+        }
+
+        if (ctx.full_dataset)
+        {
+            hash1024& item = ctx.full_dataset[index];
+            if (item.word64s[0] == 0)
+            {
+                // TODO: Copy elision here makes it thread-safe?
+                item = calculate_dataset_item_1024(ctx, index);
+            }
+            return item;
+        }
+
+        auto item = calculate_dataset_item_1024(ctx, index);
+        return item;
+    };
+
     static constexpr size_t num_words{sizeof(hash1024) / sizeof(uint32_t)};
     const uint32_t index_limit{context.full_dataset_num_items};
     const uint32_t seed_init{le::uint32(seed.word32s[0])};
@@ -127,13 +197,14 @@ hash256 hash_mix(const epoch_context& context, const hash512& seed)
     for (uint32_t i = 0; i < num_dataset_accesses; ++i)
     {
         const uint32_t p = fnv1(i ^ seed_init, mix.word32s[i % num_words]) % index_limit;
-        const hash1024 newdata = le::uint32s(calculate_dataset_item_1024(context, p));
+        const hash1024 newdata = le::uint32s(lazy_lookup(context, p));
 
         for (size_t j = 0; j < num_words; ++j)
             mix.word32s[j] = fnv1(mix.word32s[j], newdata.word32s[j]);
     }
 
     hash256 mix_hash;
+
     for (size_t i = 0; i < num_words; i += 4)
     {
         const uint32_t h1 = fnv1(mix.word32s[i], mix.word32s[i + 1]);
@@ -153,7 +224,7 @@ hash256 hash_final(const hash512& seed, const hash256& mix) noexcept
     return keccak256(final_data, sizeof(final_data));
 }
 
-epoch_context* create_epoch_context(uint32_t epoch_number) noexcept
+epoch_context* create_epoch_context(uint32_t epoch_number, bool full) noexcept
 {
     static constexpr size_t context_alloc_size{sizeof(epoch_context)};
     const uint32_t light_cache_num_items{calculate_light_cache_num_items(epoch_number)};
@@ -161,22 +232,33 @@ epoch_context* create_epoch_context(uint32_t epoch_number) noexcept
     const size_t light_cache_size{
         static_cast<size_t>(light_cache_num_items) * light_cache_item_size};
 
-    const size_t alloc_size{context_alloc_size + light_cache_size};
+    const size_t full_dataset_size{
+        full ? static_cast<size_t>(full_dataset_num_items) * full_dataset_item_size :
+               l1_cache_size};
+
+    const size_t alloc_size{context_alloc_size + light_cache_size + full_dataset_size};
 
     // Allocate light_cache memory
     char* const alloc_data = static_cast<char*>(std::calloc(1, alloc_size));
     if (!alloc_data)
     {
-        return nullptr;
+        return nullptr;  // Signal out-of-memory by returning null pointer.
     }
 
-    // Build light cache
     hash512* const light_cache{reinterpret_cast<hash512*>(alloc_data + context_alloc_size)};
-    const hash256 epoch_seed{calculate_seed_from_epoch(epoch_number)};
+    const hash256 epoch_seed = calculate_seed_from_epoch(epoch_number);
     build_light_cache(keccak512, light_cache, light_cache_num_items, epoch_seed);
 
-    epoch_context* const context = new (alloc_data)
-        epoch_context{epoch_number, light_cache_num_items, full_dataset_num_items, light_cache};
+    uint32_t* const l1_cache{
+        reinterpret_cast<uint32_t*>(alloc_data + context_alloc_size + light_cache_size)};
+    hash1024* full_dataset{full ? reinterpret_cast<hash1024*>(l1_cache) : nullptr};
+
+    epoch_context* const context = new (alloc_data) epoch_context{epoch_number,
+        light_cache_num_items, full_dataset_num_items, light_cache, l1_cache, full_dataset};
+
+    auto* full_dataset_2048 = reinterpret_cast<hash2048*>(l1_cache);
+    for (uint32_t i{0}; i < l1_cache_size / sizeof(hash2048); ++i)
+        full_dataset_2048[i] = calculate_dataset_item_2048(*context, i);
     return context;
 }
 
@@ -345,18 +427,20 @@ VerificationResult verify_full(const epoch_context& context, const hash256& head
 VerificationResult verify_full(const uint64_t block_num, const hash256& header_hash,
     const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept
 {
-    static epoch_context_ptr epoch_context{nullptr, nullptr};
     auto epoch_number{static_cast<uint32_t>(block_num / epoch_length)};
-    if (!epoch_context || epoch_context->epoch_number != epoch_number)
-    {
-        epoch_context = create_epoch_context(epoch_number);
-    }
+    auto epoch_context{get_epoch_context(epoch_number, false)};
     return verify_full(*epoch_context, header_hash, mix_hash, nonce, boundary);
 }
 
-epoch_context_ptr create_epoch_context(uint32_t epoch_number) noexcept
+epoch_context* get_epoch_context(uint32_t epoch_number, bool full) noexcept
 {
-    return {detail::create_epoch_context(epoch_number), detail::destroy_epoch_context};
+    // Check if local context matches epoch number.
+    if (!detail::thread_local_context ||
+        detail::thread_local_context->epoch_number != epoch_number ||
+        full != (detail::thread_local_context->full_dataset != nullptr))
+        detail::update_local_context(epoch_number, full);
+
+    return detail::thread_local_context.get();
 }
 
 hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept

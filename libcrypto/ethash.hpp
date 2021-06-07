@@ -27,6 +27,7 @@ constexpr static uint32_t num_dataset_accesses = 64;
 constexpr static uint32_t light_cache_init_size = 1 << 24;
 constexpr static uint32_t light_cache_growth = 1 << 17;
 constexpr static uint32_t light_cache_rounds = 3;
+constexpr static uint32_t l1_cache_size = 16384u;
 constexpr static uint32_t full_dataset_init_size = 1 << 30;
 constexpr static uint32_t full_dataset_growth = 1 << 23;
 constexpr static uint32_t full_dataset_item_parents = 256;
@@ -39,7 +40,10 @@ struct epoch_context
     const uint32_t light_cache_num_items;
     const uint32_t full_dataset_num_items;
     const hash512* const light_cache;
+    const uint32_t* const l1_cache;
+    hash1024* full_dataset;
 };
+
 
 struct result
 {
@@ -56,11 +60,14 @@ enum class VerificationResult
 
 namespace detail
 {
-using lookup_fn = hash1024 (*)(const epoch_context&, uint32_t);
+
+
+
+// using lookup_fn = hash1024 (*)(const epoch_context&, uint32_t);
 using hash_512_function = hash512 (*)(const uint8_t* data, size_t size);
-using build_light_cache_function = void (*)(hash512 cache[], int num_items, const hash256& seed);
 
 hash1024 calculate_dataset_item_1024(const epoch_context& context, uint32_t index) noexcept;
+hash2048 calculate_dataset_item_2048(const epoch_context& context, uint32_t index) noexcept;
 
 hash512 hash_seed(const hash256& header, uint64_t nonce) noexcept;
 hash256 hash_mix(const epoch_context& context, const hash512& seed);
@@ -70,10 +77,8 @@ void destroy_epoch_context(epoch_context* context) noexcept;
 
 /**
  * Creates the dag epoch context
- * @param epoch_number  The epoch number.
- * @return              A pointer to the created context
  */
-epoch_context* create_epoch_context(uint32_t epoch_number) noexcept;
+epoch_context* create_epoch_context(uint32_t epoch_number, bool full) noexcept;
 
 }  // namespace detail
 
@@ -170,12 +175,13 @@ VerificationResult verify_full(const uint64_t block_num, const hash256& header_h
     const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept;
 
 using epoch_context_ptr = std::unique_ptr<epoch_context, decltype(&detail::destroy_epoch_context)>;
+
 /**
  * Creates an DAG context for given epoch number
  * @param epoch_number
  * @return              A unique_ptr to the context
  */
-epoch_context_ptr create_epoch_context(uint32_t epoch_number) noexcept;
+epoch_context* get_epoch_context(uint32_t epoch_number, bool full) noexcept;
 
 hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept;
 

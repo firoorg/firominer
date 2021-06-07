@@ -127,7 +127,7 @@ public:
     }
 
     /// Explicitly construct, copying from a bytes in memory with given pointer.
-    explicit FixedHash(byte const* _bs, ConstructFromPointerType /*unused*/)
+    explicit FixedHash(::byte const* _bs, ConstructFromPointerType /*unused*/)
     {
         memcpy(m_data.data(), _bs, N);
     }
@@ -204,9 +204,9 @@ public:
     }
 
     /// @returns a particular byte from the hash.
-    byte& operator[](unsigned _i) { return m_data[_i]; }
+    ::byte& operator[](unsigned _i) { return m_data[_i]; }
     /// @returns a particular byte from the hash.
-    byte operator[](unsigned _i) const { return m_data[_i]; }
+    ::byte operator[](unsigned _i) const { return m_data[_i]; }
 
     /// @returns an abridged version of the hash as a user-readable hex string.
 
@@ -255,7 +255,7 @@ public:
     void clear() { m_data.fill(0); }
 
 private:
-    std::array<byte, N> m_data;  ///< The binary data.
+    std::array<::byte, N> m_data;  ///< The binary data.
 };
 
 /// Fast equality operator for h256.
