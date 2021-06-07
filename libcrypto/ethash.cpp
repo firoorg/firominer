@@ -66,14 +66,6 @@ struct item_state
     ALWAYS_INLINE hash512 final() noexcept { return keccak512(le::uint32s(mix)); }
 };
 
-// hash512 calculate_dataset_item_512(const epoch_context& context, uint32_t index) noexcept {
-//    item_state item{context, index};
-//    for (uint32_t i{0}; i < full_dataset_item_parents; ++i) {
-//        item.update(i);
-//    }
-//    return item.final();
-//}
-
 hash1024 calculate_dataset_item_1024(const epoch_context& context, uint32_t index) noexcept
 {
     item_state item0{context, index * 2};
@@ -280,8 +272,8 @@ hash256 calculate_seed_from_epoch(uint32_t epoch_number) noexcept
 std::optional<uint32_t> calculate_epoch_from_seed(const hash256& seed) noexcept
 {
     static constexpr uint32_t num_tries{30000};
-    static std::optional<uint32_t> cached_epoch_number{};
-    static hash256 cached_epoch_seed{};
+    static thread_local std::optional<uint32_t> cached_epoch_number{};
+    static thread_local hash256 cached_epoch_seed{};
 
     // Do we have something in cache ?
     if (cached_epoch_number.has_value())

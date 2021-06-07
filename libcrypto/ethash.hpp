@@ -60,7 +60,6 @@ using lookup_fn = hash1024 (*)(const epoch_context&, uint32_t);
 using hash_512_function = hash512 (*)(const uint8_t* data, size_t size);
 using build_light_cache_function = void (*)(hash512 cache[], int num_items, const hash256& seed);
 
-// hash512 calculate_dataset_item_512(const epoch_context& context, uint32_t index) noexcept;
 hash1024 calculate_dataset_item_1024(const epoch_context& context, uint32_t index) noexcept;
 
 hash512 hash_seed(const hash256& header, uint64_t nonce) noexcept;
