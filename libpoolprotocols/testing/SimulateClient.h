@@ -3,7 +3,6 @@
 #include <iostream>
 
 #include <libdevcore/Worker.h>
-#include <libethcore/EthashAux.h>
 #include <libethcore/Farm.h>
 #include <libethcore/Miner.h>
 

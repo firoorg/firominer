@@ -16,11 +16,15 @@
  */
 
 #pragma once
+#ifndef LIBCRYPTO_MINER_H_
+#define LIBCRYPTO_MINER_H_
+
 
 #include <bitset>
 #include <list>
 #include <numeric>
 #include <string>
+#include <optional>
 
 //#include "EthashAux.h"
 #include <libdevcore/Common.h>
@@ -31,6 +35,7 @@
 #include <boost/format.hpp>
 #include <boost/thread.hpp>
 
+#include <libcrypto/ethash.hpp>
 
 #define DAG_LOAD_MODE_PARALLEL 0
 #define DAG_LOAD_MODE_SEQUENTIAL 1
@@ -39,9 +44,7 @@ using namespace std;
 
 extern boost::asio::io_service g_io_service;
 
-namespace dev
-{
-namespace eth
+namespace dev::eth
 {
 enum class DeviceTypeEnum
 {
@@ -203,7 +206,7 @@ struct DeviceDescriptor
     unsigned int cuComputeMajor;
     unsigned int cuComputeMinor;
 
-    int cpCpuNumer;   // For CPU
+    int cpCpuNumer;  // For CPU
 };
 
 struct HwMonitorInfo
@@ -312,6 +315,46 @@ struct TelemetryType
     };
 };
 
+struct WorkPackage
+{
+    WorkPackage() = default;
+
+    explicit operator bool() const { return header != h256(); }
+
+    std::string job;  // Job identifier can be anything. Not necessarily a hash
+    h256 boundary;
+    h256 header;  // < When h256() means "pause until notified a new work package is available".
+    h256 seed;
+    h256 block_boundary;
+
+    h256 get_boundary() const
+    {
+        if (block_boundary == h256{})
+            return boundary;
+        else if (boundary < block_boundary)
+            return block_boundary;
+        else
+            return boundary;
+    }
+
+    std::optional<uint32_t> epoch;
+    std::optional<uint32_t> block;
+
+    uint64_t startNonce = 0;
+    uint16_t exSizeBytes = 0;
+
+    std::string algo = "ethash";
+};
+
+
+struct Solution
+{
+    uint64_t nonce;                                // Solution found nonce
+    h256 mixHash;                                  // Mix hash
+    WorkPackage work;                              // WorkPackage this solution refers to
+    std::chrono::steady_clock::time_point tstamp;  // Timestamp of found solution
+    unsigned midx;                                 // Originating miner Id
+};
 
 /**
  * @brief Class for hosting one or more Miners.
@@ -378,7 +421,7 @@ public:
     /**
      * @brief Assigns Epoch context to this instance
      */
-    void setEpoch(EpochContext const& _ec) { m_epochContext = _ec; }
+    void setEpoch(std::shared_ptr<ethash::epoch_context> const& _ec) { m_epochContext = _ec; }
 
     unsigned Index() { return m_index; };
 
@@ -457,7 +500,7 @@ protected:
     const unsigned m_index = 0;           // Ordinal index of the Instance (not the device)
     DeviceDescriptor m_deviceDescriptor;  // Info about the device
 
-    EpochContext m_epochContext;
+    std::shared_ptr<ethash::epoch_context> m_epochContext;
 
 #ifdef DEV_BUILD
     std::chrono::steady_clock::time_point m_workSwitchStart;
@@ -482,5 +525,6 @@ private:
     atomic<bool> m_hashRateUpdate = {false};
 };
 
-}  // namespace eth
-}  // namespace dev
+}  // namespace dev::eth
+
+#endif  // !LIBCRYPTO_MINER_H_

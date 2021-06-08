@@ -55,12 +55,10 @@ endfunction()
 
 hunter_add_package(Boost COMPONENTS system filesystem thread)
 hunter_add_package(jsoncpp)
-# hunter_add_package(ethash)
 hunter_add_package(intx)
 
 find_package(Boost CONFIG REQUIRED COMPONENTS system filesystem thread)
 find_package(jsoncpp CONFIG REQUIRED)
-# find_package(ethash CONFIG REQUIRED)
 find_package(intx CONFIG REQUIRED)
 
 configureProject()

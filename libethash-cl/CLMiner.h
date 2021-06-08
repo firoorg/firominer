@@ -9,7 +9,6 @@
 
 #include <libprogpow/ProgPow.h>
 #include <libdevcore/Worker.h>
-#include <libethcore/EthashAux.h>
 #include <libethcore/Miner.h>
 
 #include <boost/algorithm/string/predicate.hpp>

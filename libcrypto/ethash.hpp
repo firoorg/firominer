@@ -38,7 +38,9 @@ struct epoch_context
 {
     const uint32_t epoch_number;
     const uint32_t light_cache_num_items;
+    const size_t light_cache_size;
     const uint32_t full_dataset_num_items;
+    const size_t full_dataset_size;
     const hash512* const light_cache;
     const uint32_t* const l1_cache;
     hash1024* full_dataset;
@@ -113,6 +115,9 @@ uint32_t calculate_light_cache_num_items(uint32_t epoch_number) noexcept;
  */
 uint32_t calculate_full_dataset_num_items(uint32_t epoch_number) noexcept;
 
+size_t get_light_cache_size(int num_items) noexcept;
+size_t get_full_dataset_size(int num_items) noexcept;
+
 /**
  * Calculates the epoch seed hash.
  * @param epoch_number  The epoch number.
@@ -181,9 +186,11 @@ using epoch_context_ptr = std::unique_ptr<epoch_context, decltype(&detail::destr
  * @param epoch_number
  * @return              A unique_ptr to the context
  */
-epoch_context* get_epoch_context(uint32_t epoch_number, bool full) noexcept;
+std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool full) noexcept;
 
 hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept;
+
+hash256 from_bytes(const uint8_t * data);
 
 }  // namespace ethash
 

@@ -10,8 +10,7 @@ using namespace eth;
 
 SimulateClient::SimulateClient(unsigned const& block, float const& difficulty)
   : PoolClient(), Worker("sim"), m_block(block), m_difficulty(difficulty)
-{
-}
+{}
 
 SimulateClient::~SimulateClient() = default;
 
@@ -36,7 +35,7 @@ void SimulateClient::disconnect()
     cnote << "Simulation results : " << EthWhiteBold << "Max "
           << dev::getFormattedHashes((double)hr_max, ScaleSuffix::Add, 6) << " Mean "
           << dev::getFormattedHashes((double)hr_mean, ScaleSuffix::Add, 6) << EthReset;
-    
+
     m_conn->addDuration(m_session->duration());
     m_session = nullptr;
     m_connected.store(false, memory_order_relaxed);
@@ -55,9 +54,14 @@ void SimulateClient::submitSolution(const Solution& solution)
 {
     // This is a fake submission only evaluated locally
     std::chrono::steady_clock::time_point submit_start = std::chrono::steady_clock::now();
-    bool accepted =
-        EthashAux::eval(solution.work.epoch, solution.work.block, solution.work.header, solution.nonce).value <=
-        solution.work.get_boundary();
+
+    auto result = ethash::verify_full(solution.work.block.value(),
+        ethash::from_bytes(solution.work.header.data()),
+        ethash::from_bytes(solution.mixHash.data()), solution.nonce,
+        ethash::from_bytes(solution.work.get_boundary().data()));
+
+    bool accepted = (result == ethash::VerificationResult::kOk);
+
     std::chrono::milliseconds response_delay_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - submit_start);

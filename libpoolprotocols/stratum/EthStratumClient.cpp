@@ -1,6 +1,6 @@
 #include <firominer/buildinfo.h>
 #include <libdevcore/Log.h>
-#include <ethash/ethash.hpp>
+#include <libcrypto/ethash.hpp>
 #include <libpoolprotocols/stratum/arith_uint256.h>
 
 

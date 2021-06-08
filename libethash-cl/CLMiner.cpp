@@ -8,7 +8,7 @@
 #include <libethcore/Farm.h>
 #include "CLMiner.h"
 #include "CLMiner_kernel.h"
-#include <ethash/ethash.hpp>
+#include <libcrypto/ethash.hpp>
 
 #include "CLMiner.h"
 #include <iostream>
@@ -340,7 +340,7 @@ void CLMiner::workLoop()
 
             if (current.header != next.header)
             {
-                uint64_t period_seed = next.block / PROGPOW_PERIOD;
+                uint64_t period_seed = next.block.value() / PROGPOW_PERIOD;
                 if (m_nextProgpowPeriod == 0)
                 {
                     m_nextProgpowPeriod = period_seed;
@@ -372,11 +372,11 @@ void CLMiner::workLoop()
                     m_compileThread = new boost::thread(boost::bind(&CLMiner::asyncCompile, this));
                     continue;
                 }
-                if (old_epoch != next.epoch)
+                if (next.epoch.has_value() && old_epoch != static_cast<int>(next.epoch.value()))
                 {
                     if (!initEpoch())
                         break;  // This will simply exit the thread
-                    old_epoch = next.epoch;
+                    old_epoch = static_cast<int>(next.epoch.value());
                     continue;
                 }
 
@@ -703,7 +703,7 @@ bool CLMiner::initDevice()
 bool CLMiner::initEpoch_internal()
 {
     auto startInit = std::chrono::steady_clock::now();
-    size_t RequiredMemory = (m_epochContext.dagSize + m_epochContext.lightSize);
+    size_t RequiredMemory = (m_epochContext->full_dataset_size + m_epochContext->light_cache_size);
 
     // Release the pause flag if any
     resume(MinerPauseEnum::PauseDueToInsufficientMemory);
@@ -712,7 +712,7 @@ bool CLMiner::initEpoch_internal()
     // Check whether the current device has sufficient memory every time we recreate the dag
     if (m_deviceDescriptor.totalMemory < RequiredMemory)
     {
-        cllog << "Epoch " << m_epochContext.epochNumber << " requires "
+        cllog << "Epoch " << m_epochContext->epoch_number << " requires "
               << dev::getFormattedMemory((double)RequiredMemory) << " memory. Only "
               << dev::getFormattedMemory((double)m_deviceDescriptor.totalMemory)
               << " available on device.";
@@ -739,7 +739,7 @@ bool CLMiner::initEpoch_internal()
 
 #endif
 
-        m_dagItems = m_epochContext.dagNumItems;
+        m_dagItems = m_epochContext->full_dataset_num_items;
 
         cl::Program binaryProgram;
 
@@ -805,25 +805,25 @@ bool CLMiner::initEpoch_internal()
         try
         {
             cllog << "Creating light cache buffer, size: "
-                  << dev::getFormattedMemory((double)m_epochContext.lightSize);
+                  << dev::getFormattedMemory((double)m_epochContext->light_cache_size);
             if (m_light)
                 delete m_light;
-            m_light = new cl::Buffer(m_context, CL_MEM_READ_ONLY, m_epochContext.lightSize);
+            m_light = new cl::Buffer(m_context, CL_MEM_READ_ONLY, m_epochContext->light_cache_size);
             cllog << "Creating DAG buffer, size: "
-                  << dev::getFormattedMemory((double)m_epochContext.dagSize)
+                  << dev::getFormattedMemory((double)m_epochContext->full_dataset_size)
                   << ", free: "
                   << dev::getFormattedMemory(
                          (double)(m_deviceDescriptor.totalMemory - RequiredMemory));
             if (m_dag)
                 delete m_dag;
-            m_dag = new cl::Buffer(m_context, CL_MEM_READ_ONLY, m_epochContext.dagSize);
+            m_dag = new cl::Buffer(m_context, CL_MEM_READ_ONLY, m_epochContext->full_dataset_size);
             cllog << "Loading kernels";
 
             m_dagKernel = cl::Kernel(m_program, "ethash_calculate_dag_item");
 
             cllog << "Writing light cache buffer";
             m_queue.enqueueWriteBuffer(
-                *m_light, CL_TRUE, 0, m_epochContext.lightSize, m_epochContext.lightCache);
+                *m_light, CL_TRUE, 0, m_epochContext->light_cache_size, m_epochContext->light_cache);
         }
         catch (cl::Error const& err)
         {
@@ -860,7 +860,7 @@ bool CLMiner::initEpoch_internal()
         }
 
         auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startInit);
-        cllog << dev::getFormattedMemory((double)m_epochContext.dagSize)
+        cllog << dev::getFormattedMemory((double)m_epochContext->full_dataset_size)
               << " of DAG data generated in "
               << dagTime.count() << " ms.";
     }
@@ -892,9 +892,9 @@ void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kern
 
     addDefinition(code, "GROUP_SIZE", m_settings.localWorkSize);
     addDefinition(code, "ACCESSES", 64);
-    addDefinition(code, "LIGHT_WORDS", m_epochContext.lightNumItems);
-    addDefinition(code, "PROGPOW_DAG_BYTES", m_epochContext.dagSize);
-    addDefinition(code, "PROGPOW_DAG_ELEMENTS", m_epochContext.dagNumItems / 2);
+    addDefinition(code, "LIGHT_WORDS", m_epochContext->light_cache_num_items);
+    addDefinition(code, "PROGPOW_DAG_BYTES", m_epochContext->full_dataset_size);
+    addDefinition(code, "PROGPOW_DAG_ELEMENTS", m_epochContext->full_dataset_num_items / 2);
 
     addDefinition(code, "MAX_OUTPUTS", c_maxSearchResults);
     int platform = 0;

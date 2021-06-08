@@ -153,7 +153,8 @@ void PoolManager::setClientHandlers()
         if (!wp)
             return;
 
-        int _currentEpoch = m_currentWp.epoch;
+        int _currentEpoch =
+            m_currentWp.epoch.has_value() ? static_cast<int>(m_currentWp.epoch.value()) : -1;
         bool newEpoch = (_currentEpoch == -1);
 
         // In EthereumStratum/2.0.0 epoch number is set in session
@@ -177,10 +178,10 @@ void PoolManager::setClientHandlers()
             if (wp.epoch == -1)
             {
                 if (m_currentWp.block > 0)
-                    m_currentWp.epoch = m_currentWp.block / EPOCH_LENGTH;
+                    m_currentWp.epoch = m_currentWp.block.value() / EPOCH_LENGTH;
                 else
-                    m_currentWp.epoch = ethash::find_epoch_number(
-                        ethash::hash256_from_bytes(m_currentWp.seed.data()));
+                    m_currentWp.epoch = ethash::calculate_epoch_from_seed(
+                        ethash::from_bytes(m_currentWp.seed.data()));
             }
         }
         else
@@ -192,7 +193,7 @@ void PoolManager::setClientHandlers()
             showMiningAt();
 
         cnote << "Job: " EthWhite << m_currentWp.header.abridged()
-              << (m_currentWp.block != -1 ? (" block " + to_string(m_currentWp.block)) : "")
+              << (m_currentWp.block != -1 ? (" block " + to_string(m_currentWp.block.value())) : "")
               << EthReset << " " << m_selectedHost;
 
         Farm::f().setWork(m_currentWp);
@@ -509,7 +510,7 @@ void PoolManager::submithrtimer_elapsed(const boost::system::error_code& ec)
 
 int PoolManager::getCurrentEpoch()
 {
-    return m_currentWp.epoch;
+    return m_currentWp.epoch.value();
 }
 
 double PoolManager::getCurrentDifficulty()

@@ -36,8 +36,8 @@ namespace eth
 {
 Farm* Farm::m_this = nullptr;
 
-Farm::Farm(std::map<std::string, DeviceDescriptor>& _DevicesCollection,
-    FarmSettings _settings, CUSettings _CUSettings, CLSettings _CLSettings, CPSettings _CPSettings)
+Farm::Farm(std::map<std::string, DeviceDescriptor>& _DevicesCollection, FarmSettings _settings,
+    CUSettings _CUSettings, CLSettings _CLSettings, CPSettings _CPSettings)
   : m_Settings(std::move(_settings)),
     m_CUSettings(std::move(_CUSettings)),
     m_CLSettings(std::move(_CLSettings)),
@@ -194,17 +194,16 @@ void Farm::setWork(WorkPackage const& _newWp)
     // Set work to each miner giving it's own starting nonce
     Guard l(x_minerWork);
 
-    // Retrieve appropriate EpochContext
-    if (m_currentWp.epoch != _newWp.epoch)
+    // Discard if we don't have an epoch
+    if (!_newWp.epoch.has_value())
     {
-        ethash::epoch_context _ec = ethash::get_global_epoch_context(_newWp.epoch);
-        m_currentEc.epochNumber = _newWp.epoch;
-        m_currentEc.lightNumItems = _ec.light_cache_num_items;
-        m_currentEc.lightSize = ethash::get_light_cache_size(_ec.light_cache_num_items);
-        m_currentEc.dagNumItems = ethash::calculate_full_dataset_num_items(_newWp.epoch);
-        m_currentEc.dagSize = ethash::get_full_dataset_size(m_currentEc.dagNumItems);
-        m_currentEc.lightCache = _ec.light_cache;
+        return;
+    }
 
+    if (!m_currentEc || m_currentEc->epoch_number != _newWp.epoch.value())
+    {
+        m_currentEc.reset();
+        m_currentEc = ethash::get_epoch_context(_newWp.epoch.value(), false);
         for (auto const& miner : m_miners)
             miner->setEpoch(m_currentEc);
     }
@@ -266,8 +265,8 @@ bool Farm::start()
             if (it->second.subscriptionType == DeviceSubscriptionTypeEnum::OpenCL)
             {
                 minerTelemetry.prefix = "cl";
-                m_miners.push_back(std::shared_ptr<Miner>(
-                    new CLMiner(m_miners.size(), m_CLSettings, it->second)));
+                m_miners.push_back(
+                    std::shared_ptr<Miner>(new CLMiner(m_miners.size(), m_CLSettings, it->second)));
             }
 #endif
 #if ETH_ETHASHCPU
@@ -485,20 +484,19 @@ void Farm::submitProofAsync(Solution const& _s)
 #endif
     if (!m_Settings.noEval || dbuild)
     {
-        Result r = EthashAux::eval(_s.work.epoch, _s.work.block, _s.work.header, _s.nonce);
-        if (r.value > _s.work.get_boundary())
+        auto result = ethash::verify_full(*m_currentEc.get(),
+            ethash::from_bytes(_s.work.header.data()), ethash::from_bytes(_s.mixHash.data()),
+            _s.nonce, ethash::from_bytes(_s.work.get_boundary().data()));
+        if (result != ethash::VerificationResult::kOk)
         {
             accountSolution(_s.midx, SolutionAccountingEnum::Failed);
             cwarn << "GPU " << _s.midx
                   << " gave incorrect result. Lower overclocking values if it happens frequently.";
             return;
         }
-        if (dbuild && (_s.mixHash != r.mixHash))
-            cwarn << "GPU " << _s.midx << " mix missmatch";
-        m_onSolutionFound(Solution{_s.nonce, r.mixHash, _s.work, _s.tstamp, _s.midx});
     }
-    else
-        m_onSolutionFound(_s);
+
+    m_onSolutionFound(_s);
 
 #ifdef DEV_BUILD
     if (g_logOptions & LOG_SUBMIT)

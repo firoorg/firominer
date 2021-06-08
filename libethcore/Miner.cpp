@@ -17,9 +17,7 @@
 
 #include "Miner.h"
 
-namespace dev
-{
-namespace eth
+namespace dev::eth
 {
 
 unsigned Miner::s_dagLoadMode = 0;
@@ -202,6 +200,4 @@ bool Miner::dropThreadPriority()
 #endif
 }
 
-
-}  // namespace eth
-}  // namespace dev
+}  // namespace dev::eth

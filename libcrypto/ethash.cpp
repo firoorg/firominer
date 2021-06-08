@@ -48,6 +48,7 @@ static inline uint32_t fnv1(uint32_t u, uint32_t v) noexcept
 {
     return (u * fnv_prime) ^ v;
 }
+
 static inline hash512 fnv1_512(const hash512& a, const hash512& b) noexcept
 {
     hash512 ret{};
@@ -57,6 +58,7 @@ static inline hash512 fnv1_512(const hash512& a, const hash512& b) noexcept
     }
     return ret;
 }
+
 static inline hash512 xor_512(const hash512& x, const hash512& y) noexcept
 {
     hash512 z;
@@ -254,9 +256,11 @@ epoch_context* create_epoch_context(uint32_t epoch_number, bool full) noexcept
     hash1024* full_dataset{full ? reinterpret_cast<hash1024*>(l1_cache) : nullptr};
 
     epoch_context* const context = new (alloc_data) epoch_context{epoch_number,
-        light_cache_num_items, full_dataset_num_items, light_cache, l1_cache, full_dataset};
+        light_cache_num_items, get_light_cache_size(light_cache_num_items), full_dataset_num_items,
+        get_full_dataset_size(full_dataset_num_items), light_cache, l1_cache, full_dataset};
 
     auto* full_dataset_2048 = reinterpret_cast<hash2048*>(l1_cache);
+
     for (uint32_t i{0}; i < l1_cache_size / sizeof(hash2048); ++i)
         full_dataset_2048[i] = calculate_dataset_item_2048(*context, i);
     return context;
@@ -309,6 +313,16 @@ uint32_t find_largest_unsigned_prime(uint32_t upper_bound) noexcept
         n -= 2;
     }
     return n;
+}
+
+size_t get_light_cache_size(int num_items) noexcept
+{
+    return static_cast<size_t>(num_items) * light_cache_item_size;
+}
+
+size_t get_full_dataset_size(int num_items) noexcept
+{
+    return static_cast<size_t>(num_items) * full_dataset_item_size;
 }
 
 uint32_t calculate_light_cache_num_items(uint32_t epoch_number) noexcept
@@ -432,15 +446,17 @@ VerificationResult verify_full(const uint64_t block_num, const hash256& header_h
     return verify_full(*epoch_context, header_hash, mix_hash, nonce, boundary);
 }
 
-epoch_context* get_epoch_context(uint32_t epoch_number, bool full) noexcept
+std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool full) noexcept
 {
     // Check if local context matches epoch number.
     if (!detail::thread_local_context ||
         detail::thread_local_context->epoch_number != epoch_number ||
         full != (detail::thread_local_context->full_dataset != nullptr))
+    {
         detail::update_local_context(epoch_number, full);
+    }
 
-    return detail::thread_local_context.get();
+    return detail::thread_local_context;
 }
 
 hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept
@@ -459,6 +475,13 @@ hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept
     {
         std::memcpy(ret.bytes, intx::as_bytes(dividend), 32);
     }
+    return ret;
+}
+
+hash256 from_bytes(const uint8_t * data)
+{
+    hash256 ret{};
+    std::memcpy(&ret, data, sizeof(ret));
     return ret;
 }
 

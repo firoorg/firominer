@@ -12,7 +12,6 @@
 
 #include <libdevcore/FixedHash.h>
 #include <libdevcore/Log.h>
-#include <libethcore/EthashAux.h>
 #include <libethcore/Farm.h>
 #include <libethcore/Miner.h>
 

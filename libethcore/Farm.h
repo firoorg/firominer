@@ -265,7 +265,7 @@ private:
     std::vector<std::shared_ptr<Miner>> m_miners;  // Collection of miners
 
     WorkPackage m_currentWp;
-    EpochContext m_currentEc;
+    std::shared_ptr<ethash::epoch_context> m_currentEc;
 
     std::atomic<bool> m_isMining = {false};
 
