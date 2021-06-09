@@ -9,10 +9,10 @@
 #include <sstream>
 
 #define rnd() (kiss99(rnd_state))
-#define mix_src() ("mix[" + std::to_string(rnd() % PROGPOW_REGS) + "]")
-#define mix_dst() ("mix[" + std::to_string(mix_seq_dst[(mix_seq_dst_cnt++) % PROGPOW_REGS]) + "]")
+#define mix_src() ("mix[" + std::to_string(rnd() % kRegs) + "]")
+#define mix_dst() ("mix[" + std::to_string(mix_seq_dst[(mix_seq_dst_cnt++) % kRegs]) + "]")
 #define mix_cache() \
-    ("mix[" + std::to_string(mix_seq_cache[(mix_seq_cache_cnt++) % PROGPOW_REGS]) + "]")
+    ("mix[" + std::to_string(mix_seq_cache[(mix_seq_cache_cnt++) % kRegs]) + "]")
 
 namespace progpow
 {
@@ -111,16 +111,16 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     // Create a random sequence of mix destinations and cache sources
     // Merge is a read-modify-write, guaranteeing every mix element is modified every loop
     // Guarantee no cache load is duplicated and can be optimized away
-    int mix_seq_dst[PROGPOW_REGS];
-    int mix_seq_cache[PROGPOW_REGS];
+    int mix_seq_dst[kRegs];
+    int mix_seq_cache[kRegs];
     int mix_seq_dst_cnt = 0;
     int mix_seq_cache_cnt = 0;
-    for (int i = 0; i < PROGPOW_REGS; i++)
+    for (int i = 0; i < kRegs; i++)
     {
         mix_seq_dst[i] = i;
         mix_seq_cache[i] = i;
     }
-    for (int i = PROGPOW_REGS - 1; i > 0; i--)
+    for (int i = kRegs - 1; i > 0; i--)
     {
         int j;
         j = rnd() % (i + 1);
@@ -159,7 +159,7 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "#ifndef GROUP_SIZE\n";
         ret << "#define GROUP_SIZE 128\n";
         ret << "#endif\n";
-        ret << "#define GROUP_SHARE (GROUP_SIZE / " << PROGPOW_LANES << ")\n";
+        ret << "#define GROUP_SHARE (GROUP_SIZE / " << kLanes << ")\n";
         ret << "\n";
         ret << "typedef unsigned int       uint32_t;\n";
         ret << "typedef unsigned long      uint64_t;\n";
@@ -168,12 +168,12 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "\n";
     }
 
-    ret << "#define PROGPOW_LANES           " << PROGPOW_LANES << "\n";
-    ret << "#define PROGPOW_REGS            " << PROGPOW_REGS << "\n";
-    ret << "#define PROGPOW_DAG_LOADS       " << PROGPOW_DAG_LOADS << "\n";
-    ret << "#define PROGPOW_CACHE_WORDS     " << PROGPOW_CACHE_BYTES / sizeof(uint32_t) << "\n";
-    ret << "#define PROGPOW_CNT_DAG         " << PROGPOW_CNT_DAG << "\n";
-    ret << "#define PROGPOW_CNT_MATH        " << PROGPOW_CNT_MATH << "\n";
+    ret << "#define PROGPOW_LANES           " << kLanes << "\n";
+    ret << "#define PROGPOW_REGS            " << kRegs << "\n";
+    ret << "#define PROGPOW_DAG_LOADS       " << kDag_loads << "\n";
+    ret << "#define PROGPOW_CACHE_WORDS     " << kCache_bytes / sizeof(uint32_t) << "\n";
+    ret << "#define PROGPOW_CNT_DAG         " << kDag_count << "\n";
+    ret << "#define PROGPOW_CNT_MATH        " << kMath_count << "\n";
     ret << "\n";
 
     if (kern == kernel_type::Cuda)
@@ -244,9 +244,9 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     else
         ret << "if (hack_false) barrier(CLK_LOCAL_MEM_FENCE);\n";
 
-    for (int i = 0; (i < PROGPOW_CNT_CACHE) || (i < PROGPOW_CNT_MATH); i++)
+    for (int i = 0; (i < kCache_count) || (i < kMath_count); i++)
     {
-        if (i < PROGPOW_CNT_CACHE)
+        if (i < kCache_count)
         {
             // Cached memory access
             // lanes access random locations
@@ -258,13 +258,13 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
             ret << "data = c_dag[offset];\n";
             ret << merge(dest, "data", r);
         }
-        if (i < PROGPOW_CNT_MATH)
+        if (i < kMath_count)
         {
             // Random Math
             // Generate 2 unique sources
-            int src_rnd = rnd() % ((PROGPOW_REGS - 1) * PROGPOW_REGS);
-            int src1 = src_rnd % PROGPOW_REGS;  // 0 <= src1 < PROGPOW_REGS
-            int src2 = src_rnd / PROGPOW_REGS;  // 0 <= src2 < PROGPOW_REGS - 1
+            int src_rnd = rnd() % ((kRegs - 1) * kRegs);
+            int src1 = src_rnd % kRegs;  // 0 <= src1 < kRegs
+            int src2 = src_rnd / kRegs;  // 0 <= src2 < kRegs - 1
             if (src2 >= src1)
                 ++src2;  // src2 is now any reg other than src1
             std::string src1_str = "mix[" + std::to_string(src1) + "]";
@@ -285,7 +285,7 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     else
         ret << "if (hack_false) barrier(CLK_LOCAL_MEM_FENCE);\n";
     ret << merge("mix[0]", "data_dag.s[0]", rnd());
-    for (int i = 1; i < PROGPOW_DAG_LOADS; i++)
+    for (int i = 1; i < kDag_loads; i++)
     {
         std::string dest = mix_dst();
         uint32_t r = rnd();

@@ -22,6 +22,7 @@ along with firominer.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <libethcore/Farm.h>
 #include <libcrypto/ethash.hpp>
+#include <libcrypto/progpow.hpp>
 
 #include "CUDAMiner.h"
 #include "CUDAMiner_kernel.h"
@@ -230,7 +231,7 @@ void CUDAMiner::workLoop()
                 old_epoch = static_cast<int>(w.epoch.value());
                 continue;
             }
-            uint64_t period_seed = w.block.value() / PROGPOW_PERIOD;
+            uint64_t period_seed = w.block.value() / progpow::kPeriod;
             if (m_nextProgpowPeriod == 0)
             {
                 m_nextProgpowPeriod = period_seed;
@@ -373,7 +374,7 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
 {
     const char* name = "progpow_search";
 
-    std::string text = ProgPow::getKern(period_seed, ProgPow::KERNEL_CUDA);
+    std::string text = progpow::getKern(period_seed, progpow::kernel_type::Cuda);
     text += std::string(CUDAMiner_kernel);
 
     std::string tmpDir;

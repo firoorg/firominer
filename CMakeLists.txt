@@ -85,7 +85,6 @@ endif()
 cable_add_buildinfo_library(PROJECT_NAME ${PROJECT_NAME})
 
 add_subdirectory(libcrypto)
-add_subdirectory(libprogpow)
 add_subdirectory(libdevcore)
 add_subdirectory(libethcore)
 add_subdirectory(libhwmon)

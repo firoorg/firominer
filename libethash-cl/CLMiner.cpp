@@ -9,6 +9,7 @@
 #include "CLMiner.h"
 #include "CLMiner_kernel.h"
 #include <libcrypto/ethash.hpp>
+#include <libcrypto/progpow.hpp>
 
 #include "CLMiner.h"
 #include <iostream>
@@ -340,7 +341,7 @@ void CLMiner::workLoop()
 
             if (current.header != next.header)
             {
-                uint64_t period_seed = next.block.value() / PROGPOW_PERIOD;
+                uint64_t period_seed = next.block.value() / progpow::kPeriod;
                 if (m_nextProgpowPeriod == 0)
                 {
                     m_nextProgpowPeriod = period_seed;
@@ -887,7 +888,7 @@ void CLMiner::asyncCompile()
 
 void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kernel& searchKernel)
 {
-    std::string code = ProgPow::getKern(period_seed, ProgPow::KERNEL_CL);
+    std::string code = progpow::getKern(period_seed, progpow::kernel_type::OpenCL);
     code += string(CLMiner_kernel);
 
     addDefinition(code, "GROUP_SIZE", m_settings.localWorkSize);

@@ -19,7 +19,6 @@ along with firominer.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <libdevcore/Worker.h>
 #include <libethcore/Miner.h>
-#include <libprogpow/ProgPow.h>
 #include <cuda.h>
 #include "CUDAMiner_cuda.h"
 
