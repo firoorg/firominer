@@ -46,7 +46,7 @@ void update_local_context(int epoch_number, bool full)
 NO_SANITIZE("unsigned-integer-overflow")
 static inline uint32_t fnv1(uint32_t u, uint32_t v) noexcept
 {
-    return (u * fnv_prime) ^ v;
+    return (u * kFnv_prime) ^ v;
 }
 
 static inline hash512 fnv1_512(const hash512& a, const hash512& b) noexcept
@@ -101,7 +101,7 @@ hash1024 calculate_dataset_item_1024(const epoch_context& context, uint32_t inde
     item_state item0{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 2)};
     item_state item1{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 2) + 1};
 
-    for (uint32_t i{0}; i < full_dataset_item_parents; ++i)
+    for (uint32_t i{0}; i < kFull_dataset_item_parents; ++i)
     {
         item0.update(i);
         item1.update(i);
@@ -117,7 +117,7 @@ hash2048 calculate_dataset_item_2048(const epoch_context& context, uint32_t inde
     item_state item2{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 4) + 2};
     item_state item3{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 4) + 3};
 
-    for (uint32_t i{0}; i < full_dataset_item_parents; ++i)
+    for (uint32_t i{0}; i < kFull_dataset_item_parents; ++i)
     {
         item0.update(i);
         item1.update(i);
@@ -139,7 +139,7 @@ void build_light_cache(
         cache[i] = item;
     }
 
-    for (uint32_t round{0}; round < light_cache_rounds; round++)
+    for (uint32_t round{0}; round < kLight_cache_rounds; round++)
     {
         for (uint32_t i{0}; i < num_items; i++)
         {
@@ -168,7 +168,7 @@ hash256 hash_mix(const epoch_context& context, const hash512& seed)
 {
     static const auto lazy_lookup = [](const epoch_context& ctx, uint32_t index) noexcept {
         // l1_cache has the first 128 hash1024 items
-        static constexpr uint32_t l1_cache_num_items{l1_cache_size / sizeof(hash1024)};
+        static constexpr uint32_t l1_cache_num_items{kL1_cache_size / sizeof(hash1024)};
         if (index < l1_cache_num_items)
         {
             const hash1024& item = (reinterpret_cast<const hash1024*>(ctx.l1_cache))[index];
@@ -196,7 +196,7 @@ hash256 hash_mix(const epoch_context& context, const hash512& seed)
 
     hash1024 mix{{le::uint32s(seed), le::uint32s(seed)}};
 
-    for (uint32_t i = 0; i < num_dataset_accesses; ++i)
+    for (uint32_t i = 0; i < kNum_dataset_accesses; ++i)
     {
         const uint32_t p = fnv1(i ^ seed_init, mix.word32s[i % num_words]) % index_limit;
         const hash1024 newdata = le::uint32s(lazy_lookup(context, p));
@@ -232,11 +232,11 @@ epoch_context* create_epoch_context(uint32_t epoch_number, bool full) noexcept
     const uint32_t light_cache_num_items{calculate_light_cache_num_items(epoch_number)};
     const uint32_t full_dataset_num_items{calculate_full_dataset_num_items(epoch_number)};
     const size_t light_cache_size{
-        static_cast<size_t>(light_cache_num_items) * light_cache_item_size};
+        static_cast<size_t>(light_cache_num_items) * kLight_cache_item_size};
 
     const size_t full_dataset_size{
-        full ? static_cast<size_t>(full_dataset_num_items) * full_dataset_item_size :
-               l1_cache_size};
+        full ? static_cast<size_t>(full_dataset_num_items) * kFull_dataset_item_size :
+               kL1_cache_size};
 
     const size_t alloc_size{context_alloc_size + light_cache_size + full_dataset_size};
 
@@ -261,7 +261,7 @@ epoch_context* create_epoch_context(uint32_t epoch_number, bool full) noexcept
 
     auto* full_dataset_2048 = reinterpret_cast<hash2048*>(l1_cache);
 
-    for (uint32_t i{0}; i < l1_cache_size / sizeof(hash2048); ++i)
+    for (uint32_t i{0}; i < kL1_cache_size / sizeof(hash2048); ++i)
         full_dataset_2048[i] = calculate_dataset_item_2048(*context, i);
     return context;
 }
@@ -317,23 +317,23 @@ uint32_t find_largest_unsigned_prime(uint32_t upper_bound) noexcept
 
 size_t get_light_cache_size(int num_items) noexcept
 {
-    return static_cast<size_t>(num_items) * light_cache_item_size;
+    return static_cast<size_t>(num_items) * kLight_cache_item_size;
 }
 
 size_t get_full_dataset_size(int num_items) noexcept
 {
-    return static_cast<size_t>(num_items) * full_dataset_item_size;
+    return static_cast<size_t>(num_items) * kFull_dataset_item_size;
 }
 
 uint32_t calculate_light_cache_num_items(uint32_t epoch_number) noexcept
 {
     static constexpr uint32_t item_size = sizeof(hash512);
-    static constexpr uint32_t num_items_init = light_cache_init_size / item_size;
-    static constexpr uint32_t num_items_growth = light_cache_growth / item_size;
+    static constexpr uint32_t num_items_init = kLight_cache_init_size / item_size;
+    static constexpr uint32_t num_items_growth = kLight_cache_growth / item_size;
     static_assert(
-        light_cache_init_size % item_size == 0, "light_cache_init_size not multiple of item size");
+        kLight_cache_init_size % item_size == 0, "light_cache_init_size not multiple of item size");
     static_assert(
-        light_cache_growth % item_size == 0, "light_cache_growth not multiple of item size");
+        kLight_cache_growth % item_size == 0, "light_cache_growth not multiple of item size");
 
     uint32_t num_items_upper_bound = num_items_init + epoch_number * num_items_growth;
     uint32_t num_items = find_largest_unsigned_prime(num_items_upper_bound);
@@ -343,12 +343,12 @@ uint32_t calculate_light_cache_num_items(uint32_t epoch_number) noexcept
 uint32_t calculate_full_dataset_num_items(uint32_t epoch_number) noexcept
 {
     static constexpr uint32_t item_size = sizeof(hash1024);
-    static constexpr uint32_t num_items_init = full_dataset_init_size / item_size;
-    static constexpr uint32_t num_items_growth = full_dataset_growth / item_size;
-    static_assert(full_dataset_init_size % item_size == 0,
+    static constexpr uint32_t num_items_init = kFull_dataset_init_size / item_size;
+    static constexpr uint32_t num_items_growth = kFull_dataset_growth / item_size;
+    static_assert(kFull_dataset_init_size % item_size == 0,
         "full_dataset_init_size not multiple of item size");
     static_assert(
-        full_dataset_growth % item_size == 0, "full_dataset_growth not multiple of item size");
+        kFull_dataset_growth % item_size == 0, "full_dataset_growth not multiple of item size");
 
     uint32_t num_items_upper_bound = num_items_init + epoch_number * num_items_growth;
     uint32_t num_items = find_largest_unsigned_prime(num_items_upper_bound);
@@ -406,6 +406,11 @@ std::optional<uint32_t> calculate_epoch_from_seed(const hash256& seed) noexcept
     return std::nullopt;
 }
 
+ALWAYS_INLINE uint32_t calculate_epoch_from_block_num(const uint64_t block_num) noexcept
+{
+    return static_cast<uint32_t>(block_num / kEpoch_length);
+}
+
 result hash(const epoch_context& context, const hash256& header, uint64_t nonce)
 {
     const hash512 seed{detail::hash_seed(header, nonce)};
@@ -441,7 +446,7 @@ VerificationResult verify_full(const epoch_context& context, const hash256& head
 VerificationResult verify_full(const uint64_t block_num, const hash256& header_hash,
     const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept
 {
-    auto epoch_number{static_cast<uint32_t>(block_num / epoch_length)};
+    auto epoch_number{calculate_epoch_from_block_num(block_num)};
     auto epoch_context{get_epoch_context(epoch_number, false)};
     return verify_full(*epoch_context, header_hash, mix_hash, nonce, boundary);
 }

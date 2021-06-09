@@ -43,7 +43,7 @@ PoolManager::PoolManager(PoolSettings _settings)
         }
         else
         {
-            cnote << string(EthOrange "Solution 0x") + toHex(sol.nonce)
+            cnote << string(EthOrange "Solution ") + toHex(sol.nonce, dev::HexPrefix::Add)
                   << " wasted. Waiting for connection...";
         }
 
@@ -193,7 +193,7 @@ void PoolManager::setClientHandlers()
             showMiningAt();
 
         cnote << "Job: " EthWhite << m_currentWp.header.abridged()
-              << (m_currentWp.block != -1 ? (" block " + to_string(m_currentWp.block.value())) : "")
+              << (m_currentWp.block.has_value() ? (" block " + to_string(m_currentWp.block.value())) : "")
               << EthReset << " " << m_selectedHost;
 
         Farm::f().setWork(m_currentWp);
@@ -468,7 +468,7 @@ void PoolManager::showMiningAt()
         return;
 
     double d = dev::getHashesToTarget(m_currentWp.boundary.hex(HexPrefix::Add));
-    cnote << "Epoch : " EthWhite << m_currentWp.epoch << EthReset << " Difficulty : " EthWhite
+    cnote << "Epoch : " EthWhite << m_currentWp.epoch.value() << EthReset << " Difficulty : " EthWhite
           << dev::getFormattedHashes(d) << EthReset;
 }
 

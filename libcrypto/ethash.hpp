@@ -19,20 +19,20 @@
 namespace ethash
 {
 // Internal constants:
-constexpr static uint32_t revision = 23;
-constexpr static uint32_t epoch_length = 30000;
-constexpr static uint32_t light_cache_item_size = 64;
-constexpr static uint32_t full_dataset_item_size = 128;
-constexpr static uint32_t num_dataset_accesses = 64;
-constexpr static uint32_t light_cache_init_size = 1 << 24;
-constexpr static uint32_t light_cache_growth = 1 << 17;
-constexpr static uint32_t light_cache_rounds = 3;
-constexpr static uint32_t l1_cache_size = 16384u;
-constexpr static uint32_t full_dataset_init_size = 1 << 30;
-constexpr static uint32_t full_dataset_growth = 1 << 23;
-constexpr static uint32_t full_dataset_item_parents = 256;
-constexpr static uint32_t fnv_prime = 0x01000193u;
-constexpr static uint32_t fnv_offset_basis = 0x811c9dc5u;
+constexpr static uint32_t kRevision = 23;
+constexpr static uint32_t kEpoch_length = 30000;
+constexpr static uint32_t kLight_cache_item_size = 64;
+constexpr static uint32_t kFull_dataset_item_size = 128;
+constexpr static uint32_t kNum_dataset_accesses = 64;
+constexpr static uint32_t kLight_cache_init_size = 1 << 24;
+constexpr static uint32_t kLight_cache_growth = 1 << 17;
+constexpr static uint32_t kLight_cache_rounds = 3;
+constexpr static uint32_t kL1_cache_size = 16384u;
+constexpr static uint32_t kFull_dataset_init_size = 1 << 30;
+constexpr static uint32_t kFull_dataset_growth = 1 << 23;
+constexpr static uint32_t kFull_dataset_item_parents = 256;
+constexpr static uint32_t kFnv_prime = 0x01000193u;
+constexpr static uint32_t kFnv_offset_basis = 0x811c9dc5u;
 
 struct epoch_context
 {
@@ -131,6 +131,13 @@ hash256 calculate_seed_from_epoch(uint32_t epoch_number) noexcept;
  * @return              The epoch number if found.
  */
 std::optional<uint32_t> calculate_epoch_from_seed(const hash256& seed) noexcept;
+
+/**
+ * Calculates the epoch number provided a block number.
+ * @param block_num     The block number
+ * @return              The epoch number
+ */
+ALWAYS_INLINE uint32_t calculate_epoch_from_block_num(const uint64_t block_num) noexcept;
 
 /**
  * Performs a full ethash round with given nonce
