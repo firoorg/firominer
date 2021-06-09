@@ -1413,7 +1413,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                         }
                         catch (const std::exception&)
                         {
-                            m_current.block = -1;
+                            m_current.block.reset();
                         }
                     }
 
@@ -1429,7 +1429,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     m_current_timestamp = std::chrono::steady_clock::now();
                     m_current.startNonce = m_session->extraNonce;
                     m_current.exSizeBytes = m_session->extraNonceSizeBytes;
-                    m_current.block = iBlockHeight;
+                    m_current.block.emplace(iBlockHeight);
 
                     // This will signal to dispatch the job
                     // at the end of the transmission.
