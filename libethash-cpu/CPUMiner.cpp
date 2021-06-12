@@ -30,7 +30,7 @@ along with firominer.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 #include <libethcore/Farm.h>
-#include <ethash/progpow.hpp>
+#include <libcrypto/progpow.hpp>
 
 #include <boost/version.hpp>
 
@@ -232,11 +232,11 @@ void CPUMiner::kick_miner()
 
 void CPUMiner::search(const dev::eth::WorkPackage& w)
 {
-    constexpr size_t blocksize = 30;
+    constexpr size_t blocksize = 64;
 
-    const auto& context = progpow::get_global_epoch_context_full(w.epoch);
-    auto header = progpow::hash256_from_bytes(w.header.data());
-    auto boundary = progpow::hash256_from_bytes(w.get_boundary().data());
+    const auto& context = ethash::get_epoch_context(w.epoch.value(), true);
+    auto header = ethash::from_bytes(w.header.data());
+    auto boundary = ethash::from_bytes(w.get_boundary().data());
     auto nonce = w.startNonce;
 
     while (true)
@@ -255,8 +255,8 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
 
         if (r.solution_found)
         {
-            h256 mix{reinterpret_cast<byte*>(r.mix_hash.bytes), h256::ConstructFromPointer};
-            auto sol = Solution{r.nonce, mix, w, std::chrono::steady_clock::now(), m_index};
+            h256 mix{reinterpret_cast<::byte*>(r.mix_hash.bytes), h256::ConstructFromPointer};
+            Solution sol{r.nonce, mix, w, std::chrono::steady_clock::now(), m_index};
 
             cpulog << EthWhite << "Job: " << w.header.abridged()
                    << " Sol: " << toHex(sol.nonce, HexPrefix::Add) << EthReset;

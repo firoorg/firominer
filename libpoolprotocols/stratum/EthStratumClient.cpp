@@ -1,7 +1,7 @@
 #include <firominer/buildinfo.h>
 #include <libdevcore/Log.h>
-#include <libcrypto/ethash.hpp>
 #include <libpoolprotocols/stratum/arith_uint256.h>
+#include <libcrypto/ethash.hpp>
 
 
 #include "EthStratumClient.h"
@@ -600,7 +600,8 @@ void EthStratumClient::connect_handler(const boost::system::error_code& ec)
     case EthStratumClient::STRATUM:
 
         jReq["jsonrpc"] = "2.0";
-        jReq["params"].append(std::string(firominer_get_buildinfo()->project_name) + "/" + std::string(firominer_get_buildinfo()->project_version));
+        jReq["params"].append(std::string(firominer_get_buildinfo()->project_name) + "/" +
+                              std::string(firominer_get_buildinfo()->project_version));
 
         break;
 
@@ -720,7 +721,8 @@ bool EthStratumClient::processExtranonce(std::string& enonce)
     try
     {
         // Nothing to do with an empty enonce
-        if (enonce.empty()) throw std::invalid_argument("Empty hex value");
+        if (enonce.empty())
+            throw std::invalid_argument("Empty hex value");
 
         // Check is a proper hex format
         if (!std::regex_search(enonce, matches, rgxHex, std::regex_constants::match_default))
@@ -755,8 +757,7 @@ bool EthStratumClient::processExtranonce(std::string& enonce)
     }
 
     return false;
-
- }
+}
 
 void EthStratumClient::processResponse(Json::Value& responseObject)
 {
@@ -1020,18 +1021,19 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     enqueue_response_plea();
 
                     // If pool provides it then set Extranonce now
-                    if (
-                        responseObject.isMember("result")           // Is member present ?
-                        && responseObject["result"].isArray()       // Is it an array ?
-                        && responseObject["result"].size() > 1      // Does it have 2 elements ?
-                        )
+                    if (responseObject.isMember("result")       // Is member present ?
+                        && responseObject["result"].isArray()   // Is it an array ?
+                        && responseObject["result"].size() > 1  // Does it have 2 elements ?
+                    )
                     {
-                        std::string strNonce = responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
+                        std::string strNonce =
+                            responseObject["result"].get(Json::Value::ArrayIndex(1), "").asString();
                         if (strNonce.size() && !processExtranonce(strNonce))
                         {
                             cwarn << "Disconnecting from stratum because of invalid extranonce";
                             // Disconnect from stratum if it fails to set the extra nonce
-                            m_io_service.post(m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
+                            m_io_service.post(
+                                m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
                             return;
                         }
                     }
@@ -1205,7 +1207,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             bool isStale = false;
             if (!_isSuccess)
             {
-                string errCode = responseObject["error"].get("code","").asString();
+                string errCode = responseObject["error"].get("code", "").asString();
                 if (errCode.substr(0, 1) == "2")
                     _isSuccess = isStale = true;
             }
@@ -1219,7 +1221,6 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             }
             else
             {
-
                 if (m_onSolutionRejected)
                 {
                     cwarn << "Reject reason : "
@@ -1379,7 +1380,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                         m_current.startNonce = m_session->extraNonce;
                         m_current.exSizeBytes = m_session->extraNonceSizeBytes;
                         m_current_timestamp = std::chrono::steady_clock::now();
-                        m_current.block = strtoul(sBlockHeight.c_str(), nullptr, 0);
+                        m_current.block.emplace(strtoul(sBlockHeight.c_str(), nullptr, 0));
 
                         // This will signal to dispatch the job
                         // at the end of the transmission.
@@ -1390,10 +1391,14 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 {
                     string sHeaderHash = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
                     string sSeedHash = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
-                    string sShareTarget = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
+                    string sShareTarget =
+                        jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString();
                     bool fCancelJob = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asBool();
-                    uint64_t iBlockHeight = jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asInt64();
-                    uint32_t nBlockTargetBits =  strtoul(jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString().c_str(), nullptr, 16);
+                    uint64_t iBlockHeight =
+                        jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asInt64();
+                    uint32_t nBlockTargetBits =
+                        strtoul(jPrm.get(Json::Value::ArrayIndex(prmIdx++), "").asString().c_str(),
+                            nullptr, 16);
 
                     arith_uint256 hashTarget = arith_uint256().SetCompact(nBlockTargetBits);
                     std::string sBlockTarget = hashTarget.GetHex();
@@ -1465,15 +1470,15 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
 
             jPrm = responseObject["params"];
             m_current.job = jPrm.get(Json::Value::ArrayIndex(0), "").asString();
-            m_current.block =
-                stoul(jPrm.get(Json::Value::ArrayIndex(1), "").asString(), nullptr, 16);
+            m_current.block.emplace(
+                stoul(jPrm.get(Json::Value::ArrayIndex(1), "").asString(), nullptr, 16));
 
             string header =
                 "0x" + dev::padLeft(jPrm.get(Json::Value::ArrayIndex(2), "").asString(), 64, '0');
 
             m_current.header = h256(header);
             m_current.boundary = h256(m_session->nextWorkBoundary.hex(HexPrefix::Add));
-            m_current.epoch = m_session->epoch;
+            m_current.epoch.emplace(m_session->epoch);
             m_current.algo = m_session->algo;
             m_current.startNonce = m_session->extraNonce;
             m_current.exSizeBytes = m_session->extraNonceSizeBytes;
@@ -1567,13 +1572,14 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     m_io_strand.wrap(boost::bind(&EthStratumClient::disconnect, this)));
             }
         }
-        else if (_method == "mining.set_target") {
+        else if (_method == "mining.set_target")
+        {
             jPrm = responseObject.get("params", Json::Value::null);
             prmIdx = 0;
 
             string sShareTarget = jPrm.get(Json::Value::ArrayIndex(prmIdx), "").asString();
             m_current.boundary = h256(sShareTarget);
-            cnote << "New target set to: "  << sShareTarget;
+            cnote << "New target set to: " << sShareTarget;
         }
         else if (_method == "mining.bye" && m_conn->StratumMode() == ETHEREUMSTRATUM2)
         {

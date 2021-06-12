@@ -13,6 +13,13 @@
 #define __has_attribute(name) 0
 #endif
 
+/** inline */
+#if defined(_MSC_VER) || defined(__STDC_VERSION__)
+#define INLINE inline
+#else
+#define INLINE
+#endif
+
 // [[always_inline]]
 #if defined(_MSC_VER)
 #define ALWAYS_INLINE __forceinline

@@ -31,8 +31,6 @@ constexpr static uint32_t kL1_cache_size = 16384u;
 constexpr static uint32_t kFull_dataset_init_size = 1 << 30;
 constexpr static uint32_t kFull_dataset_growth = 1 << 23;
 constexpr static uint32_t kFull_dataset_item_parents = 256;
-constexpr static uint32_t kFnv_prime = 0x01000193u;
-constexpr static uint32_t kFnv_offset_basis = 0x811c9dc5u;
 
 struct epoch_context
 {

@@ -44,6 +44,7 @@ union hash1024
 union hash2048
 {
     union hash512 hash512s[4];
+    union hash1024 hash1024s[2];
     uint64_t word64s[32];
     uint32_t word32s[64];
     uint8_t bytes[256];

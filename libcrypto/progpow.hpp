@@ -8,27 +8,10 @@
 #ifndef CRYPTO_PROGPOW_HPP_
 #define CRYPTO_PROGPOW_HPP_
 
+#include "ethash.hpp"
+#include "kiss99.hpp"
 #include <stdint.h>
 #include <string>
-
-//// blocks before changing the random program
-//#define PROGPOW_PERIOD 3
-//// lanes that work together calculating a hash
-//#define PROGPOW_LANES 16
-//// uint32 registers per lane
-//#define PROGPOW_REGS 32
-//// uint32 loads from the DAG per lane
-//#define PROGPOW_DAG_LOADS 4
-//// size of the cached portion of the DAG
-//#define PROGPOW_CACHE_BYTES (16 * 1024)
-//// DAG accesses, also the number of loops executed
-//#define PROGPOW_CNT_DAG 64
-//// random cache accesses per loop
-//#define PROGPOW_CNT_CACHE 11
-//// random math instructions per loop
-//#define PROGPOW_CNT_MATH 18
-//
-//#define EPOCH_LENGTH 7500
 
 namespace progpow
 {
@@ -48,17 +31,36 @@ enum class kernel_type
     OpenCL
 };
 
-// KISS99 is simple, fast, and passes the TestU01 suite
-// https://en.wikipedia.org/wiki/KISS_(algorithm)
-// http://www.cse.yorku.ca/~oz/marsaglia-rng.html
-typedef struct
+// ProgPoW mix RNG state.
+//
+// Encapsulates the state of the random number generator used in computing ProgPoW mix.
+// This includes the state of the KISS99 RNG and the precomputed random permutation of the
+// sequence of mix item indexes.
+class mix_rng_state
 {
-    uint32_t z, w, jsr, jcong;
-} kiss99_t;
+public:
+
+    explicit mix_rng_state(uint32_t num_regs, uint64_t seed) noexcept;
+    ~mix_rng_state();
+
+    uint32_t next_dst() noexcept { return dst_seq_[(dst_counter_++) % num_regs_]; }
+    uint32_t next_src() noexcept { return src_seq_[(src_counter_++) % num_regs_]; }
+
+    crypto::kiss99 rng;
+
+private:
+    uint32_t num_regs_;
+    uint64_t seed_;
+    size_t dst_counter_{0};
+    size_t src_counter_{0};
+    uint32_t* dst_seq_{nullptr};
+    uint32_t* src_seq_{nullptr};
+};
 
 
 std::string getKern(uint64_t seed, kernel_type kern);
 
+ethash::hash256 hash_mix(uint64_t seed) noexcept;
 
 }  // namespace progpow
 

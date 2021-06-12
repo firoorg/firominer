@@ -5,17 +5,53 @@
 // Modified by Firominer's authors 2021
 
 #include "progpow.hpp"
+#include "bitwise.hpp"
 
 #include <sstream>
 
-#define rnd() (kiss99(rnd_state))
-#define mix_src() ("mix[" + std::to_string(rnd() % kRegs) + "]")
-#define mix_dst() ("mix[" + std::to_string(mix_seq_dst[(mix_seq_dst_cnt++) % kRegs]) + "]")
-#define mix_cache() \
-    ("mix[" + std::to_string(mix_seq_cache[(mix_seq_cache_cnt++) % kRegs]) + "]")
+//#define rnd() (kiss99(rnd_state))
+//#define mix_src() ("mix[" + std::to_string(rnd() % kRegs) + "]")
+//#define mix_dst() ("mix[" + std::to_string(mix_seq_dst[(mix_seq_dst_cnt++) % kRegs]) + "]")
+//#define mix_cache() ("mix[" + std::to_string(mix_seq_cache[(mix_seq_cache_cnt++) % kRegs]) + "]")
 
 namespace progpow
 {
+mix_rng_state::mix_rng_state(uint32_t num_regs, uint64_t seed) noexcept
+  : num_regs_(num_regs), seed_(seed)
+{
+    dst_seq_ = new uint32_t[num_regs_];
+    src_seq_ = new uint32_t[num_regs_];
+
+    const auto seed_lo{static_cast<uint32_t>(seed)};
+    const auto seed_hi{static_cast<uint32_t>(seed >> 32)};
+    const auto z{crypto::fnv1a(crypto::kFNV_OFFSET_BASIS, seed_lo)};
+    const auto w{crypto::fnv1a(z, seed_hi)};
+    const auto jsr{crypto::fnv1a(w, seed_lo)};
+    const auto jcong{crypto::fnv1a(jsr, seed_hi)};
+
+    rng = crypto::kiss99{z, w, jsr, jcong};
+
+    // Create random permutations of mix destinations / sources.
+    // Uses Fisher-Yates shuffle.
+    for (uint32_t i{0}; i < num_regs_; ++i)
+    {
+        dst_seq_[i] = i;
+        src_seq_[i] = i;
+    }
+
+    for (uint32_t i{num_regs_}; i > 1; --i)
+    {
+        std::swap(dst_seq_[i - 1], dst_seq_[rng() % i]);
+        std::swap(src_seq_[i - 1], src_seq_[rng() % i]);
+    }
+}
+
+mix_rng_state::~mix_rng_state()
+{
+    delete[] dst_seq_;
+    delete[] src_seq_;
+}
+
 void swap(int& a, int& b)
 {
     int t = a;
@@ -23,31 +59,50 @@ void swap(int& a, int& b)
     b = t;
 }
 
-static inline uint32_t fnv1a(uint32_t& h, uint32_t d)
-{
-    return h = static_cast<uint32_t>(static_cast<uint64_t>(h ^ d) * 0x1000193u);
-}
+//// KISS99 is simple, fast, and passes the TestU01 suite
+//// https://en.wikipedia.org/wiki/KISS_(algorithm)
+//// http://www.cse.yorku.ca/~oz/marsaglia-rng.html
+// static uint32_t kiss99(kiss99_t& st)
+//{
+//    st.z = 36969 * (st.z & 65535) + (st.z >> 16);
+//    st.w = 18000 * (st.w & 65535) + (st.w >> 16);
+//    uint32_t MWC = ((st.z << 16) + st.w);
+//    st.jsr ^= (st.jsr << 17);
+//    st.jsr ^= (st.jsr >> 13);
+//    st.jsr ^= (st.jsr << 5);
+//    st.jcong = 69069 * st.jcong + 1234567;
+//    return ((MWC ^ st.jcong) + st.jsr);
+//}
 
-// KISS99 is simple, fast, and passes the TestU01 suite
-// https://en.wikipedia.org/wiki/KISS_(algorithm)
-// http://www.cse.yorku.ca/~oz/marsaglia-rng.html
-static uint32_t kiss99(kiss99_t& st)
+
+NO_SANITIZE("unsigned-integer-overflow")
+static void random_merge(uint32_t& a, uint32_t b, uint32_t sel) noexcept
 {
-    st.z = 36969 * (st.z & 65535) + (st.z >> 16);
-    st.w = 18000 * (st.w & 65535) + (st.w >> 16);
-    uint32_t MWC = ((st.z << 16) + st.w);
-    st.jsr ^= (st.jsr << 17);
-    st.jsr ^= (st.jsr >> 13);
-    st.jsr ^= (st.jsr << 5);
-    st.jcong = 69069 * st.jcong + 1234567;
-    return ((MWC ^ st.jcong) + st.jsr);
+    const auto x = (sel >> 16) % 31 + 1;  // Additional non-zero selector from higher bits.
+    switch (sel % 4)
+    {
+    case 0:
+        a = (a * 33) + b;
+        return;
+    case 1:
+        a = (a ^ b) * 33;
+        return;
+    case 2:
+        a = crypto::rotl32(a, x) ^ b;
+        return;
+    case 3:
+        a = crypto::rotr32(a, x) ^ b;
+        return;
+    };
 }
 
 // Merge new data from b into the value in a
 // Assuming A has high entropy only do ops that retain entropy, even if B is low entropy
 // (IE don't do A&B)
-static std::string merge(std::string a, std::string b, uint32_t r)
+static std::string random_merge_src(std::string a, std::string b, uint32_t r)
 {
+    const auto x{((r >> 16) % 31) + 1};  // Additional non-zero selector from higher bits.
+
     switch (r % 4)
     {
     case 0:
@@ -55,17 +110,45 @@ static std::string merge(std::string a, std::string b, uint32_t r)
     case 1:
         return a + " = (" + a + " ^ " + b + ") * 33;\n";
     case 2:
-        return a + " = ROTL32(" + a + ", " + std::to_string(((r >> 16) % 31) + 1) + ") ^ " + b +
-               ";\n";
+        return a + " = ROTL32(" + a + ", " + std::to_string(x) + ") ^ " + b + ";\n";
     case 3:
-        return a + " = ROTR32(" + a + ", " + std::to_string(((r >> 16) % 31) + 1) + ") ^ " + b +
-               ";\n";
+        return a + " = ROTR32(" + a + ", " + std::to_string(x) + ") ^ " + b + ";\n";
     }
     return "#error\n";
 }
 
+NO_SANITIZE("unsigned-integer-overflow")
+static uint32_t random_math(uint32_t a, uint32_t b, uint32_t sel) noexcept
+{
+    switch (sel % 11)
+    {
+    case 0:
+        return a + b;
+    case 1:
+        return a * b;
+    case 2:
+        return crypto::mul_hi32(a, b);
+    case 3:
+        return std::min(a, b);
+    case 4:
+        return crypto::rotl32(a, b);
+    case 5:
+        return crypto::rotr32(a, b);
+    case 6:
+        return a & b;
+    case 7:
+        return a | b;
+    case 8:
+        return a ^ b;
+    case 9:
+        return crypto::clz32(a) + crypto::clz32(b);
+    case 10:
+        return crypto::popcnt32(a) + crypto::popcnt32(b);
+    }
+}
+
 // Random math between two input values
-static std::string math(std::string d, std::string a, std::string b, uint32_t r)
+static std::string random_math_src(std::string d, std::string a, std::string b, uint32_t r)
 {
     switch (r % 11)
     {
@@ -98,36 +181,7 @@ static std::string math(std::string d, std::string a, std::string b, uint32_t r)
 std::string getKern(uint64_t prog_seed, kernel_type kern)
 {
     std::stringstream ret;
-
-    uint32_t seed0 = static_cast<uint32_t>(prog_seed);
-    uint32_t seed1 = static_cast<uint32_t>(prog_seed >> 32);
-    uint32_t fnv_hash = 0x811c9dc5;
-    kiss99_t rnd_state;
-    rnd_state.z = fnv1a(fnv_hash, seed0);
-    rnd_state.w = fnv1a(fnv_hash, seed1);
-    rnd_state.jsr = fnv1a(fnv_hash, seed0);
-    rnd_state.jcong = fnv1a(fnv_hash, seed1);
-
-    // Create a random sequence of mix destinations and cache sources
-    // Merge is a read-modify-write, guaranteeing every mix element is modified every loop
-    // Guarantee no cache load is duplicated and can be optimized away
-    int mix_seq_dst[kRegs];
-    int mix_seq_cache[kRegs];
-    int mix_seq_dst_cnt = 0;
-    int mix_seq_cache_cnt = 0;
-    for (int i = 0; i < kRegs; i++)
-    {
-        mix_seq_dst[i] = i;
-        mix_seq_cache[i] = i;
-    }
-    for (int i = kRegs - 1; i > 0; i--)
-    {
-        int j;
-        j = rnd() % (i + 1);
-        swap(mix_seq_dst[i], mix_seq_dst[j]);
-        j = rnd() % (i + 1);
-        swap(mix_seq_cache[i], mix_seq_cache[j]);
-    }
+    mix_rng_state state{kRegs, kPeriod};
 
     if (kern == kernel_type::Cuda)
     {
@@ -250,46 +304,58 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         {
             // Cached memory access
             // lanes access random locations
-            std::string src = mix_cache();
-            std::string dest = mix_dst();
-            uint32_t r = rnd();
+            std::string src{"mix[" + std::to_string(state.next_src()) + "]"};
+            std::string dest{"mix[" + std::to_string(state.next_dst()) + "]"};
+            const auto sel{state.rng()};
+
             ret << "// cache load " << i << "\n";
             ret << "offset = " << src << " % PROGPOW_CACHE_WORDS;\n";
             ret << "data = c_dag[offset];\n";
-            ret << merge(dest, "data", r);
+            ret << random_merge_src(dest, "data", sel);
         }
         if (i < kMath_count)
         {
             // Random Math
             // Generate 2 unique sources
-            int src_rnd = rnd() % ((kRegs - 1) * kRegs);
-            int src1 = src_rnd % kRegs;  // 0 <= src1 < kRegs
-            int src2 = src_rnd / kRegs;  // 0 <= src2 < kRegs - 1
+            auto src_rnd{state.rng() % (kRegs * (kRegs - 1))};
+            auto src1{src_rnd % kRegs};  // 0 <= src1 < kRegs
+            auto src2{src_rnd / kRegs};  // 0 <= src2 < kRegs - 1
             if (src2 >= src1)
+            {
                 ++src2;  // src2 is now any reg other than src1
+            }
+
             std::string src1_str = "mix[" + std::to_string(src1) + "]";
             std::string src2_str = "mix[" + std::to_string(src2) + "]";
-            uint32_t r1 = rnd();
-            std::string dest = mix_dst();
-            uint32_t r2 = rnd();
+
+            auto sel1{state.rng()};
+            auto sel2{state.rng()};
+
+            std::string dest{"mix[" + std::to_string(state.next_dst()) + "]"};
+
             ret << "// random math " << i << "\n";
-            ret << math("data", src1_str, src2_str, r1);
-            ret << merge(dest, "data", r2);
+            ret << random_math_src("data", src1_str, src2_str, sel1);
+            ret << random_merge_src(dest, "data", sel2);
         }
     }
     // Consume the global load data at the very end of the loop, to allow fully latency hiding
     ret << "// consume global load data\n";
     ret << "// hack to prevent compiler from reordering LD and usage\n";
     if (kern == kernel_type::Cuda)
+    {
         ret << "if (hack_false) __threadfence_block();\n";
+    }
     else
+    {
         ret << "if (hack_false) barrier(CLK_LOCAL_MEM_FENCE);\n";
-    ret << merge("mix[0]", "data_dag.s[0]", rnd());
+    }
+
+    ret << random_merge_src("mix[0]", "data_dag.s[0]", state.rng());
     for (int i = 1; i < kDag_loads; i++)
     {
-        std::string dest = mix_dst();
-        uint32_t r = rnd();
-        ret << merge(dest, "data_dag.s[" + std::to_string(i) + "]", r);
+        std::string dst{"mix[" + std::to_string(state.next_dst()) + "]"};
+        std::string src{"data_dag.words[" + std::to_string(i) + "]"};
+        ret << random_merge_src(dst, src, state.rng());
     }
 
     // Work around AMD OpenCL compiler bug
@@ -302,6 +368,163 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     ret << "\n";
 
     return ret.str();
+}
+
+static void round(const ethash::epoch_context& context, uint32_t r, uint32_t* mix, mix_rng_state state)
+{
+    static const uint32_t l1_cache_words{ethash::kL1_cache_size / sizeof(uint32_t)};
+
+    const uint32_t num_items{static_cast<uint32_t>(context.full_dataset_num_items / 2)};
+    const uint32_t mix_index{(r % kLanes) * kRegs};
+    const uint32_t item_index{mix[mix_index] % num_items};
+
+    // Load DAG Data ( 2 chunks of 1024 bytes )
+    ethash::hash2048 item;
+    if (context.full_dataset)
+    {
+        item.hash1024s[0] = context.full_dataset[item_index * 2];
+        item.hash1024s[1] = context.full_dataset[item_index * 2 + 1];
+    }
+    else
+    {
+        item = ethash::detail::calculate_dataset_item_2048(context, item_index);
+    }
+
+    const uint64_t num_words_per_lane{sizeof(item) / (sizeof(uint32_t) * kLanes)};
+    const auto max_operations{std::max(kCache_count, kMath_count)};
+
+    // Process lanes.
+    for (unsigned i = 0; i < max_operations; ++i)
+    {
+        if (i < kCache_count)  // Random access to cached memory.
+        {
+            const auto src{state.next_src()};
+            const auto dst{state.next_dst()};
+            const auto sel{state.rng()};
+
+            for (uint64_t l{0}; l < kLanes; ++l)
+            {
+                const auto lsrc{static_cast<uint32_t>((l * kRegs) + src)};
+                const auto ldst{static_cast<uint32_t>((l * kRegs) + dst)};
+                const auto offset = mix[lsrc] % l1_cache_words;
+                random_merge(mix[ldst], ethash::le::uint32(context.l1_cache[offset]), sel);
+            }
+        }
+        if (i < kMath_count)  // Random math.
+        {
+            // Generate 2 unique source indexes.
+            const auto src_rnd{state.rng() % (kRegs * (kRegs - 1))};
+            const auto src1{src_rnd % kRegs};  // O <= src1 < num_regs
+            auto src2{src_rnd / kRegs};        // 0 <= src2 < num_regs - 1
+            if (src2 >= src1)
+            {
+                ++src2;
+            }
+
+            const auto sel1{state.rng()};
+            const auto dst{state.next_dst()};
+            const auto sel2{state.rng()};
+
+            for (uint64_t l{0}; l < kLanes; ++l)
+            {
+                const auto lsrc1{static_cast<uint32_t>((l * kRegs) + src1)};
+                const auto lsrc2{static_cast<uint32_t>((l * kRegs) + src2)};
+                const auto ldst{static_cast<uint32_t>((l * kRegs) + dst)};
+                const auto data{random_math(mix[lsrc1], mix[lsrc2], sel1)};
+                random_merge(mix[ldst], data, sel2);
+            }
+        }
+    }
+
+    // Dag Access pattern
+    auto* dsts = new uint32_t[num_words_per_lane];
+    auto* sels = new uint32_t[num_words_per_lane];
+    for (size_t i = 0; i < num_words_per_lane; i++)
+    {
+        dsts[i] = (i == 0 ? 0 : state.next_dst());
+        sels[i] = state.rng();
+    }
+
+    // Dag access
+    for (size_t l = 0; l < kLanes; l++)
+    {
+        const auto offset = ((l ^ r) % kLanes) * num_words_per_lane;
+        for (size_t i = 0; i < num_words_per_lane; i++)
+        {
+            const auto word = ethash::le::uint32(item.word32s[offset + i]);
+            random_merge(mix[(l * kRegs) + dsts[i]], word, sels[i]);
+        }
+    }
+}
+
+
+static void init_mix(uint64_t seed, uint32_t* mix)
+{
+    const uint32_t z = crypto::fnv1a(crypto::kFNV_OFFSET_BASIS, static_cast<uint32_t>(seed));
+    const uint32_t w = crypto::fnv1a(z, static_cast<uint32_t>(seed >> 32));
+
+    for (uint32_t l = 0; l < kLanes; l++)
+    {
+        const uint32_t jsr = crypto::fnv1a(w, l);
+        const uint32_t jcong = crypto::fnv1a(jsr, l);
+        crypto::kiss99 rng{z, w, jsr, jcong};
+        uint32_t rl = l * kRegs;
+        uint32_t rh = rl + kRegs;
+        for (uint32_t r = rl; r < rh; r++)
+        {
+            mix[r] = rng();
+        }
+    }
+}
+
+
+ethash::hash256 hash_mix(const ethash::epoch_context& context, uint64_t seed) noexcept
+{
+    static const uint32_t numWords{static_cast<uint32_t>(static_cast<uint64_t>(kLanes) * kRegs)};
+    uint32_t* mix = new uint32_t[numWords];
+
+    init_mix(seed, mix);
+
+    mix_rng_state state(kRegs, kPeriod);
+    for (uint32_t i{0}; i < kDag_count; ++i)
+    {
+        round(context, i, mix, state);
+    }
+
+    // Reduce mix data to a single per-lane result.
+    uint32_t* lane_hash = new uint32_t[kLanes];
+    for (size_t l{0}; l < kLanes; ++l)
+    {
+        lane_hash[l] = crypto::kFNV_OFFSET_BASIS;
+        auto mix_base_idx{static_cast<uint32_t>(l * kRegs)};
+        for (uint32_t i{0}; i < kRegs; ++i)
+        {
+            lane_hash[l] = crypto::fnv1a(lane_hash[l], mix[mix_base_idx + i]);
+        }
+    }
+
+    // Reduce all lanes to a single 256-bit result.
+    static const size_t num_words{sizeof(ethash::hash256) / sizeof(uint32_t)};
+    ethash::hash256 mix_hash{};
+    for (auto& w : mix_hash.word32s)
+    {
+        w = crypto::kFNV_OFFSET_BASIS;
+    }
+
+    for (size_t l{0}; l < kLanes; ++l)
+    {
+        mix_hash.word32s[l % num_words] =
+            crypto::fnv1a(mix_hash.word32s[l % num_words], lane_hash[l]);
+    }
+
+#if __BYTE_ORDER != __LITTLE_ENDIAN
+    for (auto& w : mix_hash.word32s)
+    {
+        w = ethash::le::uint32(w);
+    }
+#endif
+
+    return mix_hash;
 }
 
 

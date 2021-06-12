@@ -18,7 +18,6 @@ along with firominer.  If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 
 #include <libdevcore/Worker.h>
-#include <libethcore/EthashAux.h>
 #include <libethcore/Miner.h>
 
 #include <functional>

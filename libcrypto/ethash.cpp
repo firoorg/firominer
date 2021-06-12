@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "ethash.hpp"
+#include "bitwise.hpp"
 
 namespace ethash
 {
@@ -38,23 +39,13 @@ void update_local_context(int epoch_number, bool full)
     thread_local_context = shared_context;
 }
 
-/**
- * The implementation of FNV-1 hash.
- *
- * See https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function#FNV-1_hash.
- */
-NO_SANITIZE("unsigned-integer-overflow")
-static inline uint32_t fnv1(uint32_t u, uint32_t v) noexcept
-{
-    return (u * kFnv_prime) ^ v;
-}
 
 static inline hash512 fnv1_512(const hash512& a, const hash512& b) noexcept
 {
     hash512 ret{};
     for (size_t i{0}; i < sizeof(ret) / sizeof(ret.word32s[0]); ++i)
     {
-        ret.word32s[i] = fnv1(a.word32s[i], b.word32s[i]);
+        ret.word32s[i] = crypto::fnv1(a.word32s[i], b.word32s[i]);
     }
     return ret;
 }
@@ -88,7 +79,7 @@ struct item_state
     ALWAYS_INLINE void update(uint32_t round) noexcept
     {
         static constexpr size_t num_words = sizeof(mix) / sizeof(uint32_t);
-        const uint32_t t = fnv1(seed ^ round, mix.word32s[round % num_words]);
+        const uint32_t t = crypto::fnv1(seed ^ round, mix.word32s[round % num_words]);
         const int64_t parent_index = t % num_cache_items;
         mix = fnv1_512(mix, le::uint32s(cache[parent_index]));
     }
@@ -198,20 +189,20 @@ hash256 hash_mix(const epoch_context& context, const hash512& seed)
 
     for (uint32_t i = 0; i < kNum_dataset_accesses; ++i)
     {
-        const uint32_t p = fnv1(i ^ seed_init, mix.word32s[i % num_words]) % index_limit;
+        const uint32_t p = crypto::fnv1(i ^ seed_init, mix.word32s[i % num_words]) % index_limit;
         const hash1024 newdata = le::uint32s(lazy_lookup(context, p));
 
         for (size_t j = 0; j < num_words; ++j)
-            mix.word32s[j] = fnv1(mix.word32s[j], newdata.word32s[j]);
+            mix.word32s[j] = crypto::fnv1(mix.word32s[j], newdata.word32s[j]);
     }
 
     hash256 mix_hash;
 
     for (size_t i = 0; i < num_words; i += 4)
     {
-        const uint32_t h1 = fnv1(mix.word32s[i], mix.word32s[i + 1]);
-        const uint32_t h2 = fnv1(h1, mix.word32s[i + 2]);
-        const uint32_t h3 = fnv1(h2, mix.word32s[i + 3]);
+        const uint32_t h1 = crypto::fnv1(mix.word32s[i], mix.word32s[i + 1]);
+        const uint32_t h2 = crypto::fnv1(h1, mix.word32s[i + 2]);
+        const uint32_t h3 = crypto::fnv1(h2, mix.word32s[i + 3]);
         mix_hash.word32s[i / 4] = h3;
     }
 

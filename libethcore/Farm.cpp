@@ -477,21 +477,26 @@ void Farm::submitProof(Solution const& _s)
 
 void Farm::submitProofAsync(Solution const& _s)
 {
-#ifdef DEV_BUILD
-    const bool dbuild = true;
-#else
-    const bool dbuild = false;
-#endif
-    if (!m_Settings.noEval || dbuild)
+    if (!m_Settings.noEval)
     {
-        auto result = ethash::verify_full(*m_currentEc.get(),
-            ethash::from_bytes(_s.work.header.data()), ethash::from_bytes(_s.mixHash.data()),
-            _s.nonce, ethash::from_bytes(_s.work.get_boundary().data()));
-        if (result != ethash::VerificationResult::kOk)
+        bool validSolution{false};
+
+        if (_s.work.algo == "ethash")
+        {
+            auto result = ethash::verify_full(*m_currentEc.get(),
+                ethash::from_bytes(_s.work.header.data()), ethash::from_bytes(_s.mixHash.data()),
+                _s.nonce, ethash::from_bytes(_s.work.get_boundary().data()));
+            validSolution = (result != ethash::VerificationResult::kOk);
+        }
+
+        // TODO progppow validation
+
+        if (!validSolution)
         {
             accountSolution(_s.midx, SolutionAccountingEnum::Failed);
-            cwarn << "GPU " << _s.midx
-                  << " gave incorrect result. Lower overclocking values if it happens frequently.";
+            cwarn << "GPU " << _s.midx << " gave incorrect " << _s.work.algo
+                  << "result.Lower overclocking values if it happens"
+                     "frequently.";
             return;
         }
     }

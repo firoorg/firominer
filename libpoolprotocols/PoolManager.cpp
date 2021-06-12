@@ -146,49 +146,42 @@ void PoolManager::setClientHandlers()
     });
 
     p_client->onWorkReceived([&](WorkPackage const& wp) {
+
         // Should not happen !
-        if (!wp)
-            return;
-
-        int _currentEpoch =
-            m_currentWp.epoch.has_value() ? static_cast<int>(m_currentWp.epoch.value()) : -1;
-        bool newEpoch = (_currentEpoch == -1);
-
-        // In EthereumStratum/2.0.0 epoch number is set in session
-        if (!newEpoch)
+        if (!wp || !wp.epoch.has_value())
         {
-            if (p_client->getConnection()->StratumMode() == 3)
-                newEpoch = (wp.epoch != m_currentWp.epoch);
-            else
-                newEpoch = (wp.seed != m_currentWp.seed);
+            cwarn << "Invalid work package received";
+            return;
         }
 
-        bool newDiff = (wp.boundary != m_currentWp.boundary);
+        bool newEpoch{false};  // Whether or not the epoch has changed
+        bool newDiff{false};   // Whether or not difficulty has changed
 
-        m_currentWp = wp;
-
-        if (newEpoch)
+        if (!m_currentWp)
         {
-            m_epochChanges.fetch_add(1, std::memory_order_relaxed);
-
-            // If epoch is valued in workpackage take it
-            if (wp.epoch == -1)
-            {
-                if (m_currentWp.block.value() > 0)
-                    m_currentWp.epoch.emplace(
-                        ethash::calculate_epoch_from_block_num(m_currentWp.block.value()));
-                else
-                    m_currentWp.epoch.emplace(ethash::calculate_epoch_from_seed(
-                        ethash::from_bytes(m_currentWp.seed.data())));
-            }
+            newEpoch = true;
+            newDiff = true;
         }
         else
         {
-            m_currentWp.epoch = _currentEpoch;
+            newEpoch = (m_currentWp.epoch.value() != wp.epoch.value());
+            newDiff = (m_currentWp.boundary != wp.boundary);
         }
 
+        // Save package
+        m_currentWp = wp;
+
+        // Increment epoch changes
+        if (newEpoch)
+        {
+            m_epochChanges.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        // Show changes of epoch/diff
         if (newDiff || newEpoch)
+        {
             showMiningAt();
+        }
 
         cnote << "Job: " EthWhite << m_currentWp.header.abridged()
               << (m_currentWp.block.has_value() ?
