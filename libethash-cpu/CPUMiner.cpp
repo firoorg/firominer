@@ -239,33 +239,32 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
     auto boundary = ethash::from_bytes(w.get_boundary().data());
     auto nonce = w.startNonce;
 
-    while (true)
+    while (!shouldStop() && m_new_work.load(std::memory_order_relaxed) == false)
     {
-        if (m_new_work.load(std::memory_order_relaxed))  // new work arrived ?
+
+        // Do the search
+        for (size_t i{0}; i < blocksize; i++, nonce++)
         {
-            m_new_work.store(false, std::memory_order_relaxed);
-            break;
+            auto result{progpow::hash(*context, header, nonce)};
+            if (ethash::is_less_or_equal(result.final_hash, boundary))
+            {
+                h256 mix{
+                    reinterpret_cast<::byte*>(result.mix_hash.bytes), h256::ConstructFromPointer};
+                Solution sol{nonce, mix, w, std::chrono::steady_clock::now(), m_index};
+                cpulog << EthWhite << "Job: " << w.header.abridged()
+                       << " Sol: " << toHex(sol.nonce, HexPrefix::Add) << EthReset;
+                Farm::f().submitProof(sol);
+                break;
+            }
         }
-
-        if (shouldStop())
-            break;
-
-
-        auto r = progpow::search(context, w.block, header, boundary, nonce, blocksize);
-
-        if (r.solution_found)
-        {
-            h256 mix{reinterpret_cast<::byte*>(r.mix_hash.bytes), h256::ConstructFromPointer};
-            Solution sol{r.nonce, mix, w, std::chrono::steady_clock::now(), m_index};
-
-            cpulog << EthWhite << "Job: " << w.header.abridged()
-                   << " Sol: " << toHex(sol.nonce, HexPrefix::Add) << EthReset;
-            Farm::f().submitProof(sol);
-        }
-        nonce += blocksize;
 
         // Update the hash rate
         updateHashRate(blocksize, 1);
+    }
+
+    if (m_new_work.load(std::memory_order_relaxed))  // new work arrived ?
+    {
+        m_new_work.store(false, std::memory_order_relaxed);
     }
 }
 

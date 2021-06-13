@@ -74,6 +74,7 @@ bool CUDAMiner::initDevice()
         }
         catch (const cuda_runtime_error& ec)
         {
+            (void)ec;
             cudalog << "Releasing a primary context that has not been previously retained will "
                        "fail with CUDA_ERROR_INVALID_CONTEXT, this is normal";
             //            cudalog << " Error : " << ec.what();

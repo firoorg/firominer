@@ -18,10 +18,14 @@
 
 namespace ethash
 {
-hash256 keccak256(const uint8_t* input, size_t input_size);
+
+void keccakf1600(uint64_t state[25]);
+void keccakf800(uint32_t state[25]);
+
 hash256 keccak256(const hash256& input);
-hash512 keccak512(const uint8_t* input, size_t input_size);
+hash256 keccak256(const uint8_t* input, size_t input_size);
 hash512 keccak512(const hash512& input);
+hash512 keccak512(const uint8_t* input, size_t input_size);
 
 }  // namespace ethash
 

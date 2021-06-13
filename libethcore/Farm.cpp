@@ -30,6 +30,8 @@
 #include <libethash-cpu/CPUMiner.h>
 #endif
 
+#include <libcrypto/progpow.hpp>
+
 namespace dev
 {
 namespace eth
@@ -489,7 +491,14 @@ void Farm::submitProofAsync(Solution const& _s)
             validSolution = (result != ethash::VerificationResult::kOk);
         }
 
-        // TODO progppow validation
+        if (_s.work.algo == "progpow")
+        {
+
+            auto result = progpow::verify_full(*m_currentEc.get(),
+                ethash::from_bytes(_s.work.header.data()), ethash::from_bytes(_s.mixHash.data()),
+                _s.nonce, ethash::from_bytes(_s.work.get_boundary().data()));
+            validSolution = (result != ethash::VerificationResult::kOk);
+        }
 
         if (!validSolution)
         {

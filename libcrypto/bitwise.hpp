@@ -15,7 +15,6 @@
 
 namespace crypto
 {
-
 /** FNV 32-bit prime. */
 constexpr uint32_t kFNV_PRIME = 0x01000193;
 
@@ -27,6 +26,14 @@ constexpr uint32_t kFNV_OFFSET_BASIS = 0x811c9dc5;
 static INLINE uint32_t rotl32(uint32_t n, uint32_t s)
 {
     const uint32_t mask{31};
+    s &= mask;
+    uint32_t neg_s{(uint32_t)(-(int)s)};
+    return (n << s) | (n >> (neg_s & mask));
+}
+
+static INLINE uint64_t rotl64(uint64_t n, uint32_t s)
+{
+    const uint32_t mask{63};
     s &= mask;
     uint32_t neg_s{(uint32_t)(-(int)s)};
     return (n << s) | (n >> (neg_s & mask));
@@ -59,7 +66,7 @@ static INLINE uint32_t mul_hi32(uint32_t x, uint32_t y)
     return (uint32_t)(((uint64_t)x * (uint64_t)y) >> 32);
 }
 
-    /**
+/**
  * The implementation of FNV-1 hash.
  *
  * See https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function#FNV-1_hash.

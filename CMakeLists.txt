@@ -8,7 +8,7 @@ include(CableToolchains)
 include(HunterGate)
 
 cable_configure_toolchain(DEFAULT cxx17)
-cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release RelWithDebInfo)
+cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release Debug RelWithDebInfo)
 
 set(HUNTER_CONFIGURATION_TYPES Release CACHE STRING "Build type of Hunter packages")
 set(HUNTER_JOBS_NUMBER 6 CACHE STRING "Number of parallel builds used by Hunter")

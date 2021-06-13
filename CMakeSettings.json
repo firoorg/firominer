@@ -10,6 +10,18 @@
       "cmakeCommandArgs": "-Wno-dev --warn-unused-vars -DDEVBUILD=ON -DCOMPUTE=86 -DETHASHCPU=ON",
       "buildCommandArgs": "",
       "ctestCommandArgs": ""
+    },
+    {
+      "name": "x64-Debug",
+      "generator": "Visual Studio 16 2019 Win64",
+      "configurationType": "Debug",
+      "buildRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "-Wno-dev --warn-unused-vars -DDEVBUILD=ON -DCOMPUTE=86 -DETHASHCPU=ON",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "msvc_x64_x64" ],
+      "variables": []
     }
   ]
 }

@@ -370,7 +370,8 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     return ret.str();
 }
 
-static void round(const ethash::epoch_context& context, uint32_t r, uint32_t* mix, mix_rng_state state)
+static void round(
+    const ethash::epoch_context& context, uint32_t r, uint32_t* mix, mix_rng_state state)
 {
     static const uint32_t l1_cache_words{ethash::kL1_cache_size / sizeof(uint32_t)};
 
@@ -478,6 +479,22 @@ static void init_mix(uint64_t seed, uint32_t* mix)
 }
 
 
+ethash::hash256 hash_seed(const ethash::hash256& header_hash, uint64_t nonce) noexcept
+{
+    nonce = ethash::le::uint64(nonce);
+    uint32_t state[25]{};
+    std::memcpy(&state[0], header_hash.bytes, sizeof(ethash::hash256));
+    std::memcpy(&state[8], &nonce, sizeof(uint64_t));
+
+    state[10] = 0x00000001;
+    state[18] = 0x80008081;
+
+    ethash::keccakf800(state);
+    ethash::hash256 output{};
+    std::memcpy(output.bytes, &state[0], sizeof(ethash::hash256));
+    return output;
+}
+
 ethash::hash256 hash_mix(const ethash::epoch_context& context, uint64_t seed) noexcept
 {
     static const uint32_t numWords{static_cast<uint32_t>(static_cast<uint64_t>(kLanes) * kRegs)};
@@ -525,6 +542,45 @@ ethash::hash256 hash_mix(const ethash::epoch_context& context, uint64_t seed) no
 #endif
 
     return mix_hash;
+}
+
+ethash::hash256 hash_final(const ethash::hash256& input_hash, const uint64_t seed_64,
+    const ethash::hash256& mix_hash) noexcept
+{
+    uint32_t state[25] = {0};
+    std::memcpy(&state[0], input_hash.bytes, sizeof(ethash::hash256));
+    state[17] = 0x00000001;
+    state[24] = 0x80008081;
+    ethash::keccakf800(state);
+    ethash::hash256 output{};
+    std::memcpy(output.bytes, &state[0], sizeof(ethash::hash256));
+    return output;
+}
+
+ethash::result hash(
+    const ethash::epoch_context& context, const ethash::hash256& header_hash, uint64_t nonce)
+{
+    const ethash::hash256 seed_hash{hash_seed(header_hash, nonce)};
+    const uint64_t seed_64{seed_hash.word64s[0]};
+    const ethash::hash256 mix_hash{hash_mix(context, seed_64)};
+    const ethash::hash256 final_hash{hash_final(seed_hash, seed_64, mix_hash)};
+    return {final_hash, mix_hash};
+}
+
+ethash::VerificationResult verify_full(const ethash::epoch_context& context,
+    const ethash::hash256& header_hash, const ethash::hash256& mix_hash, uint64_t nonce,
+    const ethash::hash256& boundary) noexcept
+{
+    auto result{progpow::hash(context, header_hash, nonce)};
+    if (!ethash::is_less_or_equal(result.final_hash, boundary))
+    {
+        return ethash::VerificationResult::kInvalidNonce;
+    }
+    if (!ethash::is_equal(result.mix_hash, mix_hash))
+    {
+        return ethash::VerificationResult::kInvalidMixHash;
+    }
+    return ethash::VerificationResult::kOk;
 }
 
 
