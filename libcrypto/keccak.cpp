@@ -518,7 +518,7 @@ static void keccakf800_generic(uint32_t state[25])
 static void (*keccakf800_best)(uint32_t[25]) = keccakf800_generic;
 
 #if defined(__x86_64__) && __has_attribute(target)
-__attribute__((target("bmi,bmi2"))) static void keccakf800_bmi(uint64_t state[25])
+__attribute__((target("bmi,bmi2"))) static void keccakf800_bmi(uint32_t state[25])
 {
     keccakf800_implementation(state);
 }
