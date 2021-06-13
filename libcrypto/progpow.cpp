@@ -9,11 +9,6 @@
 
 #include <sstream>
 
-//#define rnd() (kiss99(rnd_state))
-//#define mix_src() ("mix[" + std::to_string(rnd() % kRegs) + "]")
-//#define mix_dst() ("mix[" + std::to_string(mix_seq_dst[(mix_seq_dst_cnt++) % kRegs]) + "]")
-//#define mix_cache() ("mix[" + std::to_string(mix_seq_cache[(mix_seq_cache_cnt++) % kRegs]) + "]")
-
 namespace progpow
 {
 mix_rng_state::mix_rng_state(uint32_t num_regs, uint64_t seed) noexcept
@@ -51,29 +46,6 @@ mix_rng_state::~mix_rng_state()
     delete[] dst_seq_;
     delete[] src_seq_;
 }
-
-void swap(int& a, int& b)
-{
-    int t = a;
-    a = b;
-    b = t;
-}
-
-//// KISS99 is simple, fast, and passes the TestU01 suite
-//// https://en.wikipedia.org/wiki/KISS_(algorithm)
-//// http://www.cse.yorku.ca/~oz/marsaglia-rng.html
-// static uint32_t kiss99(kiss99_t& st)
-//{
-//    st.z = 36969 * (st.z & 65535) + (st.z >> 16);
-//    st.w = 18000 * (st.w & 65535) + (st.w >> 16);
-//    uint32_t MWC = ((st.z << 16) + st.w);
-//    st.jsr ^= (st.jsr << 17);
-//    st.jsr ^= (st.jsr >> 13);
-//    st.jsr ^= (st.jsr << 5);
-//    st.jcong = 69069 * st.jcong + 1234567;
-//    return ((MWC ^ st.jcong) + st.jsr);
-//}
-
 
 NO_SANITIZE("unsigned-integer-overflow")
 static void random_merge(uint32_t& a, uint32_t b, uint32_t sel) noexcept
