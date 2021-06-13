@@ -145,6 +145,10 @@ static uint32_t random_math(uint32_t a, uint32_t b, uint32_t sel) noexcept
     case 10:
         return crypto::popcnt32(a) + crypto::popcnt32(b);
     }
+
+    // Should not happen but MSVC complains
+    throw std::runtime_error("Invalid selector");
+
 }
 
 // Random math between two input values
