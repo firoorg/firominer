@@ -1,12 +1,12 @@
 # firominer (ethminer fork with ProgPoW implementation)
 
-> kawpow miner with OpenCL, CUDA and stratum support
+> firopow miner with OpenCL, CUDA and stratum support
 
-**firominer** is an ProgPoW GPU mining worker: with firominer you can mine Ravencoin, which relies on an ProgPoW-based Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of firominer. It originates from the [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
+**firominer** is an ProgPoW GPU mining worker: with firominer you can mine Firo, which relies on an ProgPoW-based Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of firominer. It originates from the [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
 
 ## Features
 
-* First commercial KawPow miner software for miners.
+* First commercial ProgPOW Firo miner software for miners.
 * OpenCL mining
 * Nvidia CUDA mining
 * realistic benchmarking against arbitrary epoch/DAG/blocknumber
@@ -14,7 +14,6 @@
 * stratum mining without proxy
 * OpenCL devices picking
 * farm failover (getwork + stratum)
-* Ethereum-based ProgPoW implementations supported only, doesn't support previous ethash version or Bitcoin-based forks.
 
 
 ## Table of Contents
@@ -41,7 +40,7 @@ accessible from command line. The firominer is ready to go.
 
 | Builds | Release |
 | ------ | ------- |
-| Last   | [GitHub release](https://github.com/RavenCommunity/firominer/releases) 
+| Last   | [GitHub release](https://github.com/firoorg/firominer/releases) 
 
 
 If you have trouble with missing .dll or CUDA errors, [please install the latest version of CUDA drivers](https://developer.nvidia.com/cuda-downloads) or report to project maintainers.
@@ -92,7 +91,7 @@ Open "Developer Command Prompt for VS 2019"
 1. Open StartMenu and search for "Developer Command Prompt for VS 2019"
 2. Follow these steps:
 ```
-cd C:\Users\USER_NAME\PATH_TO_KAWPOW\firominer
+cd C:\Users\USER_NAME\PATH_TO_FIROMINER\firominer
 git submodule update --init --recursive
 mkdir build
 cd build
@@ -119,11 +118,11 @@ ProgPoW can be tuned using the following parameters.  The proposed settings have
 * `PROGPOW_CNT_CACHE`: The number of cache accesses per loop
 * `PROGPOW_CNT_MATH`: The number of math operations per loop
 
-The value of these parameters has been tweaked between version 0.9.2 (live on the Gangnam testnet) and 0.9.3 (proposed for Ethereum adoption).  See [this medium post](https://medium.com/@ifdefelse/progpow-progress-da5bb31a651b) for details.
+The value of these parameters has been tweaked to use 0.9.4 specs with a PROGPOW_PEROD of 1 to fit Firo's blocktimes.  See [this medium post](https://medium.com/@ifdefelse/progpow-progress-da5bb31a651b) for details.
 
-| Parameter             | 0.9.2 | 0.9.3 | KAWPOW |
+| Parameter             | 0.9.2 | 0.9.3 | 0.9.4 |
 |-----------------------|-------|-------|--------|
-| `PROGPOW_PERIOD`      | `50`  | `10`  |  `3`   |
+| `PROGPOW_PERIOD`      | `50`  | `10`  |  `1`   |
 | `PROGPOW_LANES`       | `16`  | `16`  |  `16`  |
 | `PROGPOW_REGS`        | `32`  | `32`  |  `32`  |
 | `PROGPOW_DAG_LOADS`   | `4`   | `4`   |  `4`   |
@@ -132,7 +131,7 @@ The value of these parameters has been tweaked between version 0.9.2 (live on th
 | `PROGPOW_CNT_CACHE`   | `12`  | `11`  | `11`  |
 | `PROGPOW_CNT_MATH`    | `20`  | `18`  | `18`  |
 
-KAWPOW_EPOCH_LENGTH = 7500
+Epoch length = 1300 blocks
 
 ## Maintainers & Authors
 
@@ -181,15 +180,15 @@ The new WDDM 2.x driver on Windows 10 uses a different way of addressing the GPU
 
 ### Why is a GTX 1080 slower than a GTX 1070?
 
-Because of the GDDR5X memory, which can't be fully utilized for ETH mining (yet).
+Because of the GDDR5X memory, which can't be fully utilized for FIRO mining (yet).
 
 ### Are AMD cards also affected by slowdowns with increasing DAG size?
 
 Only GCN 1.0 GPUs (78x0, 79x0, 270, 280), but in a different way. You'll see that on each new epoch (30K blocks), the hashrate will go down a little bit.
 
-### Can I still mine ETH with my 2GB GPU?
+### Can I still mine FIRO with my 2GB GPU?
 
-Not really, your VRAM must be above the DAG size (Currently about 2.15 GB.) to get best performance. Without it severe hash loss will occur.
+Not really, your VRAM must be above the DAG size (Currently about 4 GB.) to get best performance. Without it severe hash loss will occur.
 
 ### What are the optimal launch parameters?
 
@@ -205,7 +204,7 @@ The default parameters are fine in most scenario's (CUDA). For OpenCL it varies 
 
 ### Can I CPU Mine?
 
-No, use geth, the go program made for ethereum by ethereum.
+No.
 
 ### CUDA GPU order changes sometimes. What can I do?
 
@@ -238,10 +237,7 @@ You have to upgrade your Nvidia drivers. Install cuda 10.2.
 
 
 [Amazon S3 is needed]: https://docs.travis-ci.com/user/uploading-artifacts/
-[AppVeyor]: https://ci.appveyor.com/project/RavenCommunity/firominer
 [cpp-ethereum]: https://github.com/ethereum/cpp-ethereum
-[Contributors statistics since 2015-08-20]: https://github.com/RavenCommunity/firominer/graphs/contributors?from=2015-08-20
+[Contributors statistics since 2015-08-20]: https://github.com/firoorg/firominer/graphs/contributors?from=2015-08-20
 [Genoil's fork]: https://github.com/Genoil/cpp-ethereum
-[Gitter]: https://gitter.im/RavenCommunity/firominer
-[Releases]: https://github.com/RavenCommunity/firominer/releases
-[Travis CI]: https://travis-ci.org/RavenCommunity/firominer
+[Releases]: https://github.com/firoorg/firominer/releases
