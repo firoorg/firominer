@@ -283,7 +283,7 @@ private:
     boost::asio::deadline_timer m_collectTimer;
     static const int m_collectInterval = 5000;
 
-    string m_pool_addresses;
+    std::string m_pool_addresses;
 
     // StartNonce (non-NiceHash Mode) and
     // segment width assigned to each GPU as exponent of 2
@@ -295,14 +295,14 @@ private:
 
     // Wrappers for hardware monitoring libraries and their mappers
     wrap_nvml_handle* nvmlh = nullptr;
-    std::map<string, int> map_nvml_handle = {};
+    std::map<std::string, int> map_nvml_handle = {};
 
 #if defined(__linux)
     wrap_amdsysfs_handle* sysfsh = nullptr;
-    std::map<string, int> map_amdsysfs_handle = {};
+    std::map<std::string, int> map_amdsysfs_handle = {};
 #else
     wrap_adl_handle* adlh = nullptr;
-    std::map<string, int> map_adl_handle = {};
+    std::map<std::string, int> map_adl_handle = {};
 #endif
 
     static Farm* m_this;

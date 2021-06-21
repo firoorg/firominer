@@ -7,7 +7,7 @@
       "inheritEnvironments": [ "msvc_x64_x64" ],
       "buildRoot": "${env.USERPROFILE}\\CMakeBuilds\\${workspaceHash}\\build\\${name}",
       "installRoot": "${projectDir}\\out\\install\\${name}",
-      "cmakeCommandArgs": "-Wno-dev --warn-unused-vars -DDEVBUILD=ON -DCOMPUTE=86 -DETHASHCPU=ON",
+      "cmakeCommandArgs": "-Wno-dev --warn-unused-vars -DDEVBUILD=ON -DCOMPUTE=86 -DETHASHCPU=ON -DETHASHCUDA=OFF",
       "buildCommandArgs": "",
       "ctestCommandArgs": ""
     },
@@ -20,8 +20,7 @@
       "cmakeCommandArgs": "-Wno-dev --warn-unused-vars -DDEVBUILD=ON -DCOMPUTE=86 -DETHASHCPU=ON",
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
-      "inheritEnvironments": [ "msvc_x64_x64" ],
-      "variables": []
+      "inheritEnvironments": [ "msvc_x64_x64" ]
     }
   ]
 }

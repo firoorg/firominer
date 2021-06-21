@@ -46,7 +46,7 @@ public:
     CLMiner(unsigned _index, CLSettings _settings, DeviceDescriptor& _device);
     ~CLMiner() override;
 
-    static void enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollection);
+    static void enumDevices(std::map<std::string, DeviceDescriptor>& _DevicesCollection);
 
 protected:
     bool initDevice() override;
@@ -83,7 +83,7 @@ private:
     char m_options[256] = {0};
     int m_computeCapability = 0;
 
-    atomic<bool> m_kickEnabled = {false};
+    std::atomic<bool> m_kickEnabled = {false};
 
 };
 

@@ -145,13 +145,18 @@ void PoolManager::setClientHandlers()
         }
     });
 
-    p_client->onWorkReceived([&](WorkPackage const& wp) {
+    p_client->onWorkReceived([&](WorkPackage& wp) {
 
         // Should not happen !
-        if (!wp || !wp.epoch.has_value())
+        if (!wp || !wp.block.has_value())
         {
             cwarn << "Invalid work package received";
             return;
+        }
+
+        if (!wp.epoch.has_value())
+        {
+            wp.epoch.emplace(static_cast<uint32_t>(wp.block.value() / ethash::kEpoch_length));
         }
 
         bool newEpoch{false};  // Whether or not the epoch has changed

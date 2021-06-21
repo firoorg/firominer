@@ -212,6 +212,7 @@ bool CPUMiner::initDevice()
  */
 bool CPUMiner::initEpoch_internal()
 {
+    // std::cout << "initEpoch_internal" << std::endl;
     return true;
 }
 
@@ -232,17 +233,20 @@ void CPUMiner::kick_miner()
 
 void CPUMiner::search(const dev::eth::WorkPackage& w)
 {
+    DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() begin");
     constexpr size_t blocksize = 64;
 
-    const auto& context = ethash::get_epoch_context(w.epoch.value(), true);
-    auto header = ethash::from_bytes(w.header.data());
-    auto boundary = ethash::from_bytes(w.get_boundary().data());
-    auto nonce = w.startNonce;
+    const auto context{ethash::get_epoch_context(w.epoch.value(), true)};
+    auto header{ethash::from_bytes(w.header.data())};
+    auto boundary{ethash::from_bytes(w.get_boundary().data())};
+    auto nonce{w.startNonce};
+
+    std::cout << context->full_dataset << std::endl;
 
     while (!shouldStop() && m_new_work.load(std::memory_order_relaxed) == false)
     {
-
         // Do the search
+        std::cout << "Search ... " << std::endl;
         for (size_t i{0}; i < blocksize; i++, nonce++)
         {
             auto result{progpow::hash(*context, header, nonce)};
@@ -266,6 +270,7 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
     {
         m_new_work.store(false, std::memory_order_relaxed);
     }
+    DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() end");
 }
 
 
@@ -280,28 +285,32 @@ void CPUMiner::workLoop()
     current.header = h256();
 
     if (!initDevice())
+    {
         return;
+    }
 
     while (!shouldStop())
     {
         // Wait for work or 3 seconds (whichever the first)
-        const WorkPackage w = work();
-        if (!w)
+        bool new_work_expected{true};
+        if (!m_new_work.compare_exchange_strong(new_work_expected, false))
         {
-            boost::system_time const timeout =
-                boost::get_system_time() + boost::posix_time::seconds(3);
-            boost::mutex::scoped_lock l(x_work);
-            m_new_work_signal.timed_wait(l, timeout);
+            std::unique_lock l(x_work);
+            m_new_work_signal.wait_for(l, std::chrono::milliseconds(50));
             continue;
         }
 
-        if (w.algo == "ethash")
+        const WorkPackage w = work();
+
+        if (w.algo == "progpow")
         {
             // Epoch change ?
             if (current.epoch != w.epoch)
             {
                 if (!initEpoch())
+                {
                     break;  // This will simply exit the thread
+                }
 
                 // As DAG generation takes a while we need to
                 // ensure we're on latest job, not on the one

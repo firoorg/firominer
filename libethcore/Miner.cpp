@@ -19,7 +19,6 @@
 
 namespace dev::eth
 {
-
 unsigned Miner::s_dagLoadMode = 0;
 unsigned Miner::s_dagLoadIndex = 0;
 unsigned Miner::s_minersCount = 0;
@@ -34,14 +33,17 @@ DeviceDescriptor Miner::getDescriptor()
 void Miner::setWork(WorkPackage const& _work)
 {
     {
-
-        boost::mutex::scoped_lock l(x_work);
+        std::scoped_lock l(x_work);
 
         // Void work if this miner is paused
         if (paused())
+        {
             m_work.header = h256();
+        }
         else
+        {
             m_work = _work;
+        }
 
 #ifdef DEV_BUILD
         m_workSwitchStart = std::chrono::steady_clock::now();
@@ -51,9 +53,9 @@ void Miner::setWork(WorkPackage const& _work)
     kick_miner();
 }
 
-void Miner::pause(MinerPauseEnum what) 
+void Miner::pause(MinerPauseEnum what)
 {
-    boost::mutex::scoped_lock l(x_pause);
+    std::scoped_lock l(x_pause);
     m_pauseFlags.set(what);
     m_work.header = h256();
     kick_miner();
@@ -61,19 +63,19 @@ void Miner::pause(MinerPauseEnum what)
 
 bool Miner::paused()
 {
-    boost::mutex::scoped_lock l(x_pause);
+    std::scoped_lock l(x_pause);
     return m_pauseFlags.any();
 }
 
 bool Miner::pauseTest(MinerPauseEnum what)
 {
-    boost::mutex::scoped_lock l(x_pause);
+    std::scoped_lock l(x_pause);
     return m_pauseFlags.test(what);
 }
 
 std::string Miner::pausedString()
 {
-    boost::mutex::scoped_lock l(x_pause);
+    std::scoped_lock l(x_pause);
     std::string retVar;
     if (m_pauseFlags.any())
     {
@@ -94,18 +96,17 @@ std::string Miner::pausedString()
                     retVar.append("Insufficient GPU memory");
                 else if (i == MinerPauseEnum::PauseDueToInitEpochError)
                     retVar.append("Epoch initialization error");
-
             }
         }
     }
     return retVar;
 }
 
-void Miner::resume(MinerPauseEnum fromwhat) 
+void Miner::resume(MinerPauseEnum fromwhat)
 {
-    boost::mutex::scoped_lock l(x_pause);
+    std::scoped_lock l(x_pause);
     m_pauseFlags.reset(fromwhat);
-    //if (!m_pauseFlags.any())
+    // if (!m_pauseFlags.any())
     //{
     //    // TODO Push most recent job from farm ?
     //    // If we do not push a new job the miner will stay idle
@@ -137,10 +138,8 @@ bool Miner::initEpoch()
     {
         while (s_dagLoadIndex < m_index)
         {
-            boost::system_time const timeout =
-                boost::get_system_time() + boost::posix_time::seconds(3);
-            boost::mutex::scoped_lock l(x_work);
-            m_dag_loaded_signal.timed_wait(l, timeout);
+            std::unique_lock l(x_work);
+            m_dag_loaded_signal.wait_for(l, std::chrono::seconds(3));
         }
         if (shouldStop())
             return false;
@@ -150,7 +149,7 @@ bool Miner::initEpoch()
     // specific for miner
     bool result = initEpoch_internal();
 
-    // Advance to next miner or reset to zero for 
+    // Advance to next miner or reset to zero for
     // next run if all have processed
     if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
     {
@@ -166,7 +165,7 @@ bool Miner::initEpoch()
 
 WorkPackage Miner::work() const
 {
-    boost::mutex::scoped_lock l(x_work);
+    std::scoped_lock l(x_work);
     return m_work;
 }
 

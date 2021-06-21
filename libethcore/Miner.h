@@ -21,10 +21,11 @@
 
 
 #include <bitset>
+#include <condition_variable>
 #include <list>
 #include <numeric>
-#include <string>
 #include <optional>
+#include <string>
 
 //#include "EthashAux.h"
 #include <libdevcore/Common.h>
@@ -33,14 +34,12 @@
 
 #include <boost/asio.hpp>
 #include <boost/format.hpp>
-#include <boost/thread.hpp>
 
 #include <libcrypto/ethash.hpp>
 
 #define DAG_LOAD_MODE_PARALLEL 0
 #define DAG_LOAD_MODE_SEQUENTIAL 1
 
-using namespace std;
 
 extern boost::asio::io_service g_io_service;
 
@@ -97,7 +96,7 @@ enum class SolutionAccountingEnum
 
 struct MinerSettings
 {
-    vector<unsigned> devices;
+    std::vector<unsigned> devices;
 };
 
 // Holds settings for CUDA Miner
@@ -131,15 +130,15 @@ struct SolutionAccountType
     unsigned wasted = 0;
     unsigned failed = 0;
     std::chrono::steady_clock::time_point tstamp = std::chrono::steady_clock::now();
-    string str()
+    std::string str()
     {
-        string _ret = "A" + to_string(accepted);
+        std::string _ret = "A" + std::to_string(accepted);
         if (wasted)
-            _ret.append(":W" + to_string(wasted));
+            _ret.append(":W" + std::to_string(wasted));
         if (rejected)
-            _ret.append(":R" + to_string(rejected));
+            _ret.append(":R" + std::to_string(rejected));
         if (failed)
-            _ret.append(":F" + to_string(failed));
+            _ret.append(":F" + std::to_string(failed));
         return _ret;
     };
 };
@@ -149,9 +148,9 @@ struct HwSensorsType
     int tempC = 0;
     int fanP = 0;
     double powerW = 0.0;
-    string str()
+    std::string str()
     {
-        string _ret = to_string(tempC) + "C " + to_string(fanP) + "%";
+        std::string _ret = std::to_string(tempC) + "C " + std::to_string(fanP) + "%";
         if (powerW)
             _ret.append(boost::str(boost::format("%f") % powerW));
         return _ret;
@@ -160,7 +159,7 @@ struct HwSensorsType
 
 struct TelemetryAccountType
 {
-    string prefix = "";
+    std::string prefix = "";
     float hashrate = 0.0f;
     bool paused = false;
     HwSensorsType sensors;
@@ -172,37 +171,37 @@ struct DeviceDescriptor
     DeviceTypeEnum type = DeviceTypeEnum::Unknown;
     DeviceSubscriptionTypeEnum subscriptionType = DeviceSubscriptionTypeEnum::None;
 
-    string uniqueId;     // For GPUs this is the PCI ID
-    size_t totalMemory;  // Total memory available on device
-    size_t freeMemory;   // Free memory available on device
-    string name;         // Device Name
+    std::string uniqueId;  // For GPUs this is the PCI ID
+    size_t totalMemory;    // Total memory available on device
+    size_t freeMemory;     // Free memory available on device
+    std::string name;      // Device Name
 
     bool clDetected;  // For OpenCL detected devices
-    string clName;
+    std::string clName;
     unsigned int clPlatformId;
-    string clPlatformName;
+    std::string clPlatformName;
     ClPlatformTypeEnum clPlatformType = ClPlatformTypeEnum::Unknown;
-    string clPlatformVersion;
+    std::string clPlatformVersion;
     unsigned int clPlatformVersionMajor;
     unsigned int clPlatformVersionMinor;
     unsigned int clDeviceOrdinal;
     unsigned int clDeviceIndex;
-    string clDeviceVersion;
+    std::string clDeviceVersion;
     unsigned int clDeviceVersionMajor;
     unsigned int clDeviceVersionMinor;
-    string clBoardName;
+    std::string clBoardName;
     size_t clMaxMemAlloc;
     size_t clMaxWorkGroup;
     unsigned int clMaxComputeUnits;
-    string clNvCompute;
+    std::string clNvCompute;
     unsigned int clNvComputeMajor;
     unsigned int clNvComputeMinor;
 
     bool cuDetected;  // For CUDA detected devices
-    string cuName;
+    std::string cuName;
     unsigned int cuDeviceOrdinal;
     unsigned int cuDeviceIndex;
-    string cuCompute;
+    std::string cuCompute;
     unsigned int cuComputeMajor;
     unsigned int cuComputeMinor;
 
@@ -212,7 +211,7 @@ struct DeviceDescriptor
 struct HwMonitorInfo
 {
     HwMonitorInfoType deviceType = HwMonitorInfoType::UNKNOWN;
-    string devicePciId;
+    std::string devicePciId;
     int deviceIndex = -1;
 };
 
@@ -264,9 +263,9 @@ struct TelemetryType
         int hoursSize = (hours.count() > 9 ? (hours.count() > 99 ? 3 : 2) : 1);
         duration -= hours;
         auto minutes = std::chrono::duration_cast<std::chrono::minutes>(duration);
-        _ret << EthGreen << setw(hoursSize) << hours.count() << ":" << setfill('0') << setw(2)
-             << minutes.count() << EthReset << EthWhiteBold << " " << farm.solutions.str()
-             << EthReset << " ";
+        _ret << EthGreen << std::setw(hoursSize) << hours.count() << ":" << std::setfill('0')
+             << std::setw(2) << minutes.count() << EthReset << EthWhiteBold << " "
+             << farm.solutions.str() << EthReset << " ";
 
         /*
         Github : @AndreaLanfranchi
@@ -275,7 +274,7 @@ struct TelemetryType
         of magnitude than the hashrate expressed by single devices.
         Thus I need to set the vary same scaling index on the farm and on devices
         */
-        static string suffixes[] = {"h", "Kh", "Mh", "Gh"};
+        static std::string suffixes[] = {"h", "Kh", "Mh", "Gh"};
         float hr = farm.hashrate;
         int magnitude = 0;
         while (hr > 1000.0f && magnitude <= 3)
@@ -507,22 +506,22 @@ protected:
 #endif
 
     HwMonitorInfo m_hwmoninfo;
-    mutable boost::mutex x_work;
-    mutable boost::mutex x_pause;
-    boost::condition_variable m_new_work_signal;
-    boost::condition_variable m_dag_loaded_signal;
+    mutable std::mutex x_work;
+    mutable std::mutex x_pause;
+    std::condition_variable m_new_work_signal;
+    std::condition_variable m_dag_loaded_signal;
     uint64_t m_nextProgpowPeriod = 0;
-    boost::thread* m_compileThread = nullptr;
+    std::unique_ptr<std::thread> m_compileThread = nullptr;
 
 private:
-    bitset<MinerPauseEnum::Pause_MAX> m_pauseFlags;
+    std::bitset<MinerPauseEnum::Pause_MAX> m_pauseFlags;
 
     WorkPackage m_work;
 
     std::chrono::steady_clock::time_point m_hashTime = std::chrono::steady_clock::now();
     std::atomic<float> m_hashRate = {0.0};
     uint64_t m_groupCount = 0;
-    atomic<bool> m_hashRateUpdate = {false};
+    std::atomic<bool> m_hashRateUpdate = {false};
 };
 
 }  // namespace dev::eth

@@ -187,8 +187,8 @@ void Farm::shuffle()
     // we could reasonably always start the nonce search ranges
     // at a fixed place, but that would be boring. Provide a once
     // per run randomized start place, without creating much overhead.
-    random_device engine;
-    m_nonce_scrambler = uniform_int_distribution<uint64_t>()(engine);
+    std::random_device engine;
+    m_nonce_scrambler = std::uniform_int_distribution<uint64_t>()(engine);
 }
 
 void Farm::setWork(WorkPackage const& _newWp)

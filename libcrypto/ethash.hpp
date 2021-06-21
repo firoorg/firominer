@@ -20,7 +20,7 @@ namespace ethash
 {
 // Internal constants:
 constexpr static uint32_t kRevision = 23;
-constexpr static uint32_t kEpoch_length = 30000;
+constexpr static uint32_t kEpoch_length = 7500; // Firo
 constexpr static uint32_t kLight_cache_item_size = 64;
 constexpr static uint32_t kFull_dataset_item_size = 128;
 constexpr static uint32_t kNum_dataset_accesses = 64;
