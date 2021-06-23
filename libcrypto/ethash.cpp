@@ -87,6 +87,31 @@ struct item_state
     ALWAYS_INLINE hash512 final() noexcept { return keccak512(le::uint32s(mix)); }
 };
 
+hash1024 lazy_lookup_1024(const epoch_context& context, uint32_t index) noexcept {
+
+    // l1_cache has the first 128 hash1024 items
+    static constexpr uint32_t l1_cache_num_items{kL1_cache_size / sizeof(hash1024)};
+    if (index < l1_cache_num_items)
+    {
+        const hash1024& item = (reinterpret_cast<const hash1024*>(context.l1_cache))[index];
+        return item;
+    }
+
+    if (context.full_dataset)
+    {
+        hash1024& item = context.full_dataset[index];
+        if (item.word64s[0] == 0)
+        {
+            // TODO: Copy elision here makes it thread-safe?
+            item = calculate_dataset_item_1024(context, index);
+        }
+        return item;
+    }
+
+    auto item = calculate_dataset_item_1024(context, index);
+    return item;
+}
+
 hash1024 calculate_dataset_item_1024(const epoch_context& context, uint32_t index) noexcept
 {
     item_state item0{context, static_cast<uint32_t>(static_cast<uint64_t>(index) * 2)};
@@ -157,30 +182,6 @@ hash512 hash_seed(const hash256& header, uint64_t nonce) noexcept
 
 hash256 hash_mix(const epoch_context& context, const hash512& seed)
 {
-    static const auto lazy_lookup = [](const epoch_context& ctx, uint32_t index) noexcept {
-        // l1_cache has the first 128 hash1024 items
-        static constexpr uint32_t l1_cache_num_items{kL1_cache_size / sizeof(hash1024)};
-        if (index < l1_cache_num_items)
-        {
-            const hash1024& item = (reinterpret_cast<const hash1024*>(ctx.l1_cache))[index];
-            return item;
-        }
-
-        if (ctx.full_dataset)
-        {
-            hash1024& item = ctx.full_dataset[index];
-            if (item.word64s[0] == 0)
-            {
-                // TODO: Copy elision here makes it thread-safe?
-                item = calculate_dataset_item_1024(ctx, index);
-            }
-            return item;
-        }
-
-        auto item = calculate_dataset_item_1024(ctx, index);
-        return item;
-    };
-
     static constexpr size_t num_words{sizeof(hash1024) / sizeof(uint32_t)};
     const uint32_t index_limit{context.full_dataset_num_items};
     const uint32_t seed_init{le::uint32(seed.word32s[0])};
@@ -190,7 +191,7 @@ hash256 hash_mix(const epoch_context& context, const hash512& seed)
     for (uint32_t i = 0; i < kNum_dataset_accesses; ++i)
     {
         const uint32_t p = crypto::fnv1(i ^ seed_init, mix.word32s[i % num_words]) % index_limit;
-        const hash1024 newdata = le::uint32s(lazy_lookup(context, p));
+        const hash1024 newdata = le::uint32s(lazy_lookup_1024(context, p));
 
         for (size_t j = 0; j < num_words; ++j)
             mix.word32s[j] = crypto::fnv1(mix.word32s[j], newdata.word32s[j]);

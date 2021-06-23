@@ -338,7 +338,7 @@ void CLMiner::workLoop()
 
             if (current.header != next.header)
             {
-                uint64_t period_seed = next.block.value() / progpow::kPeriod;
+                uint64_t period_seed = next.block.value() / progpow::kPeriodLength;
                 if (m_nextProgpowPeriod == 0)
                 {
                     m_nextProgpowPeriod = period_seed;

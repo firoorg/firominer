@@ -38,8 +38,8 @@ namespace eth
 {
 Farm* Farm::m_this = nullptr;
 
-Farm::Farm(std::map<std::string, DeviceDescriptor>& _DevicesCollection, FarmSettings _settings,
-    CUSettings _CUSettings, CLSettings _CLSettings, CPSettings _CPSettings)
+Farm::Farm(std::map<std::string, DeviceDescriptor>& _DevicesCollection, FarmSettings _settings, CUSettings _CUSettings,
+    CLSettings _CLSettings, CPSettings _CPSettings)
   : m_Settings(std::move(_settings)),
     m_CUSettings(std::move(_CUSettings)),
     m_CLSettings(std::move(_CLSettings)),
@@ -99,9 +99,8 @@ Farm::Farm(std::map<std::string, DeviceDescriptor>& _DevicesCollection, FarmSett
             {
                 std::ostringstream oss;
                 std::string uniqueId;
-                oss << std::setfill('0') << std::setw(2) << std::hex
-                    << (unsigned int)sysfsh->sysfs_pci_bus_id[i] << ":" << std::setw(2)
-                    << (unsigned int)(sysfsh->sysfs_pci_device_id[i]) << ".0";
+                oss << std::setfill('0') << std::setw(2) << std::hex << (unsigned int)sysfsh->sysfs_pci_bus_id[i] << ":"
+                    << std::setw(2) << (unsigned int)(sysfsh->sysfs_pci_device_id[i]) << ".0";
                 uniqueId = oss.str();
                 map_amdsysfs_handle[uniqueId] = i;
             }
@@ -118,10 +117,8 @@ Farm::Farm(std::map<std::string, DeviceDescriptor>& _DevicesCollection, FarmSett
                 std::ostringstream oss;
                 std::string uniqueId;
                 oss << std::setfill('0') << std::setw(2) << std::hex
-                    << (unsigned int)adlh->devs[adlh->phys_logi_device_id[i]].iBusNumber << ":"
-                    << std::setw(2)
-                    << (unsigned int)(adlh->devs[adlh->phys_logi_device_id[i]].iDeviceNumber)
-                    << ".0";
+                    << (unsigned int)adlh->devs[adlh->phys_logi_device_id[i]].iBusNumber << ":" << std::setw(2)
+                    << (unsigned int)(adlh->devs[adlh->phys_logi_device_id[i]].iDeviceNumber) << ".0";
                 uniqueId = oss.str();
                 map_adl_handle[uniqueId] = i;
             }
@@ -137,9 +134,8 @@ Farm::Farm(std::map<std::string, DeviceDescriptor>& _DevicesCollection, FarmSett
             {
                 std::ostringstream oss;
                 std::string uniqueId;
-                oss << std::setfill('0') << std::setw(2) << std::hex
-                    << (unsigned int)nvmlh->nvml_pci_bus_id[i] << ":" << std::setw(2)
-                    << (unsigned int)(nvmlh->nvml_pci_device_id[i] >> 3) << ".0";
+                oss << std::setfill('0') << std::setw(2) << std::hex << (unsigned int)nvmlh->nvml_pci_bus_id[i] << ":"
+                    << std::setw(2) << (unsigned int)(nvmlh->nvml_pci_device_id[i] >> 3) << ".0";
                 uniqueId = oss.str();
                 map_nvml_handle[uniqueId] = i;
             }
@@ -221,8 +217,7 @@ void Farm::setWork(WorkPackage const& _newWp)
     {
         // Equally divide the residual segment among miners
         _startNonce = m_currentWp.startNonce;
-        m_nonce_segment_with =
-            (unsigned int)log2(pow(2, 64 - (m_currentWp.exSizeBytes * 4)) / m_miners.size());
+        m_nonce_segment_with = (unsigned int)log2(pow(2, 64 - (m_currentWp.exSizeBytes * 4)) / m_miners.size());
     }
     else
     {
@@ -258,8 +253,7 @@ bool Farm::start()
             if (it->second.subscriptionType == DeviceSubscriptionTypeEnum::Cuda)
             {
                 minerTelemetry.prefix = "cu";
-                m_miners.push_back(std::shared_ptr<Miner>(
-                    new CUDAMiner(m_miners.size(), m_CUSettings, it->second)));
+                m_miners.push_back(std::shared_ptr<Miner>(new CUDAMiner(m_miners.size(), m_CUSettings, it->second)));
             }
 #endif
 #if ETH_ETHASHCL
@@ -267,8 +261,7 @@ bool Farm::start()
             if (it->second.subscriptionType == DeviceSubscriptionTypeEnum::OpenCL)
             {
                 minerTelemetry.prefix = "cl";
-                m_miners.push_back(
-                    std::shared_ptr<Miner>(new CLMiner(m_miners.size(), m_CLSettings, it->second)));
+                m_miners.push_back(std::shared_ptr<Miner>(new CLMiner(m_miners.size(), m_CLSettings, it->second)));
             }
 #endif
 #if ETH_ETHASHCPU
@@ -276,8 +269,7 @@ bool Farm::start()
             if (it->second.subscriptionType == DeviceSubscriptionTypeEnum::Cpu)
             {
                 minerTelemetry.prefix = "cp";
-                m_miners.push_back(std::shared_ptr<Miner>(
-                    new CPUMiner(m_miners.size(), m_CPSettings, it->second)));
+                m_miners.push_back(std::shared_ptr<Miner>(new CPUMiner(m_miners.size(), m_CPSettings, it->second)));
             }
 #endif
             if (minerTelemetry.prefix.empty())
@@ -485,27 +477,50 @@ void Farm::submitProofAsync(Solution const& _s)
 
         if (_s.work.algo == "ethash")
         {
-            auto result = ethash::verify_full(*m_currentEc.get(),
-                ethash::from_bytes(_s.work.header.data()), ethash::from_bytes(_s.mixHash.data()),
-                _s.nonce, ethash::from_bytes(_s.work.get_boundary().data()));
-            validSolution = (result != ethash::VerificationResult::kOk);
+            auto result = ethash::verify_full(*m_currentEc.get(), ethash::from_bytes(_s.work.header.data()),
+                ethash::from_bytes(_s.mixHash.data()), _s.nonce, ethash::from_bytes(_s.work.get_boundary().data()));
+            switch (result)
+            {
+            case ethash::VerificationResult::kInvalidNonce:
+                cwarn << "Solution not below boundary";
+                break;
+            case ethash::VerificationResult::kInvalidMixHash:
+                cwarn << "Solution mix mismatch";
+                break;
+            default:
+                validSolution = true;
+                break;
+            }
         }
 
         if (_s.work.algo == "progpow")
         {
+            auto period{_s.work.block.value() / progpow::kPeriodLength};
 
-            auto result = progpow::verify_full(*m_currentEc.get(),
-                ethash::from_bytes(_s.work.header.data()), ethash::from_bytes(_s.mixHash.data()),
-                _s.nonce, ethash::from_bytes(_s.work.get_boundary().data()));
-            validSolution = (result != ethash::VerificationResult::kOk);
+            ethash::hash256 header_256{ethash::from_bytes(_s.work.header.data())};
+            ethash::hash256 mix_256{ethash::from_bytes(_s.mixHash.data())};
+            ethash::hash256 boundary_256{ethash::from_bytes(_s.work.boundary.data())};
+
+            auto result = progpow::verify_full(_s.work.block.value(), header_256, mix_256, _s.nonce, boundary_256);
+            switch (result)
+            {
+            case ethash::VerificationResult::kInvalidNonce:
+                cwarn << "Solution not below boundary";
+                break;
+            case ethash::VerificationResult::kInvalidMixHash:
+                cwarn << "Solution mix mismatch";
+                break;
+            default:
+                validSolution = true;
+                break;
+            }
         }
 
         if (!validSolution)
         {
             accountSolution(_s.midx, SolutionAccountingEnum::Failed);
             cwarn << "GPU " << _s.midx << " gave incorrect " << _s.work.algo
-                  << "result.Lower overclocking values if it happens"
-                     "frequently.";
+                  << " result. Lower overclocking values if it happens frequently.";
             return;
         }
     }
@@ -515,8 +530,7 @@ void Farm::submitProofAsync(Solution const& _s)
 #ifdef DEV_BUILD
     if (g_logOptions & LOG_SUBMIT)
         cnote << "Submit time: "
-              << std::chrono::duration_cast<std::chrono::microseconds>(
-                     std::chrono::steady_clock::now() - _s.tstamp)
+              << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _s.tstamp)
                      .count()
               << " us.";
 #endif
@@ -539,7 +553,6 @@ void Farm::collectData(const boost::system::error_code& ec)
         farm_hr += hr;
         m_telemetry.miners.at(minerIdx).hashrate = hr;
         m_telemetry.miners.at(minerIdx).paused = miner->paused();
-
 
         if (m_Settings.hwMon)
         {
@@ -581,8 +594,7 @@ void Farm::collectData(const boost::system::error_code& ec)
                     int devIdx = hwInfo.deviceIndex;
                     if (devIdx == -1 && !hwInfo.devicePciId.empty())
                     {
-                        if (map_amdsysfs_handle.find(hwInfo.devicePciId) !=
-                            map_amdsysfs_handle.end())
+                        if (map_amdsysfs_handle.find(hwInfo.devicePciId) != map_amdsysfs_handle.end())
                         {
                             devIdx = map_amdsysfs_handle[hwInfo.devicePciId];
                             miner->setHwmonDeviceIndex(devIdx);

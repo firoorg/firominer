@@ -35,7 +35,7 @@ public:
     ~CUDAMiner() override;
 
     static int getNumDevices();
-    static void enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollection);
+    static void enumDevices(std::map<std::string, DeviceDescriptor>& _DevicesCollection);
 
     void search(
         uint8_t const* header, uint64_t target, uint64_t _startN, const dev::eth::WorkPackage& w);
@@ -48,7 +48,7 @@ protected:
     void kick_miner() override;
 
 private:
-    atomic<bool> m_new_work = {false};
+    std::atomic<bool> m_new_work = {false};
 
     void workLoop() override;
 

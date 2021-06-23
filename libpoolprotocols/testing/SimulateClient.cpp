@@ -53,18 +53,25 @@ void SimulateClient::submitHashrate(uint64_t const& rate, string const& id)
 void SimulateClient::submitSolution(const Solution& solution)
 {
     // This is a fake submission only evaluated locally
+    solution_arrived.store(true);
     std::chrono::steady_clock::time_point submit_start = std::chrono::steady_clock::now();
-
-    auto result = ethash::verify_full(solution.work.block.value(),
-        ethash::from_bytes(solution.work.header.data()),
-        ethash::from_bytes(solution.mixHash.data()), solution.nonce,
-        ethash::from_bytes(solution.work.get_boundary().data()));
+    ethash::VerificationResult result;
+    if (solution.work.algo == "ethash")
+    {
+        result = ethash::verify_full(solution.work.block.value(), ethash::from_bytes(solution.work.header.data()),
+            ethash::from_bytes(solution.mixHash.data()), solution.nonce,
+            ethash::from_bytes(solution.work.get_boundary().data()));
+    }
+    else if (solution.work.algo == "progpow")
+    {
+        result = progpow::verify_full(solution.work.block.value(), ethash::from_bytes(solution.work.header.data()),
+            ethash::from_bytes(solution.mixHash.data()), solution.nonce,
+            ethash::from_bytes(solution.work.get_boundary().data()));
+    }
 
     bool accepted = (result == ethash::VerificationResult::kOk);
-
     std::chrono::milliseconds response_delay_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - submit_start);
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - submit_start);
 
     if (accepted)
     {
@@ -87,13 +94,18 @@ void SimulateClient::workLoop()
     // ref: https://en.wikipedia.org/wiki/Moving_average#Exponential_moving_average
 
     WorkPackage current;
-    current.seed = h256::random();  // We don't actually need a real seed as the epoch
-                                    // is calculated upon block number (see poolmanager)
-    current.header = h256::random();
-    current.block = m_block;
-    current.boundary = h256(dev::getTargetFromDiff(m_difficulty));
-    m_onWorkReceived(current);  // submit new fake job
 
+    current.algo = "progpow";
+    current.block.emplace(m_block);
+    current.epoch.emplace(m_block / ethash::kEpoch_length);
+
+    ethash::hash256 seed_h256{ethash::calculate_seed_from_epoch(current.epoch.value())};
+    current.seed = h256(reinterpret_cast<::byte*>(seed_h256.bytes), h256::ConstructFromPointer);
+
+    current.header = h256::random();
+    current.boundary = h256(dev::getTargetFromDiff(m_difficulty));
+
+    m_onWorkReceived(current);  // submit new fake job
     cnote << "Using block " << m_block << ", difficulty " << m_difficulty;
 
     while (m_session)
@@ -101,7 +113,15 @@ void SimulateClient::workLoop()
         float hr = Farm::f().HashRate();
         hr_max = std::max(hr_max, hr);
         hr_mean = hr_alpha * hr_mean + (1.0f - hr_alpha) * hr;
-
         this_thread::sleep_for(chrono::milliseconds(200));
+        if (solution_arrived)
+        {
+            solution_arrived.store(false);
+            current.header = h256::random();
+            m_onWorkReceived(current);  // submit new fake job
+        }
+
+
     }
+
 }

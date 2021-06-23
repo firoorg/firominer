@@ -92,8 +92,7 @@ bool CUDAMiner::initDevice()
     }
     catch (const cuda_runtime_error& ec)
     {
-        cudalog << "Could not set CUDA device on Pci Id " << m_deviceDescriptor.uniqueId
-                << " Error : " << ec.what();
+        cudalog << "Could not set CUDA device on Pci Id " << m_deviceDescriptor.uniqueId << " Error : " << ec.what();
         cudalog << "Mining aborted on this device.";
         return false;
     }
@@ -141,48 +140,40 @@ bool CUDAMiner::initEpoch_internal()
             if (m_device_dag)
                 CUDA_SAFE_CALL(cudaFree(reinterpret_cast<void*>(m_device_dag)));
 
-            cudalog << "Generating DAG + Light : "
-                    << dev::getFormattedMemory((double)RequiredMemory);
+            cudalog << "Generating DAG + Light : " << dev::getFormattedMemory((double)RequiredMemory);
 
             // create buffer for cache
-            CUDA_SAFE_CALL(cudaMalloc(
-                reinterpret_cast<void**>(&m_device_light), m_epochContext->light_cache_size));
+            CUDA_SAFE_CALL(cudaMalloc(reinterpret_cast<void**>(&m_device_light), m_epochContext->light_cache_size));
             m_allocated_memory_light_cache = m_epochContext->light_cache_size;
-            CUDA_SAFE_CALL(cudaMalloc(
-                reinterpret_cast<void**>(&m_device_dag), m_epochContext->full_dataset_size));
+            CUDA_SAFE_CALL(cudaMalloc(reinterpret_cast<void**>(&m_device_dag), m_epochContext->full_dataset_size));
             m_allocated_memory_dag = m_epochContext->full_dataset_size;
         }
         else
         {
-            cudalog << "Generating DAG + Light (reusing buffers): "
-                    << dev::getFormattedMemory((double)RequiredMemory);
+            cudalog << "Generating DAG + Light (reusing buffers): " << dev::getFormattedMemory((double)RequiredMemory);
         }
 
-        CUDA_SAFE_CALL(cudaMemcpy(reinterpret_cast<void*>(m_device_light),
-            m_epochContext->light_cache, m_epochContext->light_cache_size, cudaMemcpyHostToDevice));
+        CUDA_SAFE_CALL(cudaMemcpy(reinterpret_cast<void*>(m_device_light), m_epochContext->light_cache,
+            m_epochContext->light_cache_size, cudaMemcpyHostToDevice));
 
         set_constants(m_device_dag, m_epochContext->light_cache_num_items, m_device_light,
             m_epochContext->light_cache_num_items);  // in ethash_cuda_miner_kernel.cu
 
         ethash_generate_dag(m_device_dag, m_epochContext->full_dataset_size, m_device_light,
-            m_epochContext->light_cache_num_items, m_settings.gridSize, m_settings.blockSize,
-            m_streams[0], m_deviceDescriptor.cuDeviceIndex);
+            m_epochContext->light_cache_num_items, m_settings.gridSize, m_settings.blockSize, m_streams[0],
+            m_deviceDescriptor.cuDeviceIndex);
 
         cudalog << "Generated DAG + Light in "
-                << std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::steady_clock::now() - startInit)
+                << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startInit)
                        .count()
-                << " ms. "
-                << dev::getFormattedMemory(
-                       (double)(m_deviceDescriptor.totalMemory - RequiredMemory))
+                << " ms. " << dev::getFormattedMemory((double)(m_deviceDescriptor.totalMemory - RequiredMemory))
                 << " left.";
 
         retVar = true;
     }
     catch (const cuda_runtime_error& ec)
     {
-        cudalog << "Unexpected error " << ec.what() << " on CUDA device "
-                << m_deviceDescriptor.uniqueId;
+        cudalog << "Unexpected error " << ec.what() << " on CUDA device " << m_deviceDescriptor.uniqueId;
         cudalog << "Mining suspended ...";
         pause(MinerPauseEnum::PauseDueToInitEpochError);
         retVar = true;
@@ -214,17 +205,16 @@ void CUDAMiner::workLoop()
     {
         while (!shouldStop())
         {
-            // Wait for work or 3 seconds (whichever the first)
-            const WorkPackage w = work();
-            if (!w)
+            // Wait for work
+            bool new_work_expected{true};
+            if (!m_new_work.compare_exchange_strong(new_work_expected, false))
             {
-                boost::system_time const timeout =
-                    boost::get_system_time() + boost::posix_time::seconds(3);
-                boost::mutex::scoped_lock l(x_work);
-                m_new_work_signal.timed_wait(l, timeout);
+                std::unique_lock l(x_work);
+                m_new_work_signal.wait_for(l, std::chrono::milliseconds(50));
                 continue;
             }
 
+            const WorkPackage w = work();
             if (w.epoch.has_value() && old_epoch != static_cast<int>(w.epoch.value()))
             {
                 if (!initEpoch())
@@ -236,25 +226,60 @@ void CUDAMiner::workLoop()
             if (m_nextProgpowPeriod == 0)
             {
                 m_nextProgpowPeriod = period_seed;
-                m_compileThread = new boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
+                if (m_compileThread)
+                {
+                    m_compileThread->join();
+                }
+
+                m_compileThread.reset(new std::thread([&] {
+                    try
+                    {
+                        asyncCompile();
+                    }
+                    catch (const std::exception& ex)
+                    {
+                        cudalog << "Failed to compile ProgPoW kernel : " << ex.what();
+                    }
+                }));
             }
             if (old_period_seed != period_seed)
             {
-                m_compileThread->join();
+                if (m_compileThread)
+                {
+                    m_compileThread->join();
+                }
+
                 // sanity check the next kernel
                 if (period_seed != m_nextProgpowPeriod)
                 {
                     // This shouldn't happen!!! Try to recover
                     m_nextProgpowPeriod = period_seed;
-                    m_compileThread =
-                        new boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
+                    m_compileThread.reset(new std::thread([&] {
+                        try
+                        {
+                            asyncCompile();
+                        }
+                        catch (const std::exception& ex)
+                        {
+                            cudalog << "Failed to compile ProgPoW kernel : " << ex.what();
+                        }
+                    }));
                     m_compileThread->join();
                 }
                 old_period_seed = period_seed;
                 m_kernelExecIx ^= 1;
                 cudalog << "Launching period " << period_seed << " ProgPow kernel";
                 m_nextProgpowPeriod = period_seed + 1;
-                m_compileThread = new boost::thread(boost::bind(&CUDAMiner::asyncCompile, this));
+                m_compileThread.reset(new std::thread([&] {
+                    try
+                    {
+                        asyncCompile();
+                    }
+                    catch (const std::exception& ex)
+                    {
+                        cudalog << "Failed to compile ProgPoW kernel : " << ex.what();
+                    }
+                }));
             }
             // Epoch change ?
 
@@ -298,8 +323,7 @@ int CUDAMiner::getNumDevices()
         if (driverVersion == 0)
             std::cerr << "CUDA Error : No CUDA driver found" << std::endl;
         else
-            std::cerr << "CUDA Error : Insufficient CUDA driver " << std::to_string(driverVersion)
-                      << std::endl;
+            std::cerr << "CUDA Error : Insufficient CUDA driver " << std::to_string(driverVersion) << std::endl;
     }
     else
     {
@@ -323,8 +347,7 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
         try
         {
             CUDA_SAFE_CALL(cudaGetDeviceProperties(&props, i));
-            s << setw(2) << setfill('0') << hex << props.pciBusID << ":" << setw(2)
-              << props.pciDeviceID << ".0";
+            s << setw(2) << setfill('0') << hex << props.pciBusID << ":" << setw(2) << props.pciDeviceID << ".0";
             uniqueId = s.str();
 
             if (_DevicesCollection.find(uniqueId) != _DevicesCollection.end())
@@ -343,8 +366,7 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
             deviceDescriptor.cuCompute = (to_string(props.major) + "." + to_string(props.minor));
             deviceDescriptor.cuComputeMajor = props.major;
             deviceDescriptor.cuComputeMinor = props.minor;
-            CUDA_SAFE_CALL(
-                cudaMemGetInfo(&deviceDescriptor.freeMemory, &deviceDescriptor.totalMemory));
+            CUDA_SAFE_CALL(cudaMemGetInfo(&deviceDescriptor.freeMemory, &deviceDescriptor.totalMemory));
             _DevicesCollection[uniqueId] = deviceDescriptor;
         }
         catch (const cuda_runtime_error& _e)
@@ -404,8 +426,7 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
         NULL));                                // includeNames
 
     NVRTC_SAFE_CALL(nvrtcAddNameExpression(prog, name));
-    std::string op_arch = "--gpu-architecture=compute_" +
-                          to_string(m_deviceDescriptor.cuComputeMajor) +
+    std::string op_arch = "--gpu-architecture=compute_" + to_string(m_deviceDescriptor.cuComputeMajor) +
                           to_string(m_deviceDescriptor.cuComputeMinor);
     std::string op_dag = "-DPROGPOW_DAG_ELEMENTS=" + to_string(dag_elms);
 
@@ -434,11 +455,9 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
     // Load the generated PTX and get a handle to the kernel.
     char* jitInfo = new char[32 * 1024];
     char* jitErr = new char[32 * 1024];
-    CUjit_option jitOpt[] = {CU_JIT_INFO_LOG_BUFFER, CU_JIT_ERROR_LOG_BUFFER,
-        CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES, CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES, CU_JIT_LOG_VERBOSE,
-        CU_JIT_GENERATE_LINE_INFO};
-    void* jitOptVal[] = {
-        jitInfo, jitErr, (void*)(32 * 1024), (void*)(32 * 1024), (void*)(1), (void*)(1)};
+    CUjit_option jitOpt[] = {CU_JIT_INFO_LOG_BUFFER, CU_JIT_ERROR_LOG_BUFFER, CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
+        CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES, CU_JIT_LOG_VERBOSE, CU_JIT_GENERATE_LINE_INFO};
+    void* jitOptVal[] = {jitInfo, jitErr, (void*)(32 * 1024), (void*)(32 * 1024), (void*)(1), (void*)(1)};
     CUmodule module;
     CU_SAFE_CALL(cuModuleLoadDataEx(&module, ptx, 6, jitOpt, jitOptVal));
 #ifdef DEV_BUILD
@@ -466,12 +485,10 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUfunctio
     NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
 
     cudalog << "Pre-compiled period " << period_seed << " CUDA ProgPow kernel for arch "
-            << to_string(m_deviceDescriptor.cuComputeMajor) << '.'
-            << to_string(m_deviceDescriptor.cuComputeMinor);
+            << to_string(m_deviceDescriptor.cuComputeMajor) << '.' << to_string(m_deviceDescriptor.cuComputeMinor);
 }
 
-void CUDAMiner::search(
-    uint8_t const* header, uint64_t target, uint64_t start_nonce, const dev::eth::WorkPackage& w)
+void CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_nonce, const dev::eth::WorkPackage& w)
 {
     set_header(*reinterpret_cast<hash32_t const*>(header));
     if (m_current_target != target)
@@ -487,8 +504,7 @@ void CUDAMiner::search(
 
     // prime each stream, clear search result buffers and start the search
     uint32_t current_index;
-    for (current_index = 0; current_index < m_settings.streams;
-         current_index++, start_nonce += m_batch_size)
+    for (current_index = 0; current_index < m_settings.streams; current_index++, start_nonce += m_batch_size)
     {
         cudaStream_t stream = m_streams[current_index];
         volatile Search_results& buffer(*m_search_buf[current_index]);
@@ -497,8 +513,7 @@ void CUDAMiner::search(
         // Run the batch for this stream
         volatile Search_results* Buffer = &buffer;
         bool hack_false = false;
-        void* args[] = {
-            &start_nonce, &current_header, &m_current_target, &dag, &Buffer, &hack_false};
+        void* args[] = {&start_nonce, &current_header, &m_current_target, &dag, &Buffer, &hack_false};
         CU_SAFE_CALL(cuLaunchKernel(m_kernel[m_kernelExecIx],  //
             m_settings.gridSize, 1, 1,                         // grid dim
             m_settings.blockSize, 1, 1,                        // block dim
@@ -525,8 +540,7 @@ void CUDAMiner::search(
             done = paused();
 
         // This inner loop will process each cuda stream individually
-        for (current_index = 0; current_index < m_settings.streams;
-             current_index++, start_nonce += m_batch_size)
+        for (current_index = 0; current_index < m_settings.streams; current_index++, start_nonce += m_batch_size)
         {
             // Each pass of this loop will wait for a stream to exit,
             // save any found solutions, then restart the stream
@@ -556,8 +570,7 @@ void CUDAMiner::search(
                 for (uint32_t i = 0; i < found_count; i++)
                 {
                     gids[i] = buffer.result[i].gid;
-                    memcpy(mixHashes[i].data(), (void*)&buffer.result[i].mix,
-                        sizeof(buffer.result[i].mix));
+                    memcpy(mixHashes[i].data(), (void*)&buffer.result[i].mix, sizeof(buffer.result[i].mix));
                 }
             }
 
@@ -567,8 +580,7 @@ void CUDAMiner::search(
             {
                 volatile Search_results* Buffer = &buffer;
                 bool hack_false = false;
-                void* args[] = {
-                    &start_nonce, &current_header, &m_current_target, &dag, &Buffer, &hack_false};
+                void* args[] = {&start_nonce, &current_header, &m_current_target, &dag, &Buffer, &hack_false};
                 CU_SAFE_CALL(cuLaunchKernel(m_kernel[m_kernelExecIx],  //
                     m_settings.gridSize, 1, 1,                         // grid dim
                     m_settings.blockSize, 1, 1,                        // block dim
@@ -582,16 +594,14 @@ void CUDAMiner::search(
                 for (uint32_t i = 0; i < found_count; i++)
                 {
                     uint64_t nonce = nonce_base + gids[i];
-                    Farm::f().submitProof(Solution{
-                        nonce, mixHashes[i], w, std::chrono::steady_clock::now(), m_index});
+                    Farm::f().submitProof(Solution{nonce, mixHashes[i], w, std::chrono::steady_clock::now(), m_index});
 
                     double d = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - search_start)
                                    .count();
 
-                    cudalog << EthWhite << "Job: " << w.header.abridged() << " Sol: 0x"
-                            << toHex(nonce) << EthLime " found in " << dev::getFormattedElapsed(d)
-                            << EthReset;
+                    cudalog << EthWhite << "Job: " << w.header.abridged() << " Sol: 0x" << toHex(nonce)
+                            << EthLime " found in " << dev::getFormattedElapsed(d) << EthReset;
                 }
             }
         }

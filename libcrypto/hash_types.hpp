@@ -9,10 +9,12 @@
 #define CRYPTO_HASH_TYPES_HPP_
 
 #include <stdint.h>
-
 #include <cstring>
+#include <sstream>
+#include <iomanip>
 
 #include "endianess.hpp"
+
 
 namespace ethash
 {
@@ -119,6 +121,16 @@ inline bool is_less_or_equal(const hash256& a, const hash256& b) noexcept
 inline bool is_equal(const hash256& a, const hash256& b)
 {
     return std::memcmp(a.bytes, b.bytes, sizeof(a)) == 0;
+}
+
+inline std::string to_hex(const hash256& value)
+{
+    std::stringstream s;
+    for (size_t i = 0; i < 32; i++)
+    {
+        s << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(value.bytes[i]);
+    }
+    return s.str();
 }
 
 }  // namespace ethash

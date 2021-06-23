@@ -239,17 +239,16 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
     const auto context{ethash::get_epoch_context(w.epoch.value(), true)};
     auto header{ethash::from_bytes(w.header.data())};
     auto boundary{ethash::from_bytes(w.get_boundary().data())};
+    auto period{w.block.value() / progpow::kPeriodLength};
     auto nonce{w.startNonce};
+    bool found{false};
 
-    std::cout << context->full_dataset << std::endl;
-
-    while (!shouldStop() && m_new_work.load(std::memory_order_relaxed) == false)
+    while (m_new_work.load(std::memory_order_relaxed) == false && !found)
     {
         // Do the search
-        std::cout << "Search ... " << std::endl;
         for (size_t i{0}; i < blocksize; i++, nonce++)
         {
-            auto result{progpow::hash(*context, header, nonce)};
+            auto result{progpow::hash(*context, period, header, nonce)};
             if (ethash::is_less_or_equal(result.final_hash, boundary))
             {
                 h256 mix{
@@ -258,18 +257,16 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
                 cpulog << EthWhite << "Job: " << w.header.abridged()
                        << " Sol: " << toHex(sol.nonce, HexPrefix::Add) << EthReset;
                 Farm::f().submitProof(sol);
+                found = true;
                 break;
             }
+
         }
 
         // Update the hash rate
         updateHashRate(blocksize, 1);
     }
 
-    if (m_new_work.load(std::memory_order_relaxed))  // new work arrived ?
-    {
-        m_new_work.store(false, std::memory_order_relaxed);
-    }
     DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() end");
 }
 
@@ -291,7 +288,7 @@ void CPUMiner::workLoop()
 
     while (!shouldStop())
     {
-        // Wait for work or 3 seconds (whichever the first)
+        // Wait for work
         bool new_work_expected{true};
         if (!m_new_work.compare_exchange_strong(new_work_expected, false))
         {
@@ -304,20 +301,20 @@ void CPUMiner::workLoop()
 
         if (w.algo == "progpow")
         {
-            // Epoch change ?
-            if (current.epoch != w.epoch)
-            {
-                if (!initEpoch())
-                {
-                    break;  // This will simply exit the thread
-                }
+            //// Epoch change ?
+            //if (current.epoch != w.epoch)
+            //{
+            //    if (!initEpoch())
+            //    {
+            //        break;  // This will simply exit the thread
+            //    }
 
-                // As DAG generation takes a while we need to
-                // ensure we're on latest job, not on the one
-                // which triggered the epoch change
-                current = w;
-                continue;
-            }
+            //    // As DAG generation takes a while we need to
+            //    // ensure we're on latest job, not on the one
+            //    // which triggered the epoch change
+            //    current = w;
+            //    continue;
+            //}
 
             // Persist most recent job.
             // Job's differences should be handled at higher level

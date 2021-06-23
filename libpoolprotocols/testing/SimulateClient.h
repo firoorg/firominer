@@ -6,6 +6,8 @@
 #include <libethcore/Farm.h>
 #include <libethcore/Miner.h>
 
+#include <libcrypto/progpow.hpp>
+
 #include "../PoolClient.h"
 
 using namespace std;
@@ -37,4 +39,7 @@ private:
     float hr_alpha = 0.45f;
     float hr_max = 0.0f;
     float hr_mean = 0.0f;
+
+    std::atomic<bool> solution_arrived{false};
+
 };

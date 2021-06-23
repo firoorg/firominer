@@ -61,11 +61,10 @@ enum class VerificationResult
 namespace detail
 {
 
-
-
 // using lookup_fn = hash1024 (*)(const epoch_context&, uint32_t);
 using hash_512_function = hash512 (*)(const uint8_t* data, size_t size);
 
+hash1024 lazy_lookup_1024(const epoch_context& context, uint32_t index) noexcept;
 hash1024 calculate_dataset_item_1024(const epoch_context& context, uint32_t index) noexcept;
 hash2048 calculate_dataset_item_2048(const epoch_context& context, uint32_t index) noexcept;
 

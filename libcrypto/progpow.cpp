@@ -7,12 +7,9 @@
 #include "progpow.hpp"
 #include "bitwise.hpp"
 
-#include <sstream>
-
 namespace progpow
 {
-mix_rng_state::mix_rng_state(uint32_t num_regs, uint64_t seed) noexcept
-  : num_regs_(num_regs), seed_(seed)
+mix_rng_state::mix_rng_state(uint32_t num_regs, uint64_t seed) noexcept : num_regs_(num_regs), seed_(seed)
 {
     dst_seq_ = new uint32_t[num_regs_];
     src_seq_ = new uint32_t[num_regs_];
@@ -120,7 +117,6 @@ static uint32_t random_math(uint32_t a, uint32_t b, uint32_t sel) noexcept
 
     // Should not happen but MSVC complains
     throw std::runtime_error("Invalid selector");
-
 }
 
 // Random math between two input values
@@ -157,7 +153,7 @@ static std::string random_math_src(std::string d, std::string a, std::string b, 
 std::string getKern(uint64_t prog_seed, kernel_type kern)
 {
     std::stringstream ret;
-    mix_rng_state state{kRegs, kPeriod};
+    mix_rng_state state{kRegs, prog_seed};
 
     if (kern == kernel_type::Cuda)
     {
@@ -346,26 +342,19 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     return ret.str();
 }
 
-static void round(
-    const ethash::epoch_context& context, uint32_t r, uint32_t* mix, mix_rng_state state)
+static void round(const ethash::epoch_context& context, uint32_t r, uint32_t* mix, mix_rng_state state)
 {
-    static const uint32_t l1_cache_words{ethash::kL1_cache_size / sizeof(uint32_t)};
 
+    static const uint32_t l1_cache_words{ethash::kL1_cache_size / sizeof(uint32_t)};
     const uint32_t num_items{static_cast<uint32_t>(context.full_dataset_num_items / 2)};
     const uint32_t mix_index{(r % kLanes) * kRegs};
     const uint32_t item_index{mix[mix_index] % num_items};
 
     // Load DAG Data ( 2 chunks of 1024 bytes )
     ethash::hash2048 item;
-    if (context.full_dataset)
-    {
-        item.hash1024s[0] = context.full_dataset[item_index * 2];
-        item.hash1024s[1] = context.full_dataset[item_index * 2 + 1];
-    }
-    else
-    {
-        item = ethash::detail::calculate_dataset_item_2048(context, item_index);
-    }
+    uint32_t item1024_index{static_cast<uint32_t>(static_cast<uint64_t>(item_index) * 2)};
+    item.hash1024s[0] = ethash::detail::lazy_lookup_1024(context, item1024_index);
+    item.hash1024s[1] = ethash::detail::lazy_lookup_1024(context, ++item1024_index);
 
     const uint64_t num_words_per_lane{sizeof(item) / (sizeof(uint32_t) * kLanes)};
     const auto max_operations{std::max(kCache_count, kMath_count)};
@@ -471,14 +460,14 @@ ethash::hash256 hash_seed(const ethash::hash256& header_hash, uint64_t nonce) no
     return output;
 }
 
-ethash::hash256 hash_mix(const ethash::epoch_context& context, uint64_t seed) noexcept
+ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t period, uint64_t seed)
 {
     static const uint32_t numWords{static_cast<uint32_t>(static_cast<uint64_t>(kLanes) * kRegs)};
     uint32_t* mix = new uint32_t[numWords];
 
     init_mix(seed, mix);
 
-    mix_rng_state state(kRegs, kPeriod);
+    mix_rng_state state(kRegs, period);
     for (uint32_t i{0}; i < kDag_count; ++i)
     {
         round(context, i, mix, state);
@@ -506,8 +495,7 @@ ethash::hash256 hash_mix(const ethash::epoch_context& context, uint64_t seed) no
 
     for (size_t l{0}; l < kLanes; ++l)
     {
-        mix_hash.word32s[l % num_words] =
-            crypto::fnv1a(mix_hash.word32s[l % num_words], lane_hash[l]);
+        mix_hash.word32s[l % num_words] = crypto::fnv1a(mix_hash.word32s[l % num_words], lane_hash[l]);
     }
 
 #if __BYTE_ORDER != __LITTLE_ENDIAN
@@ -517,11 +505,12 @@ ethash::hash256 hash_mix(const ethash::epoch_context& context, uint64_t seed) no
     }
 #endif
 
+    delete[] mix;
     return mix_hash;
 }
 
-ethash::hash256 hash_final(const ethash::hash256& input_hash, const uint64_t seed_64,
-    const ethash::hash256& mix_hash) noexcept
+ethash::hash256 hash_final(
+    const ethash::hash256& input_hash, const uint64_t seed_64, const ethash::hash256& mix_hash) noexcept
 {
     uint32_t state[25] = {0};
     std::memcpy(&state[0], input_hash.bytes, sizeof(ethash::hash256));
@@ -534,20 +523,20 @@ ethash::hash256 hash_final(const ethash::hash256& input_hash, const uint64_t see
 }
 
 ethash::result hash(
-    const ethash::epoch_context& context, const ethash::hash256& header_hash, uint64_t nonce)
+    const ethash::epoch_context& context, const uint32_t period, const ethash::hash256& header_hash, uint64_t nonce)
 {
-    const ethash::hash256 seed_hash{hash_seed(header_hash, nonce)};
+    const ethash::hash256 seed_hash{progpow::hash_seed(header_hash, nonce)};
     const uint64_t seed_64{seed_hash.word64s[0]};
-    const ethash::hash256 mix_hash{hash_mix(context, seed_64)};
-    const ethash::hash256 final_hash{hash_final(seed_hash, seed_64, mix_hash)};
+    const ethash::hash256 mix_hash{progpow::hash_mix(context, period, seed_64)};
+    const ethash::hash256 final_hash{progpow::hash_final(seed_hash, seed_64, mix_hash)};
     return {final_hash, mix_hash};
 }
 
-ethash::VerificationResult verify_full(const ethash::epoch_context& context,
+ethash::VerificationResult verify_full(const ethash::epoch_context& context, const uint32_t period,
     const ethash::hash256& header_hash, const ethash::hash256& mix_hash, uint64_t nonce,
     const ethash::hash256& boundary) noexcept
 {
-    auto result{progpow::hash(context, header_hash, nonce)};
+    auto result{progpow::hash(context, period, header_hash, nonce)};
     if (!ethash::is_less_or_equal(result.final_hash, boundary))
     {
         return ethash::VerificationResult::kInvalidNonce;
@@ -557,6 +546,15 @@ ethash::VerificationResult verify_full(const ethash::epoch_context& context,
         return ethash::VerificationResult::kInvalidMixHash;
     }
     return ethash::VerificationResult::kOk;
+}
+
+ethash::VerificationResult verify_full(const uint64_t block_number, const ethash::hash256& header_hash,
+    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary) noexcept
+{
+    auto dag_epoch_number{ethash::calculate_epoch_from_block_num(block_number)};
+    auto dag_epoch_context{ethash::get_epoch_context(dag_epoch_number, false)};
+    auto progpow_period{block_number / progpow::kPeriodLength};
+    return progpow::verify_full(*dag_epoch_context, progpow_period, header_hash, mix_hash, nonce, boundary);
 }
 
 

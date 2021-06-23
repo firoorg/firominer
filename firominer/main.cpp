@@ -365,7 +365,7 @@ public:
         auto sim_opt = app.add_option("-Z,--simulation,-M,--benchmark", m_PoolSettings.benchmarkBlock, "", true);
 
         app.add_option("--diff", m_PoolSettings.benchmarkDiff, "")
-            ->check(CLI::Range(0.00001, 10000.0));
+            ->check(CLI::Range(0.00000001, 10000.0));
 
         app.add_option("--tstop", m_FarmSettings.tempStop, "", true)->check(CLI::Range(30, 100));
         app.add_option("--tstart", m_FarmSettings.tempStart, "", true)->check(CLI::Range(30, 100));
