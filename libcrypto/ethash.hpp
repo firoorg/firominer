@@ -20,7 +20,17 @@ namespace ethash
 {
 // Internal constants:
 constexpr static uint32_t kRevision = 23;
-constexpr static uint32_t kEpoch_length = 7500; // Firo
+
+/**
+ * Ethereum epoch is 30000 blocks which, with an avg 13 sec block time, corresponds
+ * to roughly 108 hours i.e. 4.5 days. To achieve the same DAG growth rate with
+ * a block time of 5 min we need to set epoch length to 30000/(300/13) which
+ * provides a DAG increase every 1300 blocks i.e. 4.51 days
+ * See "./lib/ethash/ethash.cpp" for increase size(s)
+ */
+
+constexpr static uint32_t kEpoch_length = 1300; // Firo
+
 constexpr static uint32_t kLight_cache_item_size = 64;
 constexpr static uint32_t kFull_dataset_item_size = 128;
 constexpr static uint32_t kNum_dataset_accesses = 64;

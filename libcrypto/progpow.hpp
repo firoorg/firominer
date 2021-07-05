@@ -15,7 +15,7 @@
 
 namespace progpow
 {
-constexpr static uint32_t kPeriodLength{3};         // Number of blocks before change of the random program
+constexpr static uint32_t kPeriodLength{1};         // Number of blocks before change of the random program
 constexpr static uint32_t kLanes{16};               // lanes that work together calculating a hash
 constexpr static uint32_t kRegs{32};                // uint32 registers per lane
 constexpr static uint32_t kDag_loads{4};            // uint32 loads from the DAG per lane
