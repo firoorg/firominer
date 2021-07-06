@@ -218,7 +218,7 @@ hash256 hash_final(const hash512& seed, const hash256& mix) noexcept
     return keccak256(final_data, sizeof(final_data));
 }
 
-epoch_context* create_epoch_context(uint32_t epoch_number, bool full) noexcept
+epoch_context* create_epoch_context(uint32_t epoch_number, bool full)
 {
     static constexpr size_t context_alloc_size{sizeof(epoch_context)};
     const uint32_t light_cache_num_items{calculate_light_cache_num_items(epoch_number)};
@@ -236,7 +236,7 @@ epoch_context* create_epoch_context(uint32_t epoch_number, bool full) noexcept
     char* const alloc_data = static_cast<char*>(std::calloc(1, alloc_size));
     if (!alloc_data)
     {
-        return nullptr;  // Signal out-of-memory by returning null pointer.
+        throw std::runtime_error("Out of memory");
     }
 
     hash512* const light_cache{reinterpret_cast<hash512*>(alloc_data + context_alloc_size)};

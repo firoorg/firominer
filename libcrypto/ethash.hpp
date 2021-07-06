@@ -87,7 +87,7 @@ void destroy_epoch_context(epoch_context* context) noexcept;
 /**
  * Creates the dag epoch context
  */
-epoch_context* create_epoch_context(uint32_t epoch_number, bool full) noexcept;
+epoch_context* create_epoch_context(uint32_t epoch_number, bool full);
 
 }  // namespace detail
 
