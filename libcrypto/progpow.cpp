@@ -339,21 +339,21 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     return ret.str();
 }
 
-static void round(const ethash::epoch_context& context, uint32_t r, uint32_t* mix, mix_rng_state state)
+using mix_t = std::array<std::array<uint32_t, kRegs>, kLanes>;
+
+static void round(const ethash::epoch_context& context, uint32_t r, mix_t& mix, mix_rng_state state)
 {
 
     static const uint32_t l1_cache_words{ethash::kL1_cache_size / sizeof(uint32_t)};
     const uint32_t num_items{static_cast<uint32_t>(context.full_dataset_num_items / 2)};
-    const uint32_t mix_index{(r % kLanes) * kRegs};
-    const uint32_t item_index{mix[mix_index] % num_items};
+    const uint32_t item_index{mix.at(r % kLanes).at(0) % num_items};
 
     // Load DAG Data ( 2 chunks of 1024 bytes )
     ethash::hash2048 item;
     uint32_t item1024_index{static_cast<uint32_t>(static_cast<uint64_t>(item_index) * 2)};
-    item.hash1024s[0] = ethash::detail::lazy_lookup_1024(context, item1024_index);
-    item.hash1024s[1] = ethash::detail::lazy_lookup_1024(context, ++item1024_index);
+    item.hash1024s[0] = ethash::detail::lazy_lookup_1024(context, item1024_index++);
+    item.hash1024s[1] = ethash::detail::lazy_lookup_1024(context, item1024_index);
 
-    const uint64_t num_words_per_lane{sizeof(item) / (sizeof(uint32_t) * kLanes)};
     const auto max_operations{std::max(kCache_count, kMath_count)};
 
     // Process lanes.
@@ -367,10 +367,8 @@ static void round(const ethash::epoch_context& context, uint32_t r, uint32_t* mi
 
             for (uint64_t l{0}; l < kLanes; ++l)
             {
-                const auto lsrc{static_cast<uint32_t>((l * kRegs) + src)};
-                const auto ldst{static_cast<uint32_t>((l * kRegs) + dst)};
-                const auto offset = mix[lsrc] % l1_cache_words;
-                random_merge(mix[ldst], ethash::le::uint32(context.l1_cache[offset]), sel);
+                const size_t offset = mix.at(l).at(src) % ethash::kL1_cache_words;
+                random_merge(mix.at(l).at(dst), ethash::le::uint32(context.l1_cache[offset]), sel);
             }
         }
         if (i < kMath_count)  // Random math.
@@ -390,19 +388,16 @@ static void round(const ethash::epoch_context& context, uint32_t r, uint32_t* mi
 
             for (uint64_t l{0}; l < kLanes; ++l)
             {
-                const auto lsrc1{static_cast<uint32_t>((l * kRegs) + src1)};
-                const auto lsrc2{static_cast<uint32_t>((l * kRegs) + src2)};
-                const auto ldst{static_cast<uint32_t>((l * kRegs) + dst)};
-                const auto data{random_math(mix[lsrc1], mix[lsrc2], sel1)};
-                random_merge(mix[ldst], data, sel2);
+                const uint32_t data = random_math(mix.at(l).at(src1), mix.at(l).at(src2), sel1);
+                random_merge(mix.at(l).at(dst), data, sel2);
             }
         }
     }
 
     // Dag Access pattern
-    auto* dsts = new uint32_t[num_words_per_lane];
-    auto* sels = new uint32_t[num_words_per_lane];
-    for (size_t i = 0; i < num_words_per_lane; i++)
+    uint32_t dsts[kWords_per_lane];
+    uint32_t sels[kWords_per_lane];
+    for (size_t i = 0; i < kWords_per_lane; i++)
     {
         dsts[i] = (i == 0 ? 0 : state.next_dst());
         sels[i] = state.rng();
@@ -411,33 +406,33 @@ static void round(const ethash::epoch_context& context, uint32_t r, uint32_t* mi
     // Dag access
     for (size_t l = 0; l < kLanes; l++)
     {
-        const auto offset = ((l ^ r) % kLanes) * num_words_per_lane;
-        for (size_t i = 0; i < num_words_per_lane; i++)
+        const auto offset = ((l ^ r) % kLanes) * kWords_per_lane;
+        for (size_t i = 0; i < kWords_per_lane; i++)
         {
             const auto word = ethash::le::uint32(item.word32s[offset + i]);
-            random_merge(mix[(l * kRegs) + dsts[i]], word, sels[i]);
+            random_merge(mix.at(l).at(dsts[i]), word, sels[i]);
         }
     }
 }
 
 
-static void init_mix(uint64_t seed, uint32_t* mix)
+static mix_t init_mix(uint64_t seed)
 {
     const uint32_t z = crypto::fnv1a(crypto::kFNV_OFFSET_BASIS, static_cast<uint32_t>(seed));
     const uint32_t w = crypto::fnv1a(z, static_cast<uint32_t>(seed >> 32));
 
-    for (uint32_t l = 0; l < kLanes; l++)
+    mix_t mix;
+    for (uint32_t l{0}; l < mix.size(); l++)
     {
         const uint32_t jsr = crypto::fnv1a(w, l);
         const uint32_t jcong = crypto::fnv1a(jsr, l);
         crypto::kiss99 rng{z, w, jsr, jcong};
-        uint32_t rl = l * kRegs;
-        uint32_t rh = rl + kRegs;
-        for (uint32_t r = rl; r < rh; r++)
+        for (auto &row : mix.at(l))
         {
-            mix[r] = rng();
+            row = rng();
         }
     }
+    return mix;
 }
 
 
@@ -459,26 +454,23 @@ ethash::hash256 hash_seed(const ethash::hash256& header_hash, uint64_t nonce) no
 
 ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t period, uint64_t seed)
 {
-    static const uint32_t numWords{static_cast<uint32_t>(static_cast<uint64_t>(kLanes) * kRegs)};
-    uint32_t* mix = new uint32_t[numWords];
 
-    init_mix(seed, mix);
-
+    auto mix{init_mix(seed)};
     mix_rng_state state(kRegs, period);
+
     for (uint32_t i{0}; i < kDag_count; ++i)
     {
         round(context, i, mix, state);
     }
 
     // Reduce mix data to a single per-lane result.
-    uint32_t* lane_hash = new uint32_t[kLanes];
+    uint32_t lane_hash[kLanes];
     for (size_t l{0}; l < kLanes; ++l)
     {
         lane_hash[l] = crypto::kFNV_OFFSET_BASIS;
-        auto mix_base_idx{static_cast<uint32_t>(l * kRegs)};
         for (uint32_t i{0}; i < kRegs; ++i)
         {
-            lane_hash[l] = crypto::fnv1a(lane_hash[l], mix[mix_base_idx + i]);
+            lane_hash[l] = crypto::fnv1a(lane_hash[l], mix.at(l).at(i));
         }
     }
 
@@ -502,7 +494,6 @@ ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t pe
     }
 #endif
 
-    delete[] mix;
     return mix_hash;
 }
 
