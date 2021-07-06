@@ -144,7 +144,7 @@ std::optional<uint32_t> calculate_epoch_from_seed(const hash256& seed) noexcept;
  * @param block_num     The block number
  * @return              The epoch number
  */
-ALWAYS_INLINE uint32_t calculate_epoch_from_block_num(const uint64_t block_num) noexcept;
+uint32_t calculate_epoch_from_block_num(const uint64_t block_num) noexcept;
 
 /**
  * Performs a full ethash round with given nonce

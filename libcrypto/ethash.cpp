@@ -398,7 +398,7 @@ std::optional<uint32_t> calculate_epoch_from_seed(const hash256& seed) noexcept
     return std::nullopt;
 }
 
-ALWAYS_INLINE uint32_t calculate_epoch_from_block_num(const uint64_t block_num) noexcept
+uint32_t calculate_epoch_from_block_num(const uint64_t block_num) noexcept
 {
     return static_cast<uint32_t>(block_num / kEpoch_length);
 }
