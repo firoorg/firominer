@@ -237,12 +237,15 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
     constexpr size_t blocksize = 64;
 
     const auto context{ethash::get_epoch_context(w.epoch.value(), true)};
+    DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() context loaded");
+
     auto header{ethash::from_bytes(w.header.data())};
     auto boundary{ethash::from_bytes(w.get_boundary().data())};
     auto period{w.block.value() / progpow::kPeriodLength};
     auto nonce{w.startNonce};
     bool found{false};
 
+    DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() search loop");
     while (m_new_work.load(std::memory_order_relaxed) == false && !found)
     {
         // Do the search
@@ -260,7 +263,6 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
                 found = true;
                 break;
             }
-
         }
 
         // Update the hash rate
