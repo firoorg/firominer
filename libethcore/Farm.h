@@ -281,7 +281,7 @@ private:
 
     boost::asio::io_service::strand m_io_strand;
     boost::asio::deadline_timer m_collectTimer;
-    static const int m_collectInterval = 5000;
+    const int m_collectInterval = 5000;
 
     std::string m_pool_addresses;
 
