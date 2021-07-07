@@ -9,13 +9,11 @@
 
 namespace progpow
 {
-mix_rng_state::mix_rng_state(uint32_t num_regs, uint64_t seed) noexcept : num_regs_(num_regs), seed_(seed)
+mix_rng_state::mix_rng_state(uint64_t seed) noexcept
 {
-    dst_seq_ = new uint32_t[num_regs_];
-    src_seq_ = new uint32_t[num_regs_];
-
     const auto seed_lo{static_cast<uint32_t>(seed)};
     const auto seed_hi{static_cast<uint32_t>(seed >> 32)};
+
     const auto z{crypto::fnv1a(crypto::kFNV_OFFSET_BASIS, seed_lo)};
     const auto w{crypto::fnv1a(z, seed_hi)};
     const auto jsr{crypto::fnv1a(w, seed_lo)};
@@ -25,23 +23,17 @@ mix_rng_state::mix_rng_state(uint32_t num_regs, uint64_t seed) noexcept : num_re
 
     // Create random permutations of mix destinations / sources.
     // Uses Fisher-Yates shuffle.
-    for (uint32_t i{0}; i < num_regs_; ++i)
+    for (uint32_t i{0}; i < kRegs; ++i)
     {
         dst_seq_[i] = i;
         src_seq_[i] = i;
     }
 
-    for (uint32_t i{num_regs_}; i > 1; --i)
+    for (uint32_t i{kRegs}; i > 1; --i)
     {
         std::swap(dst_seq_[i - 1], dst_seq_[rng() % i]);
         std::swap(src_seq_[i - 1], src_seq_[rng() % i]);
     }
-}
-
-mix_rng_state::~mix_rng_state()
-{
-    delete[] dst_seq_;
-    delete[] src_seq_;
 }
 
 NO_SANITIZE("unsigned-integer-overflow")
@@ -150,7 +142,7 @@ static std::string random_math_src(std::string d, std::string a, std::string b, 
 std::string getKern(uint64_t prog_seed, kernel_type kern)
 {
     std::stringstream ret;
-    mix_rng_state state{kRegs, prog_seed};
+    mix_rng_state state{prog_seed};
 
     if (kern == kernel_type::Cuda)
     {
@@ -456,7 +448,7 @@ ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t pe
 {
 
     auto mix{init_mix(seed)};
-    mix_rng_state state(kRegs, period);
+    mix_rng_state state(period);
 
     for (uint32_t i{0}; i < kDag_count; ++i)
     {

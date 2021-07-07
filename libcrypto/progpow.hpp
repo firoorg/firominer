@@ -40,21 +40,18 @@ enum class kernel_type
 class mix_rng_state
 {
 public:
-    explicit mix_rng_state(uint32_t num_regs, uint64_t seed) noexcept;
-    ~mix_rng_state();
+    explicit mix_rng_state(uint64_t seed) noexcept;
 
-    uint32_t next_dst() noexcept { return dst_seq_[(dst_counter_++) % num_regs_]; }
-    uint32_t next_src() noexcept { return src_seq_[(src_counter_++) % num_regs_]; }
+    uint32_t next_dst() noexcept { return dst_seq_[(dst_counter_++) % kRegs]; }
+    uint32_t next_src() noexcept { return src_seq_[(src_counter_++) % kRegs]; }
 
     crypto::kiss99 rng;
 
 private:
-    uint32_t num_regs_;
-    uint64_t seed_;
     size_t dst_counter_{0};
     size_t src_counter_{0};
-    uint32_t* dst_seq_{nullptr};
-    uint32_t* src_seq_{nullptr};
+    std::array<uint32_t, kRegs> dst_seq_;
+    std::array<uint32_t, kRegs> src_seq_;
 };
 
 
