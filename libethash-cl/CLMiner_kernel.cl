@@ -28,10 +28,9 @@ typedef struct
 // Implementation based on:
 // https://github.com/mjosaarinen/tiny_sha3/blob/master/sha3.c
 
-__constant const uint32_t keccakf_rndc[24] = {0x00000001, 0x00008082, 0x0000808a, 0x80008000,
-    0x0000808b, 0x80000001, 0x80008081, 0x00008009, 0x0000008a, 0x00000088, 0x80008009, 0x8000000a,
-    0x8000808b, 0x0000008b, 0x00008089, 0x00008003, 0x00008002, 0x00000080, 0x0000800a, 0x8000000a,
-    0x80008081, 0x00008080, 0x80000001, 0x80008008};
+__constant const uint32_t keccakf_rndc[24] = {0x00000001, 0x00008082, 0x0000808a, 0x80008000, 0x0000808b, 0x80000001,
+    0x80008081, 0x00008009, 0x0000008a, 0x00000088, 0x80008009, 0x8000000a, 0x8000808b, 0x0000008b, 0x00008089,
+    0x00008003, 0x00008002, 0x00000080, 0x0000800a, 0x8000000a, 0x80008081, 0x00008080, 0x80000001, 0x80008008};
 
 // Implementation of the Keccakf transformation with a width of 800
 void keccak_f800_round(uint32_t st[25], const int r)
@@ -83,7 +82,8 @@ uint64_t keccak_f800(uint32_t* st)
 {
     // Complete all 22 rounds as a separate impl to
     // evaluate only first 8 words is wasteful of regsters
-    for (int r = 0; r < 22; r++) {
+    for (int r = 0; r < 22; r++)
+    {
         keccak_f800_round(st, r);
     }
 }
@@ -167,8 +167,7 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
     const uint32_t group_id = lid / PROGPOW_LANES;
 
     // Load the first portion of the DAG into the cache
-    for (uint32_t word = lid * PROGPOW_DAG_LOADS; word < PROGPOW_CACHE_WORDS;
-         word += GROUP_SIZE * PROGPOW_DAG_LOADS)
+    for (uint32_t word = lid * PROGPOW_DAG_LOADS; word < PROGPOW_CACHE_WORDS; word += GROUP_SIZE * PROGPOW_DAG_LOADS)
     {
         dag_t load = g_dag[word / PROGPOW_DAG_LOADS];
         for (int i = 0; i < PROGPOW_DAG_LOADS; i++)
@@ -179,33 +178,33 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
     barrier(CLK_LOCAL_MEM_FENCE);
 
 
-//uint32_t state[25];     // Keccak's state
-uint32_t hash_seed[2];  // KISS99 initiator
-hash32_t digest;        // Carry-over from mix output
+    // uint32_t state[25];     // Keccak's state
+    uint32_t hash_seed[2];  // KISS99 initiator
+    hash32_t digest;        // Carry-over from mix output
 
-uint32_t state2[8];
+    uint32_t state2[8];
 
-{
-    // Absorb phase for initial round of keccak
+    {
+        // Absorb phase for initial round of keccak
 
-    uint32_t state[25] = {0x0};     // Keccak's state
+        uint32_t state[25] = {0x0};  // Keccak's state
 
-    // 1st fill with header data (8 words)
-    for (int i = 0; i < 8; i++)
-        state[i] = g_header->uint32s[i];
+        // 1st fill with header data (8 words)
+        for (int i = 0; i < 8; i++)
+            state[i] = g_header->uint32s[i];
 
-    // 2nd fill with nonce (2 words)
-    state[8] = nonce;
-    state[9] = nonce >> 32;
-    state[10] = 0x00000001;
-    state[18] = 0x80008081;
+        // 2nd fill with nonce (2 words)
+        state[8] = nonce;
+        state[9] = nonce >> 32;
+        state[10] = 0x00000001;
+        state[18] = 0x80008081;
 
-    // Run intial keccak round
-    keccak_f800(state);
+        // Run intial keccak round
+        keccak_f800(state);
 
-    for (int i = 0; i < 8; i++)
-        state2[i] = state[i];
-}
+        for (int i = 0; i < 8; i++)
+            state2[i] = state[i];
+    }
 
 #pragma unroll 1
     for (uint32_t h = 0; h < PROGPOW_LANES; h++)
@@ -213,7 +212,8 @@ uint32_t state2[8];
         uint32_t mix[PROGPOW_REGS];
 
         // share the hash's seed across all lanes
-        if (lane_id == h) {
+        if (lane_id == h)
+        {
             share[group_id].uint32s[0] = state2[0];
             share[group_id].uint32s[1] = state2[1];
         }
@@ -251,7 +251,7 @@ uint32_t state2[8];
     uint64_t result;
 
     {
-        uint32_t state[25] = {0x0};     // Keccak's state
+        uint32_t state[25] = {0x0};  // Keccak's state
 
         // 1st initial 8 words of state are kept as carry-over from initial keccak
         for (int i = 0; i < 8; i++)
