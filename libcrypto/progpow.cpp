@@ -204,7 +204,7 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     }
     else
     {
-        ret << "typedef struct __attribute__ ((aligned (16))) {uint32_t s[PROGPOW_DAG_LOADS];} "
+        ret << "typedef struct __attribute__ ((aligned (16))) {uint32_t words[PROGPOW_DAG_LOADS];} "
                "dag_t;\n";
         ret << "\n";
         ret << "// Inner loop for prog_seed " << prog_seed << "\n";
