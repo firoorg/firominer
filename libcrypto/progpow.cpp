@@ -315,7 +315,7 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     for (int i = 1; i < kDag_loads; i++)
     {
         std::string dst{"mix[" + std::to_string(state.next_dst()) + "]"};
-        std::string src{"data_dag.words[" + std::to_string(i) + "]"};
+        std::string src{"data_dag.s[" + std::to_string(i) + "]"};
         ret << random_merge_src(dst, src, state.rng());
     }
 
@@ -335,7 +335,6 @@ using mix_t = std::array<std::array<uint32_t, kRegs>, kLanes>;
 
 static void round(const ethash::epoch_context& context, uint32_t r, mix_t& mix, mix_rng_state state)
 {
-
     static const uint32_t l1_cache_words{ethash::kL1_cache_size / sizeof(uint32_t)};
     const uint32_t num_items{static_cast<uint32_t>(context.full_dataset_num_items / 2)};
     const uint32_t item_index{mix.at(r % kLanes).at(0) % num_items};
@@ -419,7 +418,7 @@ static mix_t init_mix(uint64_t seed)
         const uint32_t jsr = crypto::fnv1a(w, l);
         const uint32_t jcong = crypto::fnv1a(jsr, l);
         crypto::kiss99 rng{z, w, jsr, jcong};
-        for (auto &row : mix.at(l))
+        for (auto& row : mix.at(l))
         {
             row = rng();
         }
@@ -446,7 +445,6 @@ ethash::hash256 hash_seed(const ethash::hash256& header_hash, uint64_t nonce) no
 
 ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t period, uint64_t seed)
 {
-
     auto mix{init_mix(seed)};
     mix_rng_state state(period);
 
