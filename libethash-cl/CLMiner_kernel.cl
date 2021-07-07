@@ -17,7 +17,7 @@
 
 #define HASHES_PER_GROUP (GROUP_SIZE / PROGPOW_LANES)
 
-#define FNV_PRIME 0x1000193
+#define FNV_PRIME 0x01000193
 #define FNV_OFFSET_BASIS 0x811c9dc5
 
 typedef struct
@@ -294,15 +294,8 @@ uint32_t state2[8];
 // DAG calculation logic
 //
 
-
-#ifndef LIGHT_WORDS
-#define LIGHT_WORDS 262139
-#endif
-
 #define ETHASH_DATASET_PARENTS 512
 #define NODE_WORDS (64 / 4)
-
-#define FNV_PRIME 0x01000193
 
 __constant uint2 const Keccak_f1600_RC[24] = {
     (uint2)(0x00000001, 0x00000000),
