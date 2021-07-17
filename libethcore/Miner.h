@@ -112,7 +112,6 @@ struct CUSettings : public MinerSettings
 // Holds settings for OpenCL Miner
 struct CLSettings : public MinerSettings
 {
-    bool noBinary = false;
     unsigned globalWorkSize = 0;
     unsigned globalWorkSizeMultiplier = 32768;
     unsigned localWorkSize = 256;
