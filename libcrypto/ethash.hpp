@@ -29,7 +29,7 @@ constexpr static uint32_t kRevision = 23;
  * See "./lib/ethash/ethash.cpp" for increase size(s)
  */
 
-constexpr static uint32_t kEpoch_length = 1300; // Firo
+constexpr static uint32_t kEpoch_length = 1300;  // Firo
 
 constexpr static uint32_t kLight_cache_item_size = 64;
 constexpr static uint32_t kFull_dataset_item_size = 128;
@@ -41,7 +41,7 @@ constexpr static uint32_t kL1_cache_size = 16384u;
 constexpr static uint32_t kL1_cache_words = kL1_cache_size / sizeof(uint32_t);
 constexpr static uint32_t kFull_dataset_init_size = 1 << 30;
 constexpr static uint32_t kFull_dataset_growth = 1 << 23;
-constexpr static uint32_t kFull_dataset_item_parents = 256;
+constexpr static uint32_t kFull_dataset_item_parents = 512;
 
 struct epoch_context
 {
@@ -71,7 +71,6 @@ enum class VerificationResult
 
 namespace detail
 {
-
 // using lookup_fn = hash1024 (*)(const epoch_context&, uint32_t);
 using hash_512_function = hash512 (*)(const uint8_t* data, size_t size);
 
@@ -167,8 +166,8 @@ result hash(const epoch_context& context, const hash256& header, uint64_t nonce)
  * @param boundary
  * @return              True / False
  */
-bool verify_light(const hash256& header_hash, const hash256& mix_hash, uint64_t nonce,
-    const hash256& boundary) noexcept;
+bool verify_light(
+    const hash256& header_hash, const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept;
 
 /**
  * Verifies the whole ethash outcome validating mix_hash and final_hash againts
@@ -179,8 +178,8 @@ bool verify_light(const hash256& header_hash, const hash256& mix_hash, uint64_t 
  * @param boundary
  * @return              True / False
  */
-VerificationResult verify_full(const epoch_context& context, const hash256& header_hash,
-    const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept;
+VerificationResult verify_full(const epoch_context& context, const hash256& header_hash, const hash256& mix_hash,
+    uint64_t nonce, const hash256& boundary) noexcept;
 
 /**
  * Verifies the whole ethash outcome validating mix_hash and final_hash againts
@@ -191,8 +190,8 @@ VerificationResult verify_full(const epoch_context& context, const hash256& head
  * @param boundary
  * @return              True / False
  */
-VerificationResult verify_full(const uint64_t block_num, const hash256& header_hash,
-    const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept;
+VerificationResult verify_full(const uint64_t block_num, const hash256& header_hash, const hash256& mix_hash,
+    uint64_t nonce, const hash256& boundary) noexcept;
 
 using epoch_context_ptr = std::unique_ptr<epoch_context, decltype(&detail::destroy_epoch_context)>;
 
@@ -205,7 +204,7 @@ std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool ful
 
 hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept;
 
-hash256 from_bytes(const uint8_t * data);
+hash256 from_bytes(const uint8_t* data);
 
 }  // namespace ethash
 

@@ -6,8 +6,8 @@
 
 #include <mutex>
 
-#include "ethash.hpp"
 #include "bitwise.hpp"
+#include "ethash.hpp"
 
 namespace ethash
 {
@@ -87,8 +87,8 @@ struct item_state
     ALWAYS_INLINE hash512 final() noexcept { return keccak512(le::uint32s(mix)); }
 };
 
-hash1024 lazy_lookup_1024(const epoch_context& context, uint32_t index) noexcept {
-
+hash1024 lazy_lookup_1024(const epoch_context& context, uint32_t index) noexcept
+{
     // l1_cache has the first 128 hash1024 items
     static constexpr uint32_t l1_cache_num_items{kL1_cache_size / sizeof(hash1024)};
     if (index < l1_cache_num_items)
@@ -144,8 +144,7 @@ hash2048 calculate_dataset_item_2048(const epoch_context& context, uint32_t inde
     return hash2048{{item0.final(), item1.final(), item2.final(), item3.final()}};
 }
 
-void build_light_cache(
-    hash_512_function hash_function, hash512 cache[], uint32_t num_items, const hash256& seed)
+void build_light_cache(hash_512_function hash_function, hash512 cache[], uint32_t num_items, const hash256& seed)
 {
     hash512 item{hash_function(seed.bytes, sizeof(seed))};
     cache[0] = item;
@@ -223,12 +222,10 @@ epoch_context* create_epoch_context(uint32_t epoch_number, bool full)
     static constexpr size_t context_alloc_size{sizeof(epoch_context)};
     const uint32_t light_cache_num_items{calculate_light_cache_num_items(epoch_number)};
     const uint32_t full_dataset_num_items{calculate_full_dataset_num_items(epoch_number)};
-    const size_t light_cache_size{
-        static_cast<size_t>(light_cache_num_items) * kLight_cache_item_size};
+    const size_t light_cache_size{static_cast<size_t>(light_cache_num_items) * kLight_cache_item_size};
 
     const size_t full_dataset_size{
-        full ? static_cast<size_t>(full_dataset_num_items) * kFull_dataset_item_size :
-               kL1_cache_size};
+        full ? static_cast<size_t>(full_dataset_num_items) * kFull_dataset_item_size : kL1_cache_size};
 
     const size_t alloc_size{context_alloc_size + light_cache_size + full_dataset_size};
 
@@ -243,13 +240,12 @@ epoch_context* create_epoch_context(uint32_t epoch_number, bool full)
     const hash256 epoch_seed = calculate_seed_from_epoch(epoch_number);
     build_light_cache(keccak512, light_cache, light_cache_num_items, epoch_seed);
 
-    uint32_t* const l1_cache{
-        reinterpret_cast<uint32_t*>(alloc_data + context_alloc_size + light_cache_size)};
+    uint32_t* const l1_cache{reinterpret_cast<uint32_t*>(alloc_data + context_alloc_size + light_cache_size)};
     hash1024* full_dataset{full ? reinterpret_cast<hash1024*>(l1_cache) : nullptr};
 
-    epoch_context* const context = new (alloc_data) epoch_context{epoch_number,
-        light_cache_num_items, get_light_cache_size(light_cache_num_items), full_dataset_num_items,
-        get_full_dataset_size(full_dataset_num_items), light_cache, l1_cache, full_dataset};
+    epoch_context* const context =
+        new (alloc_data) epoch_context{epoch_number, light_cache_num_items, get_light_cache_size(light_cache_num_items),
+            full_dataset_num_items, get_full_dataset_size(full_dataset_num_items), light_cache, l1_cache, full_dataset};
 
     auto* full_dataset_2048 = reinterpret_cast<hash2048*>(l1_cache);
 
@@ -322,10 +318,8 @@ uint32_t calculate_light_cache_num_items(uint32_t epoch_number) noexcept
     static constexpr uint32_t item_size = sizeof(hash512);
     static constexpr uint32_t num_items_init = kLight_cache_init_size / item_size;
     static constexpr uint32_t num_items_growth = kLight_cache_growth / item_size;
-    static_assert(
-        kLight_cache_init_size % item_size == 0, "light_cache_init_size not multiple of item size");
-    static_assert(
-        kLight_cache_growth % item_size == 0, "light_cache_growth not multiple of item size");
+    static_assert(kLight_cache_init_size % item_size == 0, "light_cache_init_size not multiple of item size");
+    static_assert(kLight_cache_growth % item_size == 0, "light_cache_growth not multiple of item size");
 
     uint32_t num_items_upper_bound = num_items_init + epoch_number * num_items_growth;
     uint32_t num_items = find_largest_unsigned_prime(num_items_upper_bound);
@@ -337,10 +331,8 @@ uint32_t calculate_full_dataset_num_items(uint32_t epoch_number) noexcept
     static constexpr uint32_t item_size = sizeof(hash1024);
     static constexpr uint32_t num_items_init = kFull_dataset_init_size / item_size;
     static constexpr uint32_t num_items_growth = kFull_dataset_growth / item_size;
-    static_assert(kFull_dataset_init_size % item_size == 0,
-        "full_dataset_init_size not multiple of item size");
-    static_assert(
-        kFull_dataset_growth % item_size == 0, "full_dataset_growth not multiple of item size");
+    static_assert(kFull_dataset_init_size % item_size == 0, "full_dataset_init_size not multiple of item size");
+    static_assert(kFull_dataset_growth % item_size == 0, "full_dataset_growth not multiple of item size");
 
     uint32_t num_items_upper_bound = num_items_init + epoch_number * num_items_growth;
     uint32_t num_items = find_largest_unsigned_prime(num_items_upper_bound);
@@ -410,16 +402,15 @@ result hash(const epoch_context& context, const hash256& header, uint64_t nonce)
     return {detail::hash_final(seed, mix_hash), mix_hash};
 }
 
-bool verify_light(const hash256& header_hash, const hash256& mix_hash, uint64_t nonce,
-    const hash256& boundary) noexcept
+bool verify_light(const hash256& header_hash, const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept
 {
     const hash512 hash_seed{detail::hash_seed(header_hash, nonce)};
     const hash256 hash_final{detail::hash_final(hash_seed, mix_hash)};
     return is_less_or_equal(hash_final, boundary);
 }
 
-VerificationResult verify_full(const epoch_context& context, const hash256& header_hash,
-    const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept
+VerificationResult verify_full(const epoch_context& context, const hash256& header_hash, const hash256& mix_hash,
+    uint64_t nonce, const hash256& boundary) noexcept
 {
     const hash512 hash_seed{detail::hash_seed(header_hash, nonce)};
     const hash256 hash_final{detail::hash_final(hash_seed, mix_hash)};
@@ -435,8 +426,8 @@ VerificationResult verify_full(const epoch_context& context, const hash256& head
     return VerificationResult::kOk;
 }
 
-VerificationResult verify_full(const uint64_t block_num, const hash256& header_hash,
-    const hash256& mix_hash, uint64_t nonce, const hash256& boundary) noexcept
+VerificationResult verify_full(const uint64_t block_num, const hash256& header_hash, const hash256& mix_hash,
+    uint64_t nonce, const hash256& boundary) noexcept
 {
     auto epoch_number{calculate_epoch_from_block_num(block_num)};
     auto epoch_context{get_epoch_context(epoch_number, false)};
@@ -446,8 +437,7 @@ VerificationResult verify_full(const uint64_t block_num, const hash256& header_h
 std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool full) noexcept
 {
     // Check if local context matches epoch number.
-    if (!detail::thread_local_context ||
-        detail::thread_local_context->epoch_number != epoch_number ||
+    if (!detail::thread_local_context || detail::thread_local_context->epoch_number != epoch_number ||
         full != (detail::thread_local_context->full_dataset != nullptr))
     {
         detail::update_local_context(epoch_number, full);
@@ -458,8 +448,8 @@ std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool ful
 
 hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept
 {
-    static intx::uint256 dividend{intx::from_string<intx::uint256>(
-        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")};
+    static intx::uint256 dividend{
+        intx::from_string<intx::uint256>("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")};
 
     hash256 ret{};
 
@@ -475,7 +465,7 @@ hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept
     return ret;
 }
 
-hash256 from_bytes(const uint8_t * data)
+hash256 from_bytes(const uint8_t* data)
 {
     hash256 ret{};
     std::memcpy(&ret, data, sizeof(ret));

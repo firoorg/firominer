@@ -222,7 +222,7 @@ void CUDAMiner::workLoop()
                 old_epoch = static_cast<int>(w.epoch.value());
                 continue;
             }
-            uint64_t period_seed = w.block.value() / progpow::kPeriod;
+            uint64_t period_seed = w.block.value() / progpow::kPeriodLength;
             if (m_nextProgpowPeriod == 0)
             {
                 m_nextProgpowPeriod = period_seed;

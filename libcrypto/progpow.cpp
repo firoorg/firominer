@@ -488,10 +488,11 @@ ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t pe
 }
 
 ethash::hash256 hash_final(
-    const ethash::hash256& input_hash, const uint64_t seed_64, const ethash::hash256& mix_hash) noexcept
+    const ethash::hash256& input_hash, const ethash::hash256& mix_hash) noexcept
 {
     uint32_t state[25] = {0};
     std::memcpy(&state[0], input_hash.bytes, sizeof(ethash::hash256));
+    std::memcpy(&state[8], mix_hash.bytes, sizeof(ethash::hash256));
     state[17] = 0x00000001;
     state[24] = 0x80008081;
     ethash::keccakf800(state);
@@ -506,7 +507,7 @@ ethash::result hash(
     const ethash::hash256 seed_hash{progpow::hash_seed(header_hash, nonce)};
     const uint64_t seed_64{seed_hash.word64s[0]};
     const ethash::hash256 mix_hash{progpow::hash_mix(context, period, seed_64)};
-    const ethash::hash256 final_hash{progpow::hash_final(seed_hash, seed_64, mix_hash)};
+    const ethash::hash256 final_hash{progpow::hash_final(seed_hash, mix_hash)};
     return {final_hash, mix_hash};
 }
 
