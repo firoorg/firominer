@@ -39,7 +39,7 @@ constexpr static uint32_t kLight_cache_growth = 1 << 17;
 constexpr static uint32_t kLight_cache_rounds = 3;
 constexpr static uint32_t kL1_cache_size = 16384u;
 constexpr static uint32_t kL1_cache_words = kL1_cache_size / sizeof(uint32_t);
-constexpr static uint32_t kFull_dataset_init_size = 1 << 30;
+constexpr static uint32_t kFull_dataset_init_size = (1 << 30) + (1 << 29); // Firo initial DAG size such as at block 400K they're above 4GB
 constexpr static uint32_t kFull_dataset_growth = 1 << 23;
 constexpr static uint32_t kFull_dataset_item_parents = 512;
 
