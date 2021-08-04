@@ -347,6 +347,7 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
         try
         {
             CUDA_SAFE_CALL(cudaGetDeviceProperties(&props, i));
+            CUDA_SAFE_CALL(cudaSetDevice(i));
             s << setw(2) << setfill('0') << hex << props.pciBusID << ":" << setw(2) << props.pciDeviceID << ".0";
             uniqueId = s.str();
 
