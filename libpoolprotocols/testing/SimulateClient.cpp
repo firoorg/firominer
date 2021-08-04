@@ -8,11 +8,69 @@ using namespace std::chrono;
 using namespace dev;
 using namespace eth;
 
+static std::string random_string(size_t len)
+{
+    static constexpr char kAlphaNum[]{
+        "0123456789"
+        "abcdefghijklmnopqrstuvwxyz"};
+
+    // don't count the null terminator
+    static constexpr size_t kNumberOfCharacters{sizeof(kAlphaNum) - 1};
+
+    std::random_device rd;
+    std::default_random_engine engine{rd()};
+
+    // yield random numbers up to and including kNumberOfCharacters - 1
+    std::uniform_int_distribution<size_t> uniform_dist{0, kNumberOfCharacters - 1};
+
+    std::string s;
+    s.reserve(len);
+
+    for (size_t i{0}; i < len; ++i)
+    {
+        size_t random_number{uniform_dist(engine)};
+        s += kAlphaNum[random_number];
+    }
+
+    return s;
+}
+
+
 SimulateClient::SimulateClient(unsigned const& block, float const& difficulty)
   : PoolClient(), Worker("sim"), m_block(block), m_difficulty(difficulty)
-{}
+{
+    filesystem::path tmp_dir{filesystem::temp_directory_path()};
+    bool found{false};
+    for (size_t i = 0; i < 5000; i++)
+    {
+        out_file_path_ = filesystem::path{tmp_dir / random_string(8)};
+        out_file_path_ += ".txt";
+        if (!filesystem::exists(out_file_path_))
+        {
+            found = true;
+            break;
+        }
+    }
+    if (!found)
+    {
+        throw std::runtime_error("Can't find a valid output path");
+    }
 
-SimulateClient::~SimulateClient() = default;
+    out_file_.open(out_file_path_.string(), std::ios_base::out);
+    if (!out_file_.is_open())
+    {
+        throw std::runtime_error(strerror(errno));
+    }
+    cnote << "Dumping results to " << out_file_path_.string();
+}
+
+SimulateClient::~SimulateClient()
+{
+    if (out_file_.is_open())
+    {
+        out_file_.close();
+    }
+};
 
 void SimulateClient::connect()
 {
@@ -64,9 +122,44 @@ void SimulateClient::submitSolution(const Solution& solution)
     }
     else if (solution.work.algo == "progpow")
     {
-        result = progpow::verify_full(solution.work.block.value(), ethash::from_bytes(solution.work.header.data()),
-            ethash::from_bytes(solution.mixHash.data()), solution.nonce,
-            ethash::from_bytes(solution.work.get_boundary().data()));
+        auto dag_epoch_number{ethash::calculate_epoch_from_block_num(solution.work.block.value())};
+        auto dag_epoch_context{ethash::get_epoch_context(dag_epoch_number, false)};
+        auto progpow_period{solution.work.block.value() / progpow::kPeriodLength};
+        auto target{ethash::from_bytes(solution.work.get_boundary().data())};
+        auto header{ethash::from_bytes(solution.work.header.data())};
+        auto computed_mix{ethash::from_bytes(solution.mixHash.data())};
+        auto expected{progpow::hash(*dag_epoch_context, progpow_period, header, solution.nonce)};
+        if (!ethash::is_less_or_equal(expected.final_hash, target))
+        {
+            result = ethash::VerificationResult::kInvalidNonce;
+        }
+        else
+        {
+            if (!ethash::is_equal(expected.mix_hash, computed_mix))
+            {
+                result = ethash::VerificationResult::kInvalidMixHash;
+            }
+            else
+            {
+                result = ethash::VerificationResult::kOk;
+            }
+        }
+        if (result == ethash::VerificationResult::kOk)
+        {
+            h256 fh{reinterpret_cast<::byte*>(expected.final_hash.bytes), h256::ConstructFromPointer};
+            // Save data to out_file
+            std::stringstream s;
+            s << "{" << std::to_string(solution.work.block.value()) << ", ";  // Block number
+            s << "\"" << solution.work.header.hex() << "\", ";                // Block header
+            s << "\"" << solution.work.boundary.hex() << "\", ";              // Boundary
+            s << "\"" << dev::toHex(solution.nonce) << "\", ";                // Nonce
+            s << "\"" << solution.mixHash.hex() << "\", ";                    // Mix hash
+            s << "\"" << fh.hex() << "\" },";                                 // Final hash
+            out_file_ << s.str() << std::endl;
+        }
+        // result = progpow::verify_full(solution.work.block.value(), ethash::from_bytes(solution.work.header.data()),
+        //    ethash::from_bytes(solution.mixHash.data()), solution.nonce,
+        //    ethash::from_bytes(solution.work.get_boundary().data()));
     }
 
     bool accepted = (result == ethash::VerificationResult::kOk);
@@ -75,6 +168,9 @@ void SimulateClient::submitSolution(const Solution& solution)
 
     if (accepted)
     {
+        // Save solution and work
+
+
         if (m_onSolutionAccepted)
             m_onSolutionAccepted(response_delay_ms, solution.midx, false);
     }
@@ -117,11 +213,15 @@ void SimulateClient::workLoop()
         if (solution_arrived)
         {
             solution_arrived.store(false);
+
+            // Generate and submit a new random work incrementing block
+            current.block.emplace(++m_block);
+            current.epoch.emplace(current.block.value() / ethash::kEpoch_length);
+            seed_h256 = ethash::calculate_seed_from_epoch(current.epoch.value());
+            current.seed = h256(reinterpret_cast<::byte*>(seed_h256.bytes), h256::ConstructFromPointer);
             current.header = h256::random();
+
             m_onWorkReceived(current);  // submit new fake job
         }
-
-
     }
-
 }

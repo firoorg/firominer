@@ -1,10 +1,11 @@
 #pragma once
 
-#include <iostream>
-
 #include <libdevcore/Worker.h>
 #include <libethcore/Farm.h>
 #include <libethcore/Miner.h>
+
+#include <filesystem>
+#include <fstream>
 
 #include <libcrypto/progpow.hpp>
 
@@ -30,7 +31,6 @@ public:
     void submitSolution(const Solution& solution) override;
 
 private:
-
     void workLoop() override;
     unsigned m_block;
     float m_difficulty;
@@ -41,5 +41,6 @@ private:
     float hr_mean = 0.0f;
 
     std::atomic<bool> solution_arrived{false};
-
+    std::filesystem::path out_file_path_;
+    std::fstream out_file_;
 };
