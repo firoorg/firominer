@@ -218,9 +218,14 @@ void CUDAMiner::workLoop()
             if (w.epoch.has_value() && old_epoch != static_cast<int>(w.epoch.value()))
             {
                 if (!initEpoch())
+                {
                     break;  // This will simply exit the thread
+                }
                 old_epoch = static_cast<int>(w.epoch.value());
-                continue;
+                if (m_new_work.load())
+                {
+                    continue;
+                }
             }
             uint64_t period_seed = w.block.value() / progpow::kPeriodLength;
             if (m_nextProgpowPeriod == 0)
@@ -242,6 +247,7 @@ void CUDAMiner::workLoop()
                     }
                 }));
             }
+
             if (old_period_seed != period_seed)
             {
                 if (m_compileThread)
@@ -281,7 +287,6 @@ void CUDAMiner::workLoop()
                     }
                 }));
             }
-            // Epoch change ?
 
             // Persist most recent job.
             // Job's differences should be handled at higher level
@@ -533,12 +538,11 @@ void CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
     while (!done)
     {
         // Exit next time around if there's new work awaiting
-        bool t = true;
-        done = m_new_work.compare_exchange_weak(t, false, std::memory_order_relaxed);
+        done = (done || m_new_work.load() || paused());
 
-        // Check on every batch if we need to suspend mining
-        if (!done)
-            done = paused();
+        //// Check on every batch if we need to suspend mining
+        // if (!done)
+        //    done = paused();
 
         // This inner loop will process each cuda stream individually
         for (current_index = 0; current_index < m_settings.streams; current_index++, start_nonce += m_batch_size)
