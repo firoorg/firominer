@@ -117,6 +117,11 @@ void SimulateClient::workLoop()
         if (solution_arrived)
         {
             solution_arrived.store(false);
+            ++m_block;
+            current.block.emplace(m_block);
+            current.epoch.emplace(m_block / ethash::kEpoch_length);
+            seed_h256 = ethash::calculate_seed_from_epoch(current.epoch.value());
+            current.seed = h256(reinterpret_cast<::byte*>(seed_h256.bytes), h256::ConstructFromPointer);
             current.header = h256::random();
             m_onWorkReceived(current);  // submit new fake job
         }
