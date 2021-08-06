@@ -104,6 +104,7 @@ void SimulateClient::workLoop()
 
     current.header = h256::random();
     current.boundary = h256(dev::getTargetFromDiff(m_difficulty));
+    current.block_boundary = current.boundary;
 
     m_onWorkReceived(current);  // submit new fake job
     cnote << "Using block " << m_block << ", difficulty " << m_difficulty;

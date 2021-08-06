@@ -499,7 +499,7 @@ void Farm::submitProofAsync(Solution const& _s)
 
             ethash::hash256 header_256{ethash::from_bytes(_s.work.header.data())};
             ethash::hash256 mix_256{ethash::from_bytes(_s.mixHash.data())};
-            ethash::hash256 boundary_256{ethash::from_bytes(_s.work.boundary.data())};
+            ethash::hash256 boundary_256{ethash::from_bytes(_s.work.get_boundary().data())};
 
             auto result = progpow::verify_full(_s.work.block.value(), header_256, mix_256, _s.nonce, boundary_256);
             switch (result)
