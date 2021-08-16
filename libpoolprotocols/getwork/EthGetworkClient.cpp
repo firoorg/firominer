@@ -25,7 +25,7 @@ EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod)
     Json::Value jGetWork;
     jGetWork["id"] = unsigned(1);
     jGetWork["jsonrpc"] = "2.0";
-    jGetWork["method"] = "eth_getWork";
+    jGetWork["method"] = "getblockheader";
     jGetWork["params"] = Json::Value(Json::arrayValue);
     m_jsonGetWork = std::string(Json::writeString(m_jSwBuilder, jGetWork));
 }
@@ -409,20 +409,30 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
         }
         else
         {
-            if (!JRes.isMember("result"))
+            if (!JRes.isMember("result") || !JRes["result"].isObject())
             {
-                cwarn << "Missing data for eth_getWork request from " << m_conn->Host() << ":"
+                cwarn << "Missing result data for getblocktemplate request from " << m_conn->Host() << ":"
                       << toString(m_conn->Port());
             }
             else
             {
                 Json::Value JPrm = JRes.get("result", Json::Value::null);
+
+                // Sanity checks
+                if (!JPrm.isMember("pprpcheader") || !JPrm.isMember("pprpcepoch") || !JPrm.isMember("height") ||
+                    !JPrm.isMember("bits") || JPrm.isMember("target"))
+                {
+                    cwarn << "Invalid/incomplete work package info from " << m_conn->Host() << ":"
+                          << toString(m_conn->Port());
+                    return;
+                }
+
                 WorkPackage newWp;
                 
-                newWp.header = h256(JPrm.get(Json::Value::ArrayIndex(0), "").asString());
-                newWp.seed = h256(JPrm.get(Json::Value::ArrayIndex(1), "").asString());
-                newWp.boundary = h256(JPrm.get(Json::Value::ArrayIndex(2), "").asString());
-                newWp.block = strtoul(JPrm.get(Json::Value::ArrayIndex(3), "").asString().c_str(), nullptr, 0);
+                newWp.header = h256(JPrm["pprpcheader"].asString());
+                newWp.epoch = strtoul(JPrm["pprpcepoch"].asString().c_str(), nullptr, 0);
+                newWp.boundary = h256(JPrm["target"].asString());
+                newWp.block = strtoul(JPrm["height"].asString().c_str(), nullptr, 0);
                 newWp.job = newWp.header.hex();
                 if (m_current.header != newWp.header)
                 {
@@ -521,18 +531,23 @@ void EthGetworkClient::send(std::string const& sReq)
 
 void EthGetworkClient::submitHashrate(uint64_t const& rate, string const& id)
 {
-    // No need to check for authorization
-    if (m_session)
-    {
-        Json::Value jReq;
-        jReq["id"] = unsigned(9);
-        jReq["jsonrpc"] = "2.0";
-        jReq["method"] = "eth_submitHashrate";
-        jReq["params"] = Json::Value(Json::arrayValue);
-        jReq["params"].append(toHex(rate, HexPrefix::Add));  // Already expressed as hex
-        jReq["params"].append(id);                           // Already prefixed by 0x
-        send(jReq);
-    }
+    // Just return as the node does not support it
+    (void)rate;
+    (void)id;
+    return;
+
+    //// No need to check for authorization
+    //if (m_session)
+    //{
+    //    Json::Value jReq;
+    //    jReq["id"] = unsigned(9);
+    //    jReq["jsonrpc"] = "2.0";
+    //    jReq["method"] = "eth_submitHashrate";
+    //    jReq["params"] = Json::Value(Json::arrayValue);
+    //    jReq["params"].append(toHex(rate, HexPrefix::Add));  // Already expressed as hex
+    //    jReq["params"].append(id);                           // Already prefixed by 0x
+    //    send(jReq);
+    //}
 
 }
 
@@ -548,11 +563,11 @@ void EthGetworkClient::submitSolution(const Solution& solution)
         jReq["id"] = id;
         jReq["jsonrpc"] = "2.0";
         m_solution_submitted_max_id = max(m_solution_submitted_max_id, id);
-        jReq["method"] = "eth_submitWork";
+        jReq["method"] = "pprpcsb";
         jReq["params"] = Json::Value(Json::arrayValue);
-        jReq["params"].append("0x" + nonceHex);
         jReq["params"].append("0x" + solution.work.header.hex());
         jReq["params"].append("0x" + solution.mixHash.hex());
+        jReq["params"].append("0x" + nonceHex);
         send(jReq);
     }
 
