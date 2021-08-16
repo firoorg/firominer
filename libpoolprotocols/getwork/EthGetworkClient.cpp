@@ -162,7 +162,7 @@ void EthGetworkClient::handle_connect(const boost::system::error_code& ec)
                     os << "Content-Length: " << line->length() << "\r\n";
                     if (m_base64_auth.size())
                     {
-                        os << "Authorization: basic " << m_base64_auth << "\r\n";
+                        os << "Authorization: Basic " << m_base64_auth << "\r\n";
                     }
                     os << "Connection: close\r\n\r\n";  // Double line feed to mark the
                                                         // beginning of body
