@@ -430,16 +430,23 @@ static mix_t init_mix(uint64_t seed)
 ethash::hash256 hash_seed(const ethash::hash256& header_hash, uint64_t nonce) noexcept
 {
     nonce = ethash::le::uint64(nonce);
-    uint32_t state[25]{};
-    std::memcpy(&state[0], header_hash.bytes, sizeof(ethash::hash256));
-    std::memcpy(&state[8], &nonce, sizeof(uint64_t));
+    uint32_t state[25] = {0x0};
+    for (size_t i = 0; i < 8; i++)
+    {
+        state[i] = ethash::le::uint32(header_hash.word32s[i]);
+    }
 
+    std::memcpy(&state[8], &nonce, sizeof(uint64_t));
     state[10] = 0x00000001;
     state[18] = 0x80008081;
 
     ethash::keccakf800(state);
-    ethash::hash256 output{};
-    std::memcpy(output.bytes, &state[0], sizeof(ethash::hash256));
+
+    ethash::hash256 output;
+    for (int i = 0; i < 8; ++i)
+    {
+        output.word32s[i] = ethash::le::uint32(state[i]);
+    }
     return output;
 }
 
@@ -487,8 +494,7 @@ ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t pe
     return mix_hash;
 }
 
-ethash::hash256 hash_final(
-    const ethash::hash256& input_hash, const ethash::hash256& mix_hash) noexcept
+ethash::hash256 hash_final(const ethash::hash256& input_hash, const ethash::hash256& mix_hash) noexcept
 {
     uint32_t state[25] = {0};
     std::memcpy(&state[0], input_hash.bytes, sizeof(ethash::hash256));

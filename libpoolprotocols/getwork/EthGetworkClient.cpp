@@ -212,7 +212,6 @@ void EthGetworkClient::handle_write(const boost::system::error_code& ec)
         async_read(m_socket, m_response, boost::asio::transfer_all(),
             m_io_strand.wrap(boost::bind(&EthGetworkClient::handle_read, this, boost::asio::placeholders::error,
                 boost::asio::placeholders::bytes_transferred)));
-    
     }
     else
     {
@@ -250,6 +249,8 @@ void EthGetworkClient::handle_read(const boost::system::error_code& ec, std::siz
         // Other lines are headers
         // A double "\r\n" identifies begin of body
         // The rest is body
+        bool has_payload{false};
+        uint32_t http_status_code{0};
         std::string line;
         std::string linedelimiter = "\r\n";
         std::size_t delimiteroffset = rx_message.find(linedelimiter);
@@ -268,7 +269,9 @@ void EthGetworkClient::handle_read(const boost::system::error_code& ec, std::siz
                 isHeader = false;
                 delimiteroffset = rx_message.find(linedelimiter);
                 if (delimiteroffset != std::string::npos)
+                {
                     continue;
+                }
                 boost::replace_all(rx_message, "\n", "");
                 line = rx_message;
             }
@@ -289,18 +292,20 @@ void EthGetworkClient::handle_read(const boost::system::error_code& ec, std::siz
                     disconnect();
                     return;
                 }
-                std::string status = line.substr(spaceoffset + 1);
-                if (status.substr(0, 3) != "200")
-                {
-                    cwarn << m_conn->Host() << ":" << toString(m_conn->Port()) << " reported status " << status;
-                    disconnect();
-                    return;
-                }
+                std::string status = line.substr(spaceoffset + 1).substr(0, 3);
+                http_status_code = std::stoul(status);
+                // if (status.substr(0, 3) != "200")
+                //{
+                //    cwarn << m_conn->Host() << ":" << toString(m_conn->Port()) << " reported status " << status;
+                //    disconnect();
+                //    return;
+                //}
             }
 
             // Body
             if (!isHeader)
             {
+                has_payload = true;
                 // Out received message only for debug purpouses
                 if (g_logOptions & LOG_JSON)
                     cnote << " << " << line;
@@ -322,6 +327,13 @@ void EthGetworkClient::handle_read(const boost::system::error_code& ec, std::siz
             }
 
             delimiteroffset = rx_message.find(linedelimiter);
+        }
+
+        if (!has_payload && http_status_code != 200)
+        {
+            cwarn << m_conn->Host() << ":" << toString(m_conn->Port()) << " reported status " << http_status_code;
+            disconnect();
+            return;
         }
 
         // Is there anything else in the queue
@@ -421,24 +433,26 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
                 {
                     cwarn << "Invalid/incomplete work package info from " << m_conn->Host() << ":"
                           << toString(m_conn->Port());
-                    return;
                 }
-
-                WorkPackage newWp;
-
-                newWp.header = h256(JPrm["pprpcheader"].asString());
-                newWp.epoch = strtoul(JPrm["pprpcepoch"].asString().c_str(), nullptr, 0);
-                newWp.boundary = h256(JPrm["target"].asString());
-                newWp.block = strtoul(JPrm["height"].asString().c_str(), nullptr, 0);
-                newWp.job = newWp.header.hex();
-                if (m_current.header != newWp.header)
+                else
                 {
-                    m_current = newWp;
-                    m_current_tstamp = std::chrono::steady_clock::now();
+                    WorkPackage newWp;
 
-                    if (m_onWorkReceived)
-                        m_onWorkReceived(m_current);
+                    newWp.header = h256(JPrm["pprpcheader"].asString());
+                    newWp.epoch = strtoul(JPrm["pprpcepoch"].asString().c_str(), nullptr, 0);
+                    newWp.boundary = h256(JPrm["target"].asString());
+                    newWp.block = strtoul(JPrm["height"].asString().c_str(), nullptr, 0);
+                    newWp.job = newWp.header.hex();
+                    if (m_current.header != newWp.header)
+                    {
+                        m_current = newWp;
+                        m_current_tstamp = std::chrono::steady_clock::now();
+
+                        if (m_onWorkReceived)
+                            m_onWorkReceived(m_current);
+                    }
                 }
+
                 m_getwork_timer.expires_from_now(boost::posix_time::milliseconds(m_farmRecheckPeriod));
                 m_getwork_timer.async_wait(m_io_strand.wrap(
                     boost::bind(&EthGetworkClient::getwork_timer_elapsed, this, boost::asio::placeholders::error)));
@@ -548,7 +562,7 @@ void EthGetworkClient::submitSolution(const Solution& solution)
     if (m_session)
     {
         Json::Value jReq;
-        string nonceHex = toHex(solution.nonce);
+        string nonceHex = toHex(solution.nonce, dev::HexPrefix::Add);
 
         unsigned id = 40 + solution.midx;
         jReq["id"] = id;
@@ -556,9 +570,9 @@ void EthGetworkClient::submitSolution(const Solution& solution)
         m_solution_submitted_max_id = max(m_solution_submitted_max_id, id);
         jReq["method"] = "pprpcsb";
         jReq["params"] = Json::Value(Json::arrayValue);
-        jReq["params"].append("0x" + solution.work.header.hex());
-        jReq["params"].append("0x" + solution.mixHash.hex());
-        jReq["params"].append("0x" + nonceHex);
+        jReq["params"].append(solution.work.header.hex());  // Don't prepend 0x (firo has a dictionary of hashes)
+        jReq["params"].append(solution.mixHash.hex());
+        jReq["params"].append(nonceHex);
         send(jReq);
     }
 }
