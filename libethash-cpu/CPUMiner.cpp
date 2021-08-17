@@ -294,6 +294,10 @@ void CPUMiner::workLoop()
         }
 
         const WorkPackage w = work();
+        if (!w)
+        {
+            continue;
+        }
 
         if (w.algo == "progpow")
         {

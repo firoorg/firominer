@@ -215,6 +215,10 @@ void CUDAMiner::workLoop()
             }
 
             const WorkPackage w = work();
+            if (!w)
+            {
+                continue;
+            }
             if (w.epoch.has_value() && old_epoch != static_cast<int>(w.epoch.value()))
             {
                 if (!initEpoch())

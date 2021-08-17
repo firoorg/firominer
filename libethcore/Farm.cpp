@@ -324,8 +324,10 @@ void Farm::pause()
     // Signal each miner to suspend mining
     Guard l(x_minerWork);
     m_paused.store(true, std::memory_order_relaxed);
-    for (auto const& m : m_miners)
-        m->pause(MinerPauseEnum::PauseDueToFarmPaused);
+    for (auto const& miner : m_miners)
+    {
+        miner->pause(MinerPauseEnum::PauseDueToFarmPaused);
+    }
 }
 
 /**

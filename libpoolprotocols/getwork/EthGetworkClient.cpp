@@ -157,12 +157,11 @@ void EthGetworkClient::handle_connect(const boost::system::error_code& ec)
 
                     os << "POST " << _path << " HTTP/1.0\r\n";
                     os << "Host: " << m_conn->Host() << "\r\n";
-                    os << "Content-Type: application/json"
-                       << "\r\n";
+                    os << "Content-Type: application/json\r\n";
                     os << "Content-Length: " << line->length() << "\r\n";
                     if (m_base64_auth.size())
                     {
-                        os << "Authorization: basic " << m_base64_auth << "\r\n";
+                        os << "Authorization: Basic " << m_base64_auth << "\r\n";
                     }
                     os << "Connection: close\r\n\r\n";  // Double line feed to mark the
                                                         // beginning of body
@@ -171,7 +170,9 @@ void EthGetworkClient::handle_connect(const boost::system::error_code& ec)
 
                     // Out received message only for debug purpouses
                     if (g_logOptions & LOG_JSON)
+                    {
                         cnote << " >> " << *line;
+                    }
 
                     delete line;
 
@@ -208,9 +209,10 @@ void EthGetworkClient::handle_write(const boost::system::error_code& ec)
     {
         // Transmission succesfully sent.
         // Read the response async.
-        boost::asio::async_read_until(m_socket, m_response, "}",
+        async_read(m_socket, m_response, boost::asio::transfer_all(),
             m_io_strand.wrap(boost::bind(&EthGetworkClient::handle_read, this, boost::asio::placeholders::error,
                 boost::asio::placeholders::bytes_transferred)));
+    
     }
     else
     {
@@ -225,7 +227,7 @@ void EthGetworkClient::handle_write(const boost::system::error_code& ec)
 
 void EthGetworkClient::handle_read(const boost::system::error_code& ec, std::size_t bytes_transferred)
 {
-    if (!ec)
+    if (!ec || (ec == boost::asio::error::eof && bytes_transferred > 0))
     {
         // Close socket
         if (m_socket.is_open())
@@ -338,7 +340,7 @@ void EthGetworkClient::handle_read(const boost::system::error_code& ec, std::siz
         if (ec != boost::asio::error::operation_aborted)
         {
             cwarn << "Error reading from :" << m_conn->Host() << ":" << toString(m_conn->Port()) << " : "
-                  << ec.message();
+                  << ec.message() << " Bytes transferred " << bytes_transferred;
             disconnect();
         }
     }
@@ -415,7 +417,7 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
 
                 // Sanity checks
                 if (!JPrm.isMember("pprpcheader") || !JPrm.isMember("pprpcepoch") || !JPrm.isMember("height") ||
-                    !JPrm.isMember("bits") || JPrm.isMember("target"))
+                    !JPrm.isMember("bits") || !JPrm.isMember("target"))
                 {
                     cwarn << "Invalid/incomplete work package info from " << m_conn->Host() << ":"
                           << toString(m_conn->Port());
