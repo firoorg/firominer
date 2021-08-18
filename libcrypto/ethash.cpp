@@ -90,10 +90,10 @@ struct item_state
 hash1024 lazy_lookup_1024(const epoch_context& context, uint32_t index) noexcept
 {
     // l1_cache has the first 128 hash1024 items
-    static constexpr uint32_t l1_cache_num_items{kL1_cache_size / sizeof(hash1024)};
-    if (index < l1_cache_num_items)
+    static constexpr uint32_t l1_cache_num_items_1024{kL1_cache_size / sizeof(hash1024)};
+    if (index < l1_cache_num_items_1024)
     {
-        const hash1024& item = (reinterpret_cast<const hash1024*>(context.l1_cache))[index];
+        const auto item = (reinterpret_cast<const hash1024*>(context.l1_cache))[index];
         return item;
     }
 
@@ -109,6 +109,31 @@ hash1024 lazy_lookup_1024(const epoch_context& context, uint32_t index) noexcept
     }
 
     auto item = calculate_dataset_item_1024(context, index);
+    return item;
+}
+
+hash2048 lazy_lookup_2048(const epoch_context& context, uint32_t index) noexcept
+{
+    // l1_cache has the first 64 hash2048 items
+    static constexpr uint32_t l1_cache_num_items_2048{kL1_cache_size / sizeof(hash2048)};
+    if (index < l1_cache_num_items_2048)
+    {
+        const auto item = (reinterpret_cast<const hash2048*>(context.l1_cache))[index];
+        return item;
+    }
+
+    if (context.full_dataset)
+    {
+        hash2048& item = reinterpret_cast<hash2048*>(context.full_dataset)[index];
+        if (item.word64s[0] == 0)
+        {
+            // TODO: Copy elision here makes it thread-safe?
+            item = calculate_dataset_item_2048(context, index);
+        }
+        return item;
+    }
+
+    auto item = calculate_dataset_item_2048(context, index);
     return item;
 }
 

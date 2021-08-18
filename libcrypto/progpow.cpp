@@ -339,11 +339,8 @@ static void round(const ethash::epoch_context& context, uint32_t r, mix_t& mix, 
     const uint32_t num_items{static_cast<uint32_t>(context.full_dataset_num_items / 2)};
     const uint32_t item_index{mix.at(r % kLanes).at(0) % num_items};
 
-    // Load DAG Data ( 2 chunks of 1024 bytes )
-    ethash::hash2048 item;
-    uint32_t item1024_index{static_cast<uint32_t>(static_cast<uint64_t>(item_index) * 2)};
-    item.hash1024s[0] = ethash::detail::lazy_lookup_1024(context, item1024_index++);
-    item.hash1024s[1] = ethash::detail::lazy_lookup_1024(context, item1024_index);
+    // Load DAG Data
+    ethash::hash2048 item{ethash::detail::lazy_lookup_2048(context, item_index)};
 
     const auto max_operations{std::max(kCache_count, kMath_count)};
 
