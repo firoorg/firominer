@@ -442,6 +442,12 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
                     newWp.epoch = strtoul(JPrm["pprpcepoch"].asString().c_str(), nullptr, 0);
                     auto seed = ethash::calculate_seed_from_epoch(newWp.epoch.value());
                     newWp.seed = h256(seed.bytes, dev::h256::ConstructFromPointer);
+
+                    // Compute block boundary from bits
+                    uint32_t bits = std::strtoul(JPrm["bits"].asString().c_str(), nullptr, 16);
+                    auto block_target = ethash::from_compact(bits);
+                    newWp.block_boundary = h256(block_target.bytes, dev::h256::ConstructFromPointer);
+
                     newWp.boundary = h256(JPrm["target"].asString());
                     newWp.block = strtoul(JPrm["height"].asString().c_str(), nullptr, 0);
                     newWp.job = newWp.header.hex();

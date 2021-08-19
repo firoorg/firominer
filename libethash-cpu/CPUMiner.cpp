@@ -250,6 +250,7 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
             if (ethash::is_less_or_equal(result.final_hash, boundary))
             {
                 h256 mix{reinterpret_cast<::byte*>(result.mix_hash.bytes), h256::ConstructFromPointer};
+                h256 fin{reinterpret_cast<::byte*>(result.final_hash.bytes), h256::ConstructFromPointer};
                 Solution sol{nonce, mix, w, std::chrono::steady_clock::now(), m_index};
                 cpulog << EthWhite << "Job: " << w.header.abridged() << " Sol: " << toHex(sol.nonce, HexPrefix::Add)
                        << EthReset;

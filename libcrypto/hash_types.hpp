@@ -10,8 +10,8 @@
 
 #include <stdint.h>
 #include <cstring>
-#include <sstream>
 #include <iomanip>
+#include <sstream>
 
 #include "endianess.hpp"
 
@@ -67,6 +67,7 @@ struct le
 
 struct be
 {
+    static uint32_t uint32(uint32_t x) noexcept { return bswap32(x); }
     static uint64_t uint64(uint64_t x) noexcept { return bswap64(x); }
 };
 
@@ -131,6 +132,75 @@ inline std::string to_hex(const hash256& value)
         s << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(value.bytes[i]);
     }
     return s.str();
+}
+
+inline void shiftLeft(hash256& hash, uint32_t bitsToShift)
+{
+    // use hash_256.word64s
+    static const size_t size_of_element = sizeof(hash.word64s[0]);
+    static const size_t bits_of_element = size_of_element * 8;
+    static const size_t num_of_elements = sizeof(hash) / size_of_element;
+
+
+    if (!bitsToShift)
+    {
+        return;
+    }
+
+    hash256 tmp;
+    for (size_t i{0}; i < num_of_elements; i++)
+    {
+        tmp.word64s[i] = be::uint64(hash.word64s[i]);
+        hash.word64s[i] = 0;
+    }
+
+    int elements_to_jump_over = bitsToShift / bits_of_element;
+    bitsToShift = bitsToShift % bits_of_element;
+
+    for (int i = num_of_elements - 1; i - elements_to_jump_over >= 0; i--)
+    {
+        if (i - elements_to_jump_over - 1 >= 0)
+        {
+            hash.word64s[i - elements_to_jump_over - 1] = be::uint64(tmp.word64s[i] >> (bits_of_element - bitsToShift));
+        }
+        if (i - elements_to_jump_over >= 0)
+        {
+            hash.word64s[i - elements_to_jump_over] |= be::uint64(tmp.word64s[i] << bitsToShift);
+        }
+    }
+}
+
+inline hash256 from_compact(const uint32_t nbits, bool* pfNegative = nullptr, bool* pfOverflow = nullptr)
+{
+    // see https://doxygen.bitcoincore.org/classarith__uint256.html
+    //     https://doxygen.bitcoincore.org/classarith__uint256.html#a06c0f1937edece69b8d33f88e8d35bc8
+    //     https://github.com/RavenCommunity/kawpowminer/blob/e5deed9afe8300748b97f1d79cce64a77f3e7713/libpoolprotocols/stratum/arith_uint256.h#L266-L285
+    //     https://github.com/RavenCommunity/kawpowminer/blob/e5deed9afe8300748b97f1d79cce64a77f3e7713/libpoolprotocols/stratum/arith_uint256.cpp#L207-L225
+
+    hash256 res{};
+    uint32_t nSize = nbits >> 24;
+    uint32_t nWord = nbits & 0x007fffff;
+    if (nSize <= 3)
+    {
+        nWord >>= 8 * (3 - nSize);
+        res.word32s[7] = be::uint32(nWord);
+    }
+    else
+    {
+        res.word32s[7] = be::uint32(nWord);
+        shiftLeft(res, 8 * (nSize - 3));
+    }
+
+    if (pfNegative)
+    {
+        *pfNegative = nWord != 0 && (nbits & 0x00800000) != 0;
+    }
+    if (pfOverflow)
+    {
+        *pfOverflow = nWord != 0 && ((nSize > 34) || (nWord > 0xff && nSize > 33) || (nWord > 0xffff && nSize > 32));
+    }
+
+    return res;
 }
 
 }  // namespace ethash

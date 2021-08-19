@@ -167,7 +167,7 @@ void PoolManager::setClientHandlers()
         else
         {
             newEpoch = (m_currentWp.epoch.value() != wp.epoch.value());
-            newDiff = (m_currentWp.boundary != wp.boundary);
+            newDiff = (m_currentWp.get_boundary() != wp.get_boundary());
         }
 
         // Save package
@@ -456,7 +456,7 @@ void PoolManager::showMiningAt()
         return;
     }
 
-    double d = dev::getHashesToTarget(m_currentWp.boundary.hex(HexPrefix::Add));
+    double d = dev::getHashesToTarget(m_currentWp.get_boundary().hex(HexPrefix::Add));
     cnote << "Epoch : " EthWhite << m_currentWp.epoch.value() << EthReset << " Difficulty : " EthWhite
           << dev::getFormattedHashes(d) << EthReset;
 }

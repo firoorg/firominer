@@ -262,9 +262,8 @@ struct TelemetryType
         int hoursSize = (hours.count() > 9 ? (hours.count() > 99 ? 3 : 2) : 1);
         duration -= hours;
         auto minutes = std::chrono::duration_cast<std::chrono::minutes>(duration);
-        _ret << EthGreen << std::setw(hoursSize) << hours.count() << ":" << std::setfill('0')
-             << std::setw(2) << minutes.count() << EthReset << EthWhiteBold << " "
-             << farm.solutions.str() << EthReset << " ";
+        _ret << EthGreen << std::setw(hoursSize) << hours.count() << ":" << std::setfill('0') << std::setw(2)
+             << minutes.count() << EthReset << EthWhiteBold << " " << farm.solutions.str() << EthReset << " ";
 
         /*
         Github : @AndreaLanfranchi
@@ -282,8 +281,8 @@ struct TelemetryType
             magnitude++;
         }
 
-        _ret << EthTealBold << std::fixed << std::setprecision(2) << hr << " "
-             << suffixes[magnitude] << EthReset << " - ";
+        _ret << EthTealBold << std::fixed << std::setprecision(2) << hr << " " << suffixes[magnitude] << EthReset
+             << " - ";
 
         int i = -1;                 // Current miner index
         int m = miners.size() - 1;  // Max miner index
@@ -294,8 +293,8 @@ struct TelemetryType
             if (hr > 0.0f)
                 hr /= pow(1000.0f, magnitude);
 
-            _ret << (miner.paused ? EthRed : "") << miner.prefix << i << " " << EthTeal
-                 << std::fixed << std::setprecision(2) << hr << EthReset;
+            _ret << (miner.paused ? EthRed : "") << miner.prefix << i << " " << EthTeal << std::fixed
+                 << std::setprecision(2) << hr << EthReset;
 
             if (hwmon)
                 _ret << " " << EthTeal << miner.sensors.str() << EthReset;
@@ -392,9 +391,7 @@ private:
 class Miner : public Worker
 {
 public:
-    Miner(std::string const& _name, unsigned _index)
-      : Worker(_name + std::to_string(_index)), m_index(_index)
-    {}
+    Miner(std::string const& _name, unsigned _index) : Worker(_name + std::to_string(_index)), m_index(_index) {}
 
     ~Miner() override = default;
 
