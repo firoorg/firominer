@@ -1606,14 +1606,20 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
         {
             cwarn << "Got unknown method [" << _method << "] from pool. Discarding...";
 
-            // Respond back to issuer
-            if (_rpcVer == 2)
-                jReq["jsonrpc"] = "2.0";
+            /*
+            * Being this an unknown *notification* the issuer does not expect replies back
+            * hence we don't need to notify.
+            */
+            return;
 
-            jReq["id"] = _id;
-            jReq["error"] = "Method not found";
+            //// Respond back to issuer
+            //if (_rpcVer == 2)
+            //    jReq["jsonrpc"] = "2.0";
 
-            send(jReq);
+            //jReq["id"] = _id;
+            //jReq["error"] = "Method not found";
+
+            //send(jReq);
         }
     }
 }
