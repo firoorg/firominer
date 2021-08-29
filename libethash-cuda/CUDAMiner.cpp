@@ -506,6 +506,15 @@ void CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
         set_target(target);
         m_current_target = target;
     }
+
+    // If upper 64 bits of target are 0xffffffffffffffff then any nonce would
+    // be considered valid by GPU. Skip job.
+    if (target == UINT64_MAX)
+    {
+        cudalog << "Difficulty too low for GPU. Skipping job";
+        return;
+    }
+
     hash32_t current_header = *reinterpret_cast<hash32_t const*>(header);
     hash64_t* dag;
     get_constants(&dag, NULL, NULL, NULL);

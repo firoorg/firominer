@@ -412,6 +412,14 @@ void CLMiner::workLoop()
                 const uint64_t target = (uint64_t)(u64)((u256)next.get_boundary() >> 192);
                 assert(target > 0);
 
+                // If upper 64 bits of target are 0xffffffffffffffff then any nonce would
+                // be considered valid by GPU. Skip job.
+                if (target == UINT64_MAX)
+                {
+                    cllog << "Difficulty too low for GPU. Skipping job";
+                    continue;
+                }
+
                 startNonce = next.startNonce;
 
                 // Update header constant buffer.
