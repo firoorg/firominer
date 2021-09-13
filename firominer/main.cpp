@@ -272,6 +272,9 @@ public:
         vector<string> pools;
         app.add_option("-P,--pool", pools, "");
 
+        string rewardAddress;
+        app.add_option("-r,--reward-address", m_PoolSettings.rewardAddress, "");
+
         app.add_option("--failover-timeout", m_PoolSettings.poolFailoverTimeout, "", true)
             ->check(CLI::Range(0, 999));
 
@@ -369,6 +372,8 @@ public:
 
         app.add_option("--tstop", m_FarmSettings.tempStop, "", true)->check(CLI::Range(30, 100));
         app.add_option("--tstart", m_FarmSettings.tempStart, "", true)->check(CLI::Range(30, 100));
+
+        // add reward address option 
 
 
         // Exception handling is held at higher level

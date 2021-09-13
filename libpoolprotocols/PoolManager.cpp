@@ -407,7 +407,7 @@ void PoolManager::rotateConnect()
 
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::GETWORK)
             p_client = std::unique_ptr<PoolClient>(
-                new EthGetworkClient(m_Settings.noWorkTimeout, m_Settings.getWorkPollInterval));
+                new EthGetworkClient(m_Settings.noWorkTimeout, m_Settings.getWorkPollInterval, m_Settings.rewardAddress));
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::STRATUM)
             p_client = std::unique_ptr<PoolClient>(
                 new EthStratumClient(m_Settings.noWorkTimeout, m_Settings.noResponseTimeout));

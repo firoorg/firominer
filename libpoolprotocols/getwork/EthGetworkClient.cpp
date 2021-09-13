@@ -11,7 +11,7 @@ using namespace eth;
 
 using boost::asio::ip::tcp;
 
-EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod)
+EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, const std::string &rewardAddress)
   : PoolClient(),
     m_farmRecheckPeriod(farmRecheckPeriod),
     m_io_strand(g_io_service),
@@ -27,7 +27,12 @@ EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod)
     jGetWork["id"] = unsigned(1);
     jGetWork["jsonrpc"] = "2.0";
     jGetWork["method"] = "getblocktemplate";
-    jGetWork["params"] = Json::Value(Json::arrayValue);
+
+    Json::Value params = Json::Value(Json::arrayValue);
+    params.append(Json::Value(Json::objectValue));
+    params.append(rewardAddress);
+    jGetWork["params"] = params;
+    
     m_jsonGetWork = std::string(Json::writeString(m_jSwBuilder, jGetWork));
 }
 

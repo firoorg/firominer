@@ -32,6 +32,7 @@ struct PoolSettings
     unsigned connectionMaxRetries = 9000;                         // Max number of connection retries
     unsigned benchmarkBlock = 0;  // Block number used by SimulateClient to test performances
     float benchmarkDiff = 1.0;    // Difficulty used by SimulateClient to test performances
+    std::string rewardAddress;    // Reward address in case of solo mining
 };
 
 class PoolManager

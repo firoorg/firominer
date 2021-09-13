@@ -19,7 +19,7 @@ using namespace eth;
 class EthGetworkClient : public PoolClient
 {
 public:
-    EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod);
+    EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, const std::string &rewardAddress);
     ~EthGetworkClient();
 
     void connect() override;
