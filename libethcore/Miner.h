@@ -23,6 +23,7 @@
 #include <bitset>
 #include <condition_variable>
 #include <list>
+#include <mutex>
 #include <numeric>
 #include <optional>
 #include <string>
@@ -336,12 +337,27 @@ struct WorkPackage
 
     std::optional<uint32_t> epoch;
     std::optional<uint32_t> block;
+    std::shared_ptr<ethash::epoch_context> epochContext;
+    uint64_t workGeneration = 0;
 
     uint64_t startNonce = 0;
     uint16_t exSizeBytes = 0;
+    uint64_t nonceRange = 0;  // Assigned suffix range; zero means unrestricted.
 
     std::string algo = "progpow";
 };
+
+inline bool nonceInRange(WorkPackage const& work, uint64_t nonce) noexcept
+{
+    return !work.nonceRange || nonce - work.startNonce < work.nonceRange;
+}
+
+inline uint64_t wrapNonce(WorkPackage const& work, uint64_t nonce) noexcept
+{
+    if (!work.nonceRange)
+        return nonce;
+    return work.startNonce + (nonce - work.startNonce) % work.nonceRange;
+}
 
 
 struct Solution
@@ -352,6 +368,8 @@ struct Solution
     std::chrono::steady_clock::time_point tstamp;  // Timestamp of found solution
     unsigned midx;                                 // Originating miner Id
 };
+
+ethash::VerificationResult verifyProgpow(Solution const& solution);
 
 /**
  * @brief Class for hosting one or more Miners.
@@ -396,11 +414,9 @@ public:
     ~Miner() override = default;
 
     // Sets basic info for eventual serialization of DAG load
-    static void setDagLoadInfo(unsigned _mode, unsigned _devicecount)
+    static void setDagLoadInfo(unsigned _mode)
     {
         s_dagLoadMode = _mode;
-        s_dagLoadIndex = 0;
-        s_minersCount = _devicecount;
     };
 
     /**
@@ -411,12 +427,7 @@ public:
     /**
      * @brief Assigns hashing work to this instance
      */
-    void setWork(WorkPackage const& _work);
-
-    /**
-     * @brief Assigns Epoch context to this instance
-     */
-    void setEpoch(std::shared_ptr<ethash::epoch_context> const& _ec) { m_epochContext = _ec; }
+    void setWork(WorkPackage const& _work, bool _retryInsufficientMemory);
 
     unsigned Index() { return m_index; };
 
@@ -433,6 +444,11 @@ public:
      * @brief Pauses mining setting a reason flag
      */
     void pause(MinerPauseEnum what);
+
+    /**
+     * @brief Pauses only if this miner is still processing the supplied work.
+     */
+    void pause(MinerPauseEnum what, WorkPackage const& _work);
 
     /**
      * @brief Whether or not this miner is paused for any reason
@@ -471,12 +487,12 @@ protected:
     /**
      * @brief Initializes miner to current (or changed) epoch.
      */
-    bool initEpoch();
+    bool initEpoch(WorkPackage const& _work);
 
     /**
      * @brief Miner's specific initialization to current (or changed) epoch.
      */
-    virtual bool initEpoch_internal() = 0;
+    virtual bool initEpoch_internal(WorkPackage const& _work) = 0;
 
     /**
      * @brief Returns current workpackage this miner is working on
@@ -487,10 +503,8 @@ protected:
 
     bool dropThreadPriority();
 
-    static unsigned s_minersCount;   // Total Number of Miners
-    static unsigned s_dagLoadMode;   // Way dag should be loaded
-    static unsigned s_dagLoadIndex;  // In case of serialized load of dag this is the index of miner
-                                     // which should load next
+    static unsigned s_dagLoadMode;  // Way dag should be loaded
+    static std::mutex s_dagLoadMutex;
 
     const unsigned m_index = 0;           // Ordinal index of the Instance (not the device)
     DeviceDescriptor m_deviceDescriptor;  // Info about the device
@@ -505,7 +519,6 @@ protected:
     mutable std::mutex x_work;
     mutable std::mutex x_pause;
     std::condition_variable m_new_work_signal;
-    std::condition_variable m_dag_loaded_signal;
     uint64_t m_nextProgpowPeriod = 0;
     std::unique_ptr<std::thread> m_compileThread = nullptr;
 
@@ -513,6 +526,7 @@ private:
     std::bitset<MinerPauseEnum::Pause_MAX> m_pauseFlags;
 
     WorkPackage m_work;
+    uint64_t m_workGeneration = 0;
 
     std::chrono::steady_clock::time_point m_hashTime = std::chrono::steady_clock::now();
     std::atomic<float> m_hashRate = {0.0};

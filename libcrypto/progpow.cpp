@@ -531,7 +531,7 @@ ethash::VerificationResult verify_full(const ethash::epoch_context& context, con
 }
 
 ethash::VerificationResult verify_full(const uint64_t block_number, const ethash::hash256& header_hash,
-    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary) noexcept
+    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary)
 {
     auto dag_epoch_number{ethash::calculate_epoch_from_block_num(block_number)};
     auto dag_epoch_context{ethash::get_epoch_context(dag_epoch_number, false)};

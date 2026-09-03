@@ -18,7 +18,9 @@
 #include <CLI/CLI.hpp>
 
 #include <firominer/buildinfo.h>
-#include <condition_variable>
+#include <algorithm>
+#include <atomic>
+#include <limits>
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
@@ -41,9 +43,7 @@
 #include <regex>
 #endif
 
-#if defined(__linux__) || defined(__APPLE__)
-#include <execinfo.h>
-#elif defined(_WIN32)
+#if defined(_WIN32)
 #include <Windows.h>
 #endif
 
@@ -53,10 +53,11 @@ using namespace dev::eth;
 
 
 // Global vars
-bool g_running = false;
+std::atomic<bool> g_running = {false};
+std::atomic<int> g_signal = {0};
+static_assert(std::atomic<int>::is_always_lock_free, "signal flag must be lock-free");
 bool g_exitOnError = false;  // Whether or not firominer should exit on mining threads errors
 
-condition_variable g_shouldstop;
 boost::asio::io_service g_io_service;  // The IO service itself
 
 struct MiningChannel : public LogChannel
@@ -105,7 +106,7 @@ public:
 
     void cliDisplayInterval_elapsed(const boost::system::error_code& ec)
     {
-        if (!ec && g_running)
+        if (!ec && g_running.load(std::memory_order_relaxed))
         {
             string logLine =
                 PoolManager::p().isConnected() ? Farm::f().Telemetry().str() : "Not connected";
@@ -121,57 +122,9 @@ public:
         }
     }
 
-    static void signalHandler(int sig)
+    static void signalHandler(int sig) noexcept
     {
-        dev::setThreadName("main");
-
-        switch (sig)
-        {
-#if defined(__linux__) || defined(__APPLE__)
-#define BACKTRACE_MAX_FRAMES 100
-        case SIGSEGV:
-            static bool in_handler = false;
-            if (!in_handler)
-            {
-                int j, nptrs;
-                void* buffer[BACKTRACE_MAX_FRAMES];
-                char** symbols;
-
-                in_handler = true;
-
-                dev::setThreadName("main");
-                cerr << "SIGSEGV encountered ...\n";
-                cerr << "stack trace:\n";
-
-                nptrs = backtrace(buffer, BACKTRACE_MAX_FRAMES);
-                cerr << "backtrace() returned " << nptrs << " addresses\n";
-
-                symbols = backtrace_symbols(buffer, nptrs);
-                if (symbols == NULL)
-                {
-                    perror("backtrace_symbols()");
-                    exit(EXIT_FAILURE);  // Also exit 128 ??
-                }
-                for (j = 0; j < nptrs; j++)
-                    cerr << symbols[j] << "\n";
-                free(symbols);
-
-                in_handler = false;
-            }
-            exit(128);
-#undef BACKTRACE_MAX_FRAMES
-#endif
-        case (999U):
-            // Compiler complains about the lack of
-            // a case statement in Windows
-            // this makes it happy.
-            break;
-        default:
-            cnote << "Got interrupt ...";
-            g_running = false;
-            g_shouldstop.notify_all();
-            break;
-        }
+        g_signal.store(sig, std::memory_order_relaxed);
     }
 
 #if API_CORE
@@ -272,6 +225,9 @@ public:
         vector<string> pools;
         app.add_option("-P,--pool", pools, "");
 
+        app.add_set("--firopow-network", m_PoolSettings.network,
+            {"mainnet", "testnet", "devnet", "regtest"}, "", true);
+
         string rewardAddress;
         app.add_option("-r,--reward-address", m_PoolSettings.rewardAddress, "");
 
@@ -317,7 +273,7 @@ public:
 
         app.add_option("--opencl-device,--opencl-devices,--cl-devices", m_CLSettings.devices, "");
 
-        app.add_option("--cl-global-work", m_CLSettings.globalWorkSize, "", true);
+        app.add_option("--cl-global-work", m_CLSettings.globalWorkSizeMultiplier, "", true);
 
         app.add_set("--cl-local-work", m_CLSettings.localWorkSize, {64, 128, 256}, "", true);
 
@@ -393,6 +349,13 @@ public:
             return false;
         }
 
+#if ETH_ETHASHCL
+        const uint64_t clGlobalWorkSize =
+            uint64_t{m_CLSettings.localWorkSize} * m_CLSettings.globalWorkSizeMultiplier;
+        if (clGlobalWorkSize == 0 || clGlobalWorkSize > std::numeric_limits<unsigned>::max())
+            throw std::invalid_argument(
+                "--cl-global-work produces an invalid OpenCL global work size");
+#endif
 
         if (cl_miner)
             m_minerType = MinerType::CL;
@@ -458,6 +421,12 @@ public:
             }
         }
 
+        if (m_PoolSettings.rewardAddress.empty() &&
+            std::any_of(m_PoolSettings.connections.begin(), m_PoolSettings.connections.end(),
+                [](const std::shared_ptr<URI>& connection) {
+                    return connection && connection->Family() == ProtocolFamily::GETWORK;
+                }))
+            throw std::invalid_argument("--reward-address is required for Firo Getwork connections");
 
 #if ETH_ETHASHCUDA
         if (sched == "auto")
@@ -731,12 +700,10 @@ public:
             throw std::runtime_error("No mining device selected. Aborting ...");
 
         // Enable
-        g_running = true;
+        g_running.store(true, std::memory_order_relaxed);
+        g_signal.store(0, std::memory_order_relaxed);
 
         // Signal traps
-#if defined(__linux__) || defined(__APPLE__)
-        signal(SIGSEGV, MinerCLI::signalHandler);
-#endif
         signal(SIGINT, MinerCLI::signalHandler);
         signal(SIGTERM, MinerCLI::signalHandler);
 
@@ -776,6 +743,7 @@ public:
              << "                        For an explication and some samples about" << endl
              << "                        how to fill in this value please use" << endl
              << "                        firominer --help-ext con" << endl
+             << "    --firopow-network  TEXT {mainnet,testnet,devnet,regtest} Default mainnet" << endl
              << endl
 
              << "Common Options :" << endl
@@ -1221,10 +1189,11 @@ private:
         m_cliDisplayTimer.async_wait(m_io_strand.wrap(boost::bind(
             &MinerCLI::cliDisplayInterval_elapsed, this, boost::asio::placeholders::error)));
 
-        // Stay in non-busy wait till signals arrive
-        unique_lock<mutex> clilock(m_climtx);
-        while (g_running)
-            g_shouldstop.wait(clilock);
+        // Poll the lock-free signal flag; signal handlers cannot safely notify a condition variable.
+        while (!g_signal.load(std::memory_order_relaxed))
+            this_thread::sleep_for(chrono::milliseconds(50));
+        cnote << "Got interrupt ...";
+        g_running.store(false, std::memory_order_relaxed);
 
 #if API_CORE
 
@@ -1269,8 +1238,6 @@ private:
         5;  // Display stats/info on cli interface every this number of seconds
 
     // -- CLI Flow control
-    mutex m_climtx;
-
 #if API_CORE
     // -- API and Http interfaces related params
     string m_api_bind;                  // API interface binding address in form <address>:<port>

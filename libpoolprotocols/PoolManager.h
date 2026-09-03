@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <mutex>
 
 #include <json/json.h>
 
@@ -33,6 +34,7 @@ struct PoolSettings
     unsigned benchmarkBlock = 0;  // Block number used by SimulateClient to test performances
     float benchmarkDiff = 1.0;    // Difficulty used by SimulateClient to test performances
     std::string rewardAddress;    // Reward address in case of solo mining
+    std::string network = "mainnet";  // Firo network whose DAG schedule should be used
 };
 
 class PoolManager
@@ -49,7 +51,7 @@ public:
     void removeConnection(unsigned int idx);
     void start();
     void stop();
-    bool isConnected() { return p_client->isConnected(); };
+    bool isConnected() { return p_client && p_client->isConnected(); };
     bool isRunning() { return m_running; };
     int getCurrentEpoch();
     double getCurrentDifficulty();
@@ -73,6 +75,7 @@ private:
     std::atomic<bool> m_running = {false};
     std::atomic<bool> m_stopping = {false};
     std::atomic<bool> m_async_pending = {false};
+    std::mutex m_lifecycleMutex;  // Serializes client publication and shutdown.
 
     unsigned m_connectionAttempt = 0;
 
@@ -90,6 +93,7 @@ private:
     std::unique_ptr<PoolClient> p_client = nullptr;
 
     std::atomic<unsigned> m_epochChanges = {0};
+    bool m_epochMismatchWarned = false;
 
     static PoolManager* m_this;
 };

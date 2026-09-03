@@ -15,6 +15,15 @@
 #define HTTP_ROW1_COLOR "#ffffff"
 #define HTTP_ROWRED_COLOR "#f46542"
 
+static std::string redactUriUserInfo(std::string uri)
+{
+    auto userInfo = uri.find("://");
+    auto at = uri.rfind('@');
+    if (userInfo != std::string::npos && at != std::string::npos && at > userInfo + 3)
+        uri.replace(userInfo + 3, at - userInfo - 3, "***");
+    return uri;
+}
+
 
 /* helper functions getting values from a JSON request */
 static bool getRequestValue(const char* membername, bool& refValue, Json::Value& jRequest,
@@ -268,54 +277,87 @@ void ApiServer::start()
 
     cnote << "Api server listening on port " + to_string(m_acceptor.local_endpoint().port())
           << (m_password.empty() ? "." : ". Authentication needed.");
-    m_workThread = std::thread{boost::bind(&ApiServer::begin_accept, this)};
+    auto lifetime = std::make_shared<Lifetime>(this);
+    m_lifetime = lifetime;
     m_running.store(true, std::memory_order_relaxed);
+    begin_accept(lifetime);
 }
 
 void ApiServer::stop()
 {
     // Exit if not started
-    if (!m_running.load(std::memory_order_relaxed))
+    if (!m_running.exchange(false, std::memory_order_relaxed))
         return;
 
-    m_acceptor.cancel();
-    m_acceptor.close();
-    m_workThread.join();
-    m_running.store(false, std::memory_order_relaxed);
+    auto lifetime = std::move(m_lifetime);
+    std::vector<std::shared_ptr<ApiConnection>> sessions;
+    {
+        std::lock_guard<std::mutex> lock(lifetime->mutex);
+        lifetime->server = nullptr;
 
-    // Dispose all sessions (if any)
-    m_sessions.clear();
+        boost::system::error_code ec;
+        m_acceptor.cancel(ec);
+        m_acceptor.close(ec);
+        sessions.swap(m_sessions);
+    }
+
+    for (auto const& session : sessions)
+    {
+        if (session->m_io_strand.running_in_this_thread())
+        {
+            session->m_onDisconnected = {};
+            session->disconnect();
+            continue;
+        }
+        std::lock_guard<std::mutex> lock(session->m_mutex);
+        session->m_onDisconnected = {};
+        session->disconnect();
+    }
 }
 
-void ApiServer::begin_accept()
+void ApiServer::begin_accept(std::shared_ptr<Lifetime> const& state)
 {
     if (!isRunning())
         return;
 
     auto session =
         std::make_shared<ApiConnection>(m_io_strand, ++lastSessionId, m_readonly, m_password);
-    m_acceptor.async_accept(
-        session->socket(), m_io_strand.wrap(boost::bind(&ApiServer::handle_accept, this, session,
-                               boost::asio::placeholders::error)));
+    std::weak_ptr<Lifetime> lifetime = state;
+    m_acceptor.async_accept(session->socket(), m_io_strand.wrap(
+        [lifetime, session](const boost::system::error_code& ec) {
+            if (auto state = lifetime.lock())
+            {
+                std::lock_guard<std::mutex> lock(state->mutex);
+                if (state->server)
+                    state->server->handle_accept(session, ec, state);
+            }
+        }));
 }
 
-void ApiServer::handle_accept(std::shared_ptr<ApiConnection> session, boost::system::error_code ec)
+void ApiServer::handle_accept(std::shared_ptr<ApiConnection> session, boost::system::error_code ec,
+    std::shared_ptr<Lifetime> const& state)
 {
     // Start new connection
     // cnote << "ApiServer::handle_accept";
     if (!ec)
     {
-        session->onDisconnected([&](int id) {
+        std::weak_ptr<Lifetime> lifetime = state;
+        session->onDisconnected([lifetime](int id) {
+            auto state = lifetime.lock();
+            if (!state)
+                return;
+            std::lock_guard<std::mutex> lock(state->mutex);
+            if (!state->server)
+                return;
+
             // Destroy pointer to session
-            auto it = find_if(m_sessions.begin(), m_sessions.end(),
+            auto& sessions = state->server->m_sessions;
+            auto it = find_if(sessions.begin(), sessions.end(),
                 [&id](const std::shared_ptr<ApiConnection> session) {
                     return session->getId() == id;
                 });
-            if (it != m_sessions.end())
-            {
-                auto index = std::distance(m_sessions.begin(), it);
-                m_sessions.erase(m_sessions.begin() + index);
-            }
+            if (it != sessions.end())
+                sessions.erase(it);
         });
         m_sessions.push_back(session);
         cnote << "New API session from " << session->socket().remote_endpoint();
@@ -327,27 +369,30 @@ void ApiServer::handle_accept(std::shared_ptr<ApiConnection> session, boost::sys
     }
 
     // Resubmit new accept
-    begin_accept();
+    begin_accept(state);
 }
 
 void ApiConnection::disconnect()
 {
     // cnote << "ApiConnection::disconnect";
 
+    if (m_disconnected)
+        return;
+    m_disconnected = true;
+
     // Cancel pending operations
-    m_socket.cancel();
+    boost::system::error_code ec;
+    m_socket.cancel(ec);
 
     if (m_socket.is_open())
     {
-        boost::system::error_code ec;
         m_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
         m_socket.close(ec);
     }
 
-    if (m_onDisconnected)
-    {
-        m_onDisconnected(this->getId());
-    }
+    auto onDisconnected = std::move(m_onDisconnected);
+    if (onDisconnected)
+        onDisconnected(this->getId());
 }
 
 ApiConnection::ApiConnection(
@@ -355,6 +400,7 @@ ApiConnection::ApiConnection(
   : m_sessionId(id),
     m_socket(g_io_service),
     m_io_strand(_strand),
+    m_recvBuffer(c_maxRequestSize),
     m_readonly(readonly),
     m_password(std::move(password))
 {
@@ -409,22 +455,10 @@ void ApiConnection::processRequest(Json::Value& jRequest, Json::Value& jResponse
         if (!getRequestValue("psw", psw, jRequestParams, false, jResponse))
             return;
 
-        // max password length that we actually verify
-        // (this limit can be removed by introducing a collision-resistant compressing hash,
-        //  like blake2b/sha3, but 500 should suffice and is much easier to implement)
-        const int max_length = 500;
-        char input_copy[max_length] = {0};
-        char password_copy[max_length] = {0};
-        // note: copy() is not O(1) , but i don't think it matters
-        psw.copy(&input_copy[0], max_length);
-        // ps, the following line can be optimized to only run once on startup and thus save a
-        // minuscule amount of cpu cycles.
-        m_password.copy(&password_copy[0], max_length);
-        int result = 0;
-        for (int i = 0; i < max_length; ++i)
-        {
-            result |= input_copy[i] ^ password_copy[i];
-        }
+        unsigned result = psw.size() == m_password.size() ? 0 : 1;
+        for (size_t i = 0; i < m_password.size(); ++i)
+            result |= static_cast<unsigned char>(m_password[i]) ^
+                      static_cast<unsigned char>(i < psw.size() ? psw[i] : 0);
 
         if (result == 0)
         {
@@ -746,9 +780,15 @@ void ApiConnection::processRequest(Json::Value& jRequest, Json::Value& jResponse
 
 void ApiConnection::recvSocketData()
 {
+    if (m_disconnected || !m_socket.is_open())
+        return;
+
+    auto self = shared_from_this();
     boost::asio::async_read(m_socket, m_recvBuffer, boost::asio::transfer_at_least(1),
-        m_io_strand.wrap(boost::bind(&ApiConnection::onRecvSocketDataCompleted, this,
-            boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred)));
+        m_io_strand.wrap([self](const boost::system::error_code& ec, std::size_t bytesTransferred) {
+            std::lock_guard<std::mutex> lock(self->m_mutex);
+            self->onRecvSocketDataCompleted(ec, bytesTransferred);
+        }));
 }
 
 void ApiConnection::onRecvSocketDataCompleted(
@@ -771,12 +811,21 @@ void ApiConnection::onRecvSocketDataCompleted(
         m_recvBuffer.consume(bytes_transferred);
         m_message.append(rx_message);
 
+        if (m_message.size() > c_maxRequestSize)
+        {
+            disconnect();
+            return;
+        }
+
         std::string line;
         std::string linedelimiter;
         std::size_t linedelimiteroffset;
 
-        if (m_message.size() < 4)
+        if (m_message.size() < 4 && m_message.find('\n') == std::string::npos)
+        {
+            recvSocketData();
             return;  // Wait for other data to come in
+        }
 
         if (std::regex_search(
                 m_message, http_matches, http_pattern, std::regex_constants::match_default))
@@ -785,6 +834,20 @@ void ApiConnection::onRecvSocketDataCompleted(
             std::string http_method = http_matches[1].str();
             std::string http_path = http_matches[2].str();
             std::string http_ver = http_matches[3].str();
+
+            if (!m_is_authenticated)
+            {
+                std::string what = "Authorization needed";
+                std::stringstream ss;
+                ss << http_ver << " 401 Unauthorized\r\n"
+                   << "Server: " << firominer_get_buildinfo()->project_name_with_version << "\r\n"
+                   << "Content-Type: text/plain\r\n"
+                   << "Content-Length: " << what.size() << "\r\n\r\n"
+                   << what;
+                sendSocketData(ss.str(), true);
+                m_message.clear();
+                return;
+            }
 
             // Do we support method ?
             if (http_method != "GET")
@@ -918,7 +981,7 @@ void ApiConnection::onRecvSocketDataCompleted(
             }
 
             // Eventually keep reading from socket
-            if (m_socket.is_open())
+            if (m_socket.is_open() && m_sendQueue.empty())
                 recvSocketData();
         }
     }
@@ -939,20 +1002,44 @@ void ApiConnection::sendSocketData(Json::Value const& jReq, bool _disconnect)
 
 void ApiConnection::sendSocketData(std::string const& _s, bool _disconnect)
 {
-    if (!m_socket.is_open())
+    if (m_disconnected || !m_socket.is_open())
         return;
-    std::ostream os(&m_sendBuffer);
-    os << _s;
 
-    async_write(m_socket, m_sendBuffer,
-        m_io_strand.wrap(boost::bind(&ApiConnection::onSendSocketDataCompleted, this,
-            boost::asio::placeholders::error, _disconnect)));
+    bool idle = m_sendQueue.empty();
+    m_sendQueue.emplace_back(_s, _disconnect);
+    if (idle)
+        startSend();
 }
 
-void ApiConnection::onSendSocketDataCompleted(const boost::system::error_code& ec, bool _disconnect)
+void ApiConnection::startSend()
 {
-    if (ec || _disconnect)
+    if (m_disconnected || m_sendQueue.empty())
+        return;
+
+    auto self = shared_from_this();
+    boost::asio::async_write(m_socket, boost::asio::buffer(m_sendQueue.front().first),
+        m_io_strand.wrap([self](const boost::system::error_code& ec, std::size_t) {
+            std::lock_guard<std::mutex> lock(self->m_mutex);
+            self->onSendSocketDataCompleted(ec);
+        }));
+}
+
+void ApiConnection::onSendSocketDataCompleted(const boost::system::error_code& ec)
+{
+    if (ec)
+    {
         disconnect();
+        return;
+    }
+
+    bool disconnectAfter = m_sendQueue.front().second;
+    m_sendQueue.pop_front();
+    if (disconnectAfter)
+        disconnect();
+    else if (!m_sendQueue.empty())
+        startSend();
+    else
+        recvSocketData();
 }
 
 Json::Value ApiConnection::getMinerStat1()
@@ -975,7 +1062,8 @@ Json::Value ApiConnection::getMinerStat1()
                << t.farm.solutions.accepted << ";" << t.farm.solutions.rejected;
     totalMhDcr << "0;0;0";                            // DualMining not supported
     invalidStats << t.farm.solutions.failed << ";0";  // Invalid + Pool switches
-    poolAddresses << connection->Host() << ':' << connection->Port();
+    if (connection)
+        poolAddresses << connection->Host() << ':' << connection->Port();
     invalidStats << ";0;0";  // DualMining not supported
 
     int gpuIndex;
@@ -1123,7 +1211,8 @@ std::string ApiConnection::getHttpMinerStatDetail()
          << "<tr class=bg-header1>"
          << "<th colspan=9>" << jStat["host"]["version"].asString() << " - " << setw(hoursSize)
          << hours << ":" << setw(2) << setfill('0') << fixed << minutes
-         << "<br>Pool: " << jStat["connection"]["uri"].asString() << "</th>"
+         << "<br>Pool: " << redactUriUserInfo(jStat["connection"]["uri"].asString())
+         << "</th>"
          << "</tr>"
          << "<tr class=bg-header0>"
          << "<th>PCI</th>"
@@ -1224,7 +1313,7 @@ Json::Value ApiConnection::getMinerStatDetail()
     /* Connection info */
     Json::Value connectioninfo;
     auto connection = PoolManager::p().getActiveConnection();
-    connectioninfo["uri"] = connection->str();
+    connectioninfo["uri"] = connection ? Json::Value(connection->str()) : Json::Value::null;
     connectioninfo["connected"] = PoolManager::p().isConnected();
     connectioninfo["switches"] = PoolManager::p().getConnectionSwitches();
 

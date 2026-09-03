@@ -1,5 +1,5 @@
 #ifndef MAX_SEARCH_RESULTS
-#define MAX_SEARCH_RESULTS 4U
+#define MAX_SEARCH_RESULTS 16U
 #endif
 
 #define FNV_PRIME 0x1000193
@@ -270,7 +270,7 @@ progpow_search(
     }
 
     // Check result vs target
-    if (result >= target)
+    if (result > target)
         return;
 
     uint32_t index = atomicInc((uint32_t *)&g_output->count, 0xffffffff);
@@ -282,4 +282,3 @@ progpow_search(
     for (int i = 0; i < 8; i++)
         g_output->result[index].mix[i] = digest.uint32s[i];
 }
-

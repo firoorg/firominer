@@ -69,7 +69,7 @@ ethash::VerificationResult verify_full(const ethash::epoch_context& context, con
     const ethash::hash256& boundary) noexcept;
 
 ethash::VerificationResult verify_full(const uint64_t block_number, const ethash::hash256& header_hash,
-    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary) noexcept;
+    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary);
 
 }  // namespace progpow
 

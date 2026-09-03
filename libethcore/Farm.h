@@ -220,7 +220,7 @@ public:
     void set_nonce_segment_width(unsigned n)
     {
         if (!m_currentWp.exSizeBytes)
-            m_nonce_segment_with = n;
+            m_nonce_segment_with = m_configured_nonce_segment_width = n;
     }
 
     /**
@@ -292,6 +292,7 @@ private:
     // before it consumes the whole 2^32 segment
     uint64_t m_nonce_scrambler;
     unsigned int m_nonce_segment_with = 32;
+    unsigned int m_configured_nonce_segment_width = 32;
 
     // Wrappers for hardware monitoring libraries and their mappers
     wrap_nvml_handle* nvmlh = nullptr;

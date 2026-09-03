@@ -69,6 +69,7 @@ void PoolManager::setClientHandlers()
             // Reset current WorkPackage
             m_currentWp.job.clear();
             m_currentWp.header = h256();
+            m_epochMismatchWarned = false;
 
             // Shuffle if needed
             if (Farm::f().get_ergodicity() == 1U)
@@ -129,7 +130,7 @@ void PoolManager::setClientHandlers()
                 cnote << "Shutting down miners...";
                 Farm::f().stop();
             }
-            m_running.store(false, std::memory_order_relaxed);
+            m_running.store(false, std::memory_order_release);
         }
         else
         {
@@ -151,10 +152,18 @@ void PoolManager::setClientHandlers()
             return;
         }
 
-        if (!wp.epoch.has_value())
+        const auto advertisedEpoch = wp.epoch;
+        const auto advertisedSeed = ethash::from_bytes(wp.seed.data());
+        const auto epoch = ethash::calculate_epoch_from_block_num(*wp.block, m_Settings.network);
+        if (!m_epochMismatchWarned &&
+            ((advertisedEpoch && *advertisedEpoch != epoch) ||
+                (!advertisedEpoch &&
+                    !ethash::is_equal(advertisedSeed, ethash::calculate_seed_from_epoch(epoch)))))
         {
-            wp.epoch.emplace(static_cast<uint32_t>(wp.block.value() / ethash::kEpoch_length));
+            cwarn << "Ignoring non-consensus pool epoch; using " << m_Settings.network << " epoch " << epoch;
+            m_epochMismatchWarned = true;
         }
+        wp.epoch = epoch;
 
         bool newEpoch{false};  // Whether or not the epoch has changed
         bool newDiff{false};   // Whether or not difficulty has changed
@@ -210,16 +219,17 @@ void PoolManager::setClientHandlers()
 
 void PoolManager::stop()
 {
+    std::unique_lock<std::mutex> lifecycleLock(m_lifecycleMutex);
     if (m_running.load(std::memory_order_relaxed))
     {
         m_async_pending.store(true, std::memory_order_relaxed);
         m_stopping.store(true, std::memory_order_relaxed);
 
-        if (p_client && p_client->isConnected())
+        if (p_client && (p_client->isConnected() || p_client->isPendingState()))
         {
             p_client->disconnect();
             // Wait for async operations to complete
-            while (m_running.load(std::memory_order_relaxed))
+            while (m_running.load(std::memory_order_acquire))
                 this_thread::sleep_for(chrono::milliseconds(500));
 
             p_client = nullptr;
@@ -235,17 +245,24 @@ void PoolManager::stop()
                 cnote << "Shutting down miners...";
                 Farm::f().stop();
             }
+
+            p_client = nullptr;
+            m_running.store(false, std::memory_order_relaxed);
         }
     }
 }
 
 void PoolManager::addConnection(std::string _connstring)
 {
-    m_Settings.connections.push_back(std::shared_ptr<URI>(new URI(_connstring)));
+    addConnection(std::make_shared<URI>(_connstring));
 }
 
 void PoolManager::addConnection(std::shared_ptr<URI> _uri)
 {
+    if (!_uri)
+        throw std::invalid_argument("Connection must not be null");
+    if (_uri->Family() == ProtocolFamily::GETWORK && m_Settings.rewardAddress.empty())
+        throw std::invalid_argument("A reward address is required for Firo Getwork connections");
     m_Settings.connections.push_back(_uri);
 }
 
@@ -279,7 +296,7 @@ void PoolManager::setActiveConnectionCommon(unsigned int idx)
 {
     // Are there any outstanding operations ?
     bool ex = false;
-    if (!m_async_pending.compare_exchange_weak(ex, true, std::memory_order_relaxed))
+    if (!m_async_pending.compare_exchange_strong(ex, true, std::memory_order_relaxed))
         throw std::runtime_error("Outstanding operations. Retry ...");
 
     if (idx != m_activeConnectionIdx)
@@ -287,7 +304,10 @@ void PoolManager::setActiveConnectionCommon(unsigned int idx)
         m_connectionSwitches.fetch_add(1, std::memory_order_relaxed);
         m_activeConnectionIdx = idx;
         m_connectionAttempt = 0;
-        p_client->disconnect();
+        if (p_client)
+            p_client->disconnect();
+        else
+            m_async_pending.store(false, std::memory_order_relaxed);
     }
     else
     {
@@ -311,15 +331,13 @@ void PoolManager::setActiveConnection(unsigned int idx)
 
 void PoolManager::setActiveConnection(std::string& _connstring)
 {
-    bool found = false;
     for (size_t idx = 0; idx < m_Settings.connections.size(); idx++)
         if (boost::iequals(m_Settings.connections[idx]->str(), _connstring))
         {
             setActiveConnectionCommon(idx);
-            break;
+            return;
         }
-    if (!found)
-        throw std::runtime_error("Not found.");
+    throw std::runtime_error("Not found.");
 }
 
 std::shared_ptr<URI> PoolManager::getActiveConnection()
@@ -359,6 +377,10 @@ void PoolManager::start()
 
 void PoolManager::rotateConnect()
 {
+    std::lock_guard<std::mutex> lifecycleLock(m_lifecycleMutex);
+    if (!m_running.load(std::memory_order_relaxed))
+        return;
+
     if (p_client && p_client->isConnected())
         return;
 
@@ -498,7 +520,7 @@ void PoolManager::submithrtimer_elapsed(const boost::system::error_code& ec)
 
 int PoolManager::getCurrentEpoch()
 {
-    return m_currentWp.epoch.value();
+    return m_currentWp ? static_cast<int>(m_currentWp.epoch.value_or(0)) : 0;
 }
 
 double PoolManager::getCurrentDifficulty()

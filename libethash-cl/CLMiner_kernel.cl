@@ -78,7 +78,7 @@ void keccak_f800_round(uint32_t st[25], const int r)
 // Keccak - implemented as a variant of SHAKE
 // The width is 800, with a bitrate of 576, a capacity of 224, and no padding
 // Only need 64 bits of output for mining
-uint64_t keccak_f800(uint32_t* st)
+void keccak_f800(uint32_t* st)
 {
     // Complete all 22 rounds as a separate impl to
     // evaluate only first 8 words is wasteful of regsters
@@ -153,13 +153,17 @@ __kernel void
 ethash_search(__global struct SearchResults* restrict g_output, __constant hash32_t const* g_header,
     __global dag_t const* g_dag, ulong start_nonce, ulong target, uint hack_false)
 {
-    if (g_output->abort)
+    uint32_t const lid = get_local_id(0);
+    __local uint32_t should_abort;
+    if (lid == 0)
+        should_abort = g_output->abort;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (should_abort)
         return;
 
     __local shuffle_t share[HASHES_PER_GROUP];
     __local uint32_t c_dag[PROGPOW_CACHE_WORDS];
 
-    uint32_t const lid = get_local_id(0);
     uint32_t const gid = get_global_id(0);
     uint64_t const nonce = start_nonce + gid;
 
@@ -285,7 +289,6 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
             for (int i = 0; i < 8; i++)
                 g_output->rslt[slot].mix[i] = digest.uint32s[i];
         }
-        atomic_inc(&g_output->abort);
     }
 }
 
@@ -545,7 +548,7 @@ __kernel void ethash_calculate_dag_item(
     uint start, __global hash64_t const* g_light, __global hash64_t* g_dag, uint isolate)
 {
     uint const node_index = start + get_global_id(0);
-    if (node_index * sizeof(hash64_t) >= PROGPOW_DAG_BYTES)
+    if (node_index >= DAG_NODES)
         return;
 
     hash200_t dag_node;

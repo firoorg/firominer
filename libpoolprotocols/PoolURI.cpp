@@ -125,7 +125,7 @@ URI::URI(std::string uri, bool _sim) : m_uri{std::move(uri)}
     std::regex sch_auth("^([a-zA-Z0-9\\+]{1,})\\:\\/\\/(.*)$");
     std::smatch matches;
     if (!std::regex_search(m_uri, matches, sch_auth, std::regex_constants::match_default))
-        return;
+        throw std::runtime_error("Invalid URI");
 
     // Split scheme and authoority
     // Authority MUST be valued

@@ -17,33 +17,43 @@
 
 #include "Miner.h"
 
+#include <libcrypto/progpow.hpp>
+
 namespace dev::eth
 {
 unsigned Miner::s_dagLoadMode = 0;
-unsigned Miner::s_dagLoadIndex = 0;
-unsigned Miner::s_minersCount = 0;
+std::mutex Miner::s_dagLoadMutex;
 
 FarmFace* FarmFace::m_this = nullptr;
+
+ethash::VerificationResult verifyProgpow(Solution const& solution)
+{
+    auto context = solution.work.epochContext;
+    if (!context)
+        context = ethash::get_epoch_context(solution.work.epoch.value(), false);
+    return progpow::verify_full(*context, solution.work.block.value() / progpow::kPeriodLength,
+        ethash::from_bytes(solution.work.header.data()), ethash::from_bytes(solution.mixHash.data()), solution.nonce,
+        ethash::from_bytes(solution.work.get_boundary().data()));
+}
 
 DeviceDescriptor Miner::getDescriptor()
 {
     return m_deviceDescriptor;
 }
 
-void Miner::setWork(WorkPackage const& _work)
+void Miner::setWork(WorkPackage const& _work, bool _retryInsufficientMemory)
 {
     {
-        std::scoped_lock l(x_work);
+        std::scoped_lock l(x_work, x_pause);
 
-        // Void work if this miner is paused
-        if (paused())
-        {
-            m_work.header = h256();
-        }
-        else
-        {
-            m_work = _work;
-        }
+        m_pauseFlags.reset(MinerPauseEnum::PauseDueToInitEpochError);
+        if (_retryInsufficientMemory)
+            m_pauseFlags.reset(MinerPauseEnum::PauseDueToInsufficientMemory);
+        ++m_workGeneration;
+
+        // Retain the newest job while paused so it can be resumed immediately.
+        m_work = _work;
+        m_work.workGeneration = m_workGeneration;
 
 #ifdef DEV_BUILD
         m_workSwitchStart = std::chrono::steady_clock::now();
@@ -55,9 +65,21 @@ void Miner::setWork(WorkPackage const& _work)
 
 void Miner::pause(MinerPauseEnum what)
 {
-    std::scoped_lock l(x_pause);
-    m_pauseFlags.set(what);
-    m_work.header = h256();
+    {
+        std::scoped_lock l(x_work, x_pause);
+        m_pauseFlags.set(what);
+    }
+    kick_miner();
+}
+
+void Miner::pause(MinerPauseEnum what, WorkPackage const& _work)
+{
+    {
+        std::scoped_lock l(x_work, x_pause);
+        if (m_work.workGeneration != _work.workGeneration)
+            return;
+        m_pauseFlags.set(what);
+    }
     kick_miner();
 }
 
@@ -104,14 +126,14 @@ std::string Miner::pausedString()
 
 void Miner::resume(MinerPauseEnum fromwhat)
 {
-    std::scoped_lock l(x_pause);
-    m_pauseFlags.reset(fromwhat);
-    // if (!m_pauseFlags.any())
-    //{
-    //    // TODO Push most recent job from farm ?
-    //    // If we do not push a new job the miner will stay idle
-    //    // till a new job arrives
-    //}
+    bool resumed;
+    {
+        std::scoped_lock l(x_pause);
+        m_pauseFlags.reset(fromwhat);
+        resumed = !m_pauseFlags.any();
+    }
+    if (resumed)
+        kick_miner();
 }
 
 float Miner::RetrieveHashRate() noexcept
@@ -122,7 +144,7 @@ float Miner::RetrieveHashRate() noexcept
 void Miner::TriggerHashRateUpdate() noexcept
 {
     bool b = false;
-    if (m_hashRateUpdate.compare_exchange_weak(b, true, std::memory_order_relaxed))
+    if (m_hashRateUpdate.compare_exchange_strong(b, true, std::memory_order_relaxed))
         return;
     // GPU didn't respond to last trigger, assume it's dead.
     // This can happen on CUDA if:
@@ -130,50 +152,29 @@ void Miner::TriggerHashRateUpdate() noexcept
     m_hashRate = 0.0;
 }
 
-bool Miner::initEpoch()
+bool Miner::initEpoch(WorkPackage const& _work)
 {
-    // When loading of DAG is sequential wait for
-    // this instance to become current
-    if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
-    {
-        while (s_dagLoadIndex < m_index)
-        {
-            std::unique_lock l(x_work);
-            m_dag_loaded_signal.wait_for(l, std::chrono::seconds(3));
-        }
-        if (shouldStop())
-            return false;
-    }
+    auto initialize = [&] {
+        return !shouldStop() && work().workGeneration == _work.workGeneration && initEpoch_internal(_work);
+    };
+    if (s_dagLoadMode != DAG_LOAD_MODE_SEQUENTIAL)
+        return initialize();
 
-    // Run the internal initialization
-    // specific for miner
-    bool result = initEpoch_internal();
-
-    // Advance to next miner or reset to zero for
-    // next run if all have processed
-    if (s_dagLoadMode == DAG_LOAD_MODE_SEQUENTIAL)
-    {
-        s_dagLoadIndex = (m_index + 1);
-        if (s_minersCount == s_dagLoadIndex)
-            s_dagLoadIndex = 0;
-        else
-            m_dag_loaded_signal.notify_all();
-    }
-
-    return result;
+    std::scoped_lock lock(s_dagLoadMutex);
+    return initialize();
 }
 
 WorkPackage Miner::work() const
 {
-    std::scoped_lock l(x_work);
-    return m_work;
+    std::scoped_lock l(x_work, x_pause);
+    return m_pauseFlags.any() ? WorkPackage{} : m_work;
 }
 
 void Miner::updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept
 {
     m_groupCount += _increment;
     bool b = true;
-    if (!m_hashRateUpdate.compare_exchange_weak(b, false, std::memory_order_relaxed))
+    if (!m_hashRateUpdate.compare_exchange_strong(b, false, std::memory_order_relaxed))
         return;
     using namespace std::chrono;
     auto t = steady_clock::now();
@@ -193,7 +194,7 @@ bool Miner::dropThreadPriority()
     // attribute
     return nice(5) != -1;
 #elif defined(WIN32)
-    return SetThreadPriority(m_compileThread->native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
+    return SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
 #else
     return false;
 #endif

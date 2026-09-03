@@ -4,6 +4,7 @@
 
 // Modified by Firominer's authors 2021
 
+#include <array>
 #include <mutex>
 
 #include "bitwise.hpp"
@@ -16,6 +17,9 @@ namespace detail
 std::mutex shared_context_mutex;
 std::shared_ptr<epoch_context> shared_context;
 thread_local std::shared_ptr<epoch_context> thread_local_context;
+
+constexpr size_t num_full_dataset_mutexes = 4096;
+std::array<std::mutex, num_full_dataset_mutexes> full_dataset_mutexes;
 
 ATTRIBUTE_NOINLINE
 void update_local_context(int epoch_number, bool full)
@@ -99,12 +103,10 @@ hash1024 lazy_lookup_1024(const epoch_context& context, uint32_t index) noexcept
 
     if (context.full_dataset)
     {
+        std::lock_guard<std::mutex> lock{full_dataset_mutexes[(index / 2) % num_full_dataset_mutexes]};
         hash1024& item = context.full_dataset[index];
         if (item.word64s[0] == 0)
-        {
-            // TODO: Copy elision here makes it thread-safe?
             item = calculate_dataset_item_1024(context, index);
-        }
         return item;
     }
 
@@ -124,12 +126,10 @@ hash2048 lazy_lookup_2048(const epoch_context& context, uint32_t index) noexcept
 
     if (context.full_dataset)
     {
+        std::lock_guard<std::mutex> lock{full_dataset_mutexes[index % num_full_dataset_mutexes]};
         hash2048& item = reinterpret_cast<hash2048*>(context.full_dataset)[index];
         if (item.word64s[0] == 0)
-        {
-            // TODO: Copy elision here makes it thread-safe?
             item = calculate_dataset_item_2048(context, index);
-        }
         return item;
     }
 
@@ -417,7 +417,17 @@ std::optional<uint32_t> calculate_epoch_from_seed(const hash256& seed) noexcept
 
 uint32_t calculate_epoch_from_block_num(const uint64_t block_num) noexcept
 {
-    return static_cast<uint32_t>(block_num / kEpoch_length);
+    return calculate_epoch_from_block_num(block_num, "mainnet");
+}
+
+uint32_t calculate_epoch_from_block_num(uint64_t block_num, std::string_view network) noexcept
+{
+    const auto epoch = block_num / kEpoch_length;
+    if (network == "testnet")
+        return epoch > 145 ? 100 : static_cast<uint32_t>(epoch);
+    if (network == "devnet" || network == "regtest")
+        return epoch > 2 ? 1 : static_cast<uint32_t>(epoch);
+    return epoch > 926 ? 650 : static_cast<uint32_t>(epoch);
 }
 
 result hash(const epoch_context& context, const hash256& header, uint64_t nonce)
@@ -452,14 +462,14 @@ VerificationResult verify_full(const epoch_context& context, const hash256& head
 }
 
 VerificationResult verify_full(const uint64_t block_num, const hash256& header_hash, const hash256& mix_hash,
-    uint64_t nonce, const hash256& boundary) noexcept
+    uint64_t nonce, const hash256& boundary)
 {
     auto epoch_number{calculate_epoch_from_block_num(block_num)};
     auto epoch_context{get_epoch_context(epoch_number, false)};
     return verify_full(*epoch_context, header_hash, mix_hash, nonce, boundary);
 }
 
-std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool full) noexcept
+std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool full)
 {
     // Check if local context matches epoch number.
     if (!detail::thread_local_context || detail::thread_local_context->epoch_number != epoch_number ||

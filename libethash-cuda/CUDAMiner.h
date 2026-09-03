@@ -43,7 +43,7 @@ public:
 protected:
     bool initDevice() override;
 
-    bool initEpoch_internal() override;
+    bool initEpoch_internal(WorkPackage const& _work) override;
 
     void kick_miner() override;
 
@@ -54,24 +54,25 @@ private:
 
     uint8_t m_kernelCompIx = 0;
     uint8_t m_kernelExecIx = 1;
-    CUfunction m_kernel[2];
+    CUmodule m_module[2] = {};
+    CUfunction m_kernel[2] = {};
     std::vector<volatile Search_results*> m_search_buf;
     std::vector<cudaStream_t> m_streams;
-    uint64_t m_current_target = 0;
+    bool m_hasNextProgpowKernel = false;
+    bool m_kernelReady = false;
+    uint64_t m_nextProgpowDagElements = 0;
 
     CUSettings m_settings;
-
-    const uint32_t m_batch_size;
-    const uint32_t m_streams_batch_size;
 
     uint64_t m_allocated_memory_dag = 0; // dag_size is a uint64_t in EpochContext struct
     size_t m_allocated_memory_light_cache = 0;
 
-    void compileKernel(uint64_t prog_seed, uint64_t dag_words, CUfunction& kernel);
-    void asyncCompile();
+    void compileKernel(uint64_t prog_seed, uint64_t dag_words, CUmodule& module, CUfunction& kernel);
+    void asyncCompile(uint64_t period, uint64_t dag_elements);
+    void cleanup() noexcept;
 
-    CUcontext m_context;
-    CUdevice m_device;
+    CUcontext m_context = nullptr;
+    CUdevice m_device = 0;
 
     hash64_t* m_device_dag = nullptr;
     hash64_t* m_device_light = nullptr;

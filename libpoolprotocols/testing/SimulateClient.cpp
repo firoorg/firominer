@@ -64,9 +64,7 @@ void SimulateClient::submitSolution(const Solution& solution)
     }
     else if (solution.work.algo == "progpow")
     {
-        result = progpow::verify_full(solution.work.block.value(), ethash::from_bytes(solution.work.header.data()),
-            ethash::from_bytes(solution.mixHash.data()), solution.nonce,
-            ethash::from_bytes(solution.work.get_boundary().data()));
+        result = verifyProgpow(solution);
     }
 
     bool accepted = (result == ethash::VerificationResult::kOk);

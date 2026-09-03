@@ -42,6 +42,10 @@ bool IsHex(const std::string& str);
 * Return true if the string is a hex number, optionally prefixed with "0x"
 */
 bool IsHexNumber(const std::string& str);
+
+/** Normalize a hexadecimal value to a 0x-prefixed, 256-bit string. */
+bool NormalizeHex256(
+    const std::string& str, std::string* out, bool requireFullWidth = false);
 std::vector<unsigned char> DecodeBase64(const char* p, bool* pfInvalid = nullptr);
 std::string DecodeBase64(const std::string& str);
 std::string EncodeBase64(const unsigned char* pch, size_t len);
@@ -70,7 +74,7 @@ bool ParseInt32(const std::string& str, int32_t *out);
  * @returns true if the entire string could be parsed as valid integer,
  *   false if not the entire string could be parsed or when overflow or underflow occurred.
  */
-bool ParseUInt32(const std::string& str, uint32_t *out);
+bool ParseUInt32(const std::string& str, uint32_t *out, int base = 10);
 
 /**
  * Convert string to signed 64-bit integer with strict parse error feedback.
@@ -81,20 +85,6 @@ bool ParseInt64(const std::string& str, int64_t *out);
 
 /**
  * Convert string to unsigned 64-bit integer with strict parse error feedback.
- * @returns true if the entire string could be parsed as valid integer,
- *   false if not the entire string could be parsed or when overflow or underflow occurred.
- */
-bool ParseUInt64(const std::string& str, uint64_t *out);
-
-/**
- * Convert decimal string to unsigned 32-bit integer with strict parse error feedback.
- * @returns true if the entire string could be parsed as valid integer,
- *   false if not the entire string could be parsed or when overflow or underflow occurred.
- */
-bool ParseUInt32(const std::string& str, uint32_t *out);
-
-/**
- * Convert decimal string to unsigned 64-bit integer with strict parse error feedback.
  * @returns true if the entire string could be parsed as valid integer,
  *   false if not the entire string could be parsed or when overflow or underflow occurred.
  */

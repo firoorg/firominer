@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <optional>
+#include <string_view>
 
 #include <intx/intx.hpp>
 
@@ -141,11 +142,16 @@ hash256 calculate_seed_from_epoch(uint32_t epoch_number) noexcept;
 std::optional<uint32_t> calculate_epoch_from_seed(const hash256& seed) noexcept;
 
 /**
- * Calculates the epoch number provided a block number.
+ * Calculates the mainnet epoch number provided a block number.
  * @param block_num     The block number
  * @return              The epoch number
  */
 uint32_t calculate_epoch_from_block_num(const uint64_t block_num) noexcept;
+
+/**
+ * Calculates the FiroPoW epoch for a named Firo network.
+ */
+uint32_t calculate_epoch_from_block_num(uint64_t block_num, std::string_view network) noexcept;
 
 /**
  * Performs a full ethash round with given nonce
@@ -192,7 +198,7 @@ VerificationResult verify_full(const epoch_context& context, const hash256& head
  * @return              True / False
  */
 VerificationResult verify_full(const uint64_t block_num, const hash256& header_hash, const hash256& mix_hash,
-    uint64_t nonce, const hash256& boundary) noexcept;
+    uint64_t nonce, const hash256& boundary);
 
 using epoch_context_ptr = std::unique_ptr<epoch_context, decltype(&detail::destroy_epoch_context)>;
 
@@ -201,7 +207,7 @@ using epoch_context_ptr = std::unique_ptr<epoch_context, decltype(&detail::destr
  * @param epoch_number
  * @return              A unique_ptr to the context
  */
-std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool full) noexcept;
+std::shared_ptr<epoch_context> get_epoch_context(uint32_t epoch_number, bool full);
 
 hash256 get_boundary_from_diff(const intx::uint256 difficulty) noexcept;
 

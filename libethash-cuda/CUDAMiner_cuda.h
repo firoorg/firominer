@@ -18,11 +18,9 @@
 #define LDG(x) (x)
 #endif
 
-// It is virtually impossible to get more than
-// one solution per stream hash calculation
-// Leave room for up to 4 results. A power
-// of 2 here will yield better CUDA optimization
-#define MAX_SEARCH_RESULTS 4U
+// Launches are limited to fewer than one expected result. Leave ample room
+// for statistical variance without changing the normal mining batch size.
+#define MAX_SEARCH_RESULTS 16U
 
 typedef struct {
 	uint32_t count;
@@ -56,13 +54,6 @@ typedef union {
 	uint4	 uint4s[200 / sizeof(uint4)];
 } hash200_t;
 
-void set_constants(hash64_t* _dag, uint32_t _dag_size, hash64_t* _light, uint32_t _light_size);
-void get_constants(hash64_t** _dag, uint32_t* _dag_size, hash64_t** _light, uint32_t* _light_size);
-
-void set_header(hash32_t _header);
-
-void set_target(uint64_t _target);
-
 void ethash_generate_dag(
 	hash64_t* dag,
 	uint64_t dag_bytes,
@@ -70,8 +61,7 @@ void ethash_generate_dag(
 	uint32_t light_words,
 	uint32_t blocks,
 	uint32_t threads,
-	cudaStream_t stream,
-	int device
+	cudaStream_t stream
 	);
 
 struct cuda_runtime_error : public virtual std::runtime_error
