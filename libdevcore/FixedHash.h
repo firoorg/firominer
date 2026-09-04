@@ -143,7 +143,7 @@ public:
     /// @returns true iff this is the empty hash.
     explicit operator bool() const
     {
-        return std::any_of(m_data.begin(), m_data.end(), [](byte _b) { return _b != 0; });
+        return std::any_of(m_data.begin(), m_data.end(), [](::byte _b) { return _b != 0; });
     }
 
     // The obvious comparison operators.
@@ -222,10 +222,10 @@ public:
     bytesConstRef ref() const { return bytesConstRef(m_data.data(), N); }
 
     /// @returns a mutable byte pointer to the object's data.
-    byte* data() { return m_data.data(); }
+    ::byte* data() { return m_data.data(); }
 
     /// @returns a constant byte pointer to the object's data.
-    byte const* data() const { return m_data.data(); }
+    ::byte const* data() const { return m_data.data(); }
 
     /// Populate with random data.
     template <class Engine>

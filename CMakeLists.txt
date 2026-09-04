@@ -66,6 +66,10 @@ find_package(intx CONFIG REQUIRED)
 
 configureProject()
 
+if(MSVC AND ETHASHCUDA AND NOT CUDA_HOST_COMPILER AND NOT DEFINED ENV{CUDAHOSTCXX})
+	set(CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}" CACHE FILEPATH "NVCC host compiler")
+endif()
+
 message("----------------------------------------------------------------------------")
 message("-- CMake ${CMAKE_VERSION}")
 message("-- Build ${CMAKE_BUILD_TYPE} / ${CMAKE_SYSTEM_NAME}")
