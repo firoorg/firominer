@@ -33,7 +33,7 @@
 
 [Releases][Releases]
 
-Standalone **executables** for *Linux*, *macOS* and *Windows* are provided in
+Prebuilt **executables** for *Linux*, *macOS* and *Windows* are provided in
 the [Releases] section.
 Download an archive for your operating system and unpack the content to a place
 accessible from command line. The firominer is ready to go.
@@ -43,7 +43,8 @@ accessible from command line. The firominer is ready to go.
 | Last   | [GitHub release](https://github.com/firoorg/firominer/releases) 
 
 
-If you have trouble with missing .dll or CUDA errors, [please install the latest version of CUDA drivers](https://developer.nvidia.com/cuda-downloads) or report to project maintainers.
+On Windows, install the [Microsoft Visual C++ 2015-2022 Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+CUDA or OpenCL errors require a current NVIDIA or AMD graphics driver.
 
 ## Usage
 
