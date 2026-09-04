@@ -68,6 +68,11 @@ void Miner::pause(MinerPauseEnum what)
     {
         std::scoped_lock l(x_work, x_pause);
         m_pauseFlags.set(what);
+        if (what == PauseDueToFarmPaused)
+        {
+            m_work = {};
+            m_work.workGeneration = ++m_workGeneration;
+        }
     }
     kick_miner();
 }
@@ -79,6 +84,11 @@ void Miner::pause(MinerPauseEnum what, WorkPackage const& _work)
         if (m_work.workGeneration != _work.workGeneration)
             return;
         m_pauseFlags.set(what);
+        if (what == PauseDueToFarmPaused)
+        {
+            m_work = {};
+            m_work.workGeneration = ++m_workGeneration;
+        }
     }
     kick_miner();
 }
@@ -115,7 +125,7 @@ std::string Miner::pausedString()
                 else if (i == MinerPauseEnum::PauseDueToFarmPaused)
                     retVar.append("Farm suspended");
                 else if (i == MinerPauseEnum::PauseDueToInsufficientMemory)
-                    retVar.append("Insufficient GPU memory");
+                    retVar.append("Insufficient memory");
                 else if (i == MinerPauseEnum::PauseDueToInitEpochError)
                     retVar.append("Epoch initialization error");
             }
@@ -172,7 +182,7 @@ WorkPackage Miner::work() const
 
 void Miner::updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept
 {
-    m_groupCount += _increment;
+    m_hashCount += uint64_t{_groupSize} * _increment;
     bool b = true;
     if (!m_hashRateUpdate.compare_exchange_strong(b, false, std::memory_order_relaxed))
         return;
@@ -182,8 +192,8 @@ void Miner::updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept
     m_hashTime = t;
 
     m_hashRate.store(
-        us ? (float(m_groupCount * _groupSize) * 1.0e6f) / us : 0.0f, std::memory_order_relaxed);
-    m_groupCount = 0;
+        us ? (float(m_hashCount) * 1.0e6f) / us : 0.0f, std::memory_order_relaxed);
+    m_hashCount = 0;
 }
 
 bool Miner::dropThreadPriority()

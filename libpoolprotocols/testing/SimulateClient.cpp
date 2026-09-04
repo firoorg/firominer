@@ -8,8 +8,8 @@ using namespace std::chrono;
 using namespace dev;
 using namespace eth;
 
-SimulateClient::SimulateClient(unsigned const& block, float const& difficulty)
-  : PoolClient(), Worker("sim"), m_block(block), m_difficulty(difficulty)
+SimulateClient::SimulateClient(unsigned const& block, float const& difficulty, std::string network)
+  : PoolClient(), Worker("sim"), m_block(block), m_difficulty(difficulty), m_network(std::move(network))
 {}
 
 SimulateClient::~SimulateClient() = default;
@@ -95,7 +95,7 @@ void SimulateClient::workLoop()
 
     current.algo = "progpow";
     current.block.emplace(m_block);
-    current.epoch.emplace(m_block / ethash::kEpoch_length);
+    current.epoch.emplace(ethash::calculate_epoch_from_block_num(m_block, m_network));
 
     ethash::hash256 seed_h256{ethash::calculate_seed_from_epoch(current.epoch.value())};
     current.seed = h256(reinterpret_cast<::byte*>(seed_h256.bytes), h256::ConstructFromPointer);
@@ -118,7 +118,7 @@ void SimulateClient::workLoop()
             solution_arrived.store(false);
             ++m_block;
             current.block.emplace(m_block);
-            current.epoch.emplace(m_block / ethash::kEpoch_length);
+            current.epoch.emplace(ethash::calculate_epoch_from_block_num(m_block, m_network));
             seed_h256 = ethash::calculate_seed_from_epoch(current.epoch.value());
             current.seed = h256(reinterpret_cast<::byte*>(seed_h256.bytes), h256::ConstructFromPointer);
             current.header = h256::random();

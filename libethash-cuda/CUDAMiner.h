@@ -37,7 +37,7 @@ public:
     static int getNumDevices();
     static void enumDevices(std::map<std::string, DeviceDescriptor>& _DevicesCollection);
 
-    void search(
+    bool search(
         uint8_t const* header, uint64_t target, uint64_t _startN, const dev::eth::WorkPackage& w);
 
 protected:

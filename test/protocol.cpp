@@ -20,11 +20,255 @@
 boost::asio::io_service g_io_service;
 bool g_exitOnError = false;
 
+// Exercise the production JSON parsers directly without sockets or public test APIs.
+struct ProtocolTest
+{
+    static Json::Value json(std::string const& text)
+    {
+        Json::Value value;
+        Json::Reader reader;
+        if (!reader.parse(text, value))
+            throw std::runtime_error("Invalid protocol fixture");
+        return value;
+    }
+
+    static void require(bool condition, char const* message)
+    {
+        if (!condition)
+            throw std::runtime_error(message);
+    }
+
+    static void rejectHandshake(unsigned mode, Json::Value reply)
+    {
+        EthStratumClient client(60, 1);
+        auto uri = std::make_shared<dev::URI>("stratum://127.0.0.1:1");
+        client.setConnection(uri);
+        uri->SetStratumMode(mode, true);
+        reply["error"]["code"] = 20;
+        reply["error"]["message"] = "subscription denied";
+        client.processResponse(reply);
+        require(!client.m_session && uri->IsUnrecoverable(),
+            "Stratum accepted a subscription result accompanied by an RPC error");
+    }
+
+    static void networkMismatch()
+    {
+        dev::eth::PoolSettings settings;
+        dev::eth::PoolManager manager(settings);
+        auto uri = std::make_shared<dev::URI>("getwork://127.0.0.1:8888");
+        auto client = std::make_unique<EthGetworkClient>(60, 1000, "reward");
+        client->setConnection(uri);
+        client->m_pendingJReq["id"] = 1u;
+        auto* getwork = client.get();
+        manager.p_client = std::move(client);
+        manager.setClientHandlers();
+        // Suppress failover so this test isolates the consensus-network check.
+        manager.m_stopping.store(true);
+        auto response = json(R"({"id":1,"error":null,"result":{
+            "pprpcheader":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "pprpcepoch":1,"height":2600,"bits":"1d00ffff",
+            "target":"00000000ffff0000000000000000000000000000000000000000000000000000"}})");
+        getwork->processResponse(response);
+        require(uri->IsUnrecoverable() && !manager.m_currentWp && !getwork->getConnection(),
+            "getwork daemon/network mismatch was silently mined with a different epoch");
+    }
+
+    static void run()
+    {
+        auto response = json(R"({"id":1,"error":null,"result":{
+            "pprpcheader":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "pprpcepoch":1,"height":1300,"bits":"1d00ffff",
+            "target":"00000000ffff0000000000000000000000000000000000000000000000000000"}})");
+        const auto header = response["result"]["pprpcheader"].asString();
+        const auto target = response["result"]["target"].asString();
+        const auto seed = std::string(64, '0');
+        {
+            EthGetworkClient client(60, 1000, "reward");
+            client.setConnection(std::make_shared<dev::URI>("getwork://127.0.0.1:8888"));
+            client.m_pendingJReq["id"] = 1u;
+            unsigned jobs = 0;
+            dev::eth::WorkPackage work;
+            client.onWorkReceived([&](dev::eth::WorkPackage& received) { ++jobs; work = received; });
+            client.processResponse(response);
+            require(jobs == 1 && work.header == dev::h256(header) && work.block == 1300 &&
+                        work.epoch == 1 && work.boundary == dev::h256(target) &&
+                        work.block_boundary == work.boundary,
+                "getblocktemplate integer fields did not produce expected work");
+
+            response["result"]["height"] = "001301";
+            response["result"]["pprpcepoch"] = "0001";
+            response["result"]["pprpcheader"] = std::string(64, '2');
+            response["result"]["target"] = "00" + std::string(62, 'f');
+            client.processResponse(response);
+            require(jobs == 2 && work.block == 1301 && work.epoch == 1 &&
+                        work.boundary > work.block_boundary,
+                "getblocktemplate decimal strings or separate share target failed");
+            response["result"]["target"] = std::string(63, '0') + "1";
+            response["result"]["pprpcheader"] = std::string(64, '3');
+            client.processResponse(response);
+            require(jobs == 2, "getblocktemplate accepted target below block target");
+
+            unsigned accepted = 0, rejected = 0;
+            client.onSolutionAccepted([&](std::chrono::milliseconds const&, unsigned const& index, bool) {
+                require(index == 0, "incorrect getwork accepted miner index");
+                ++accepted;
+            });
+            client.onSolutionRejected([&](std::chrono::milliseconds const&, unsigned const& index) {
+                require(index == 0, "incorrect getwork rejected miner index");
+                ++rejected;
+            });
+            client.m_pendingJReq["id"] = 40u;
+            client.m_solution_submitted_max_id = 40;
+            client.m_pending_tstamp = std::chrono::steady_clock::now();
+            for (auto const* result : {"null", "true", "\"duplicate\"", "false",
+                     "\"duplicate-inconclusive\"", "\"bad-mixhash\""})
+            {
+                auto reply = json(std::string("{\"id\":40,\"error\":null,\"result\":") + result + "}");
+                client.processResponse(reply);
+            }
+            require(accepted == 3 && rejected == 3, "pprpcsb status classification failed");
+        }
+
+        auto notify = json(std::string(R"({"method":"mining.notify","params":["job",")") + header + "\",\"" + seed + "\",\"" + target + "\",true,1300,\"1d00ffff\"]}");
+        // Standard Stratum and both eth-proxy notification envelopes share the same job fields.
+        for (unsigned mode : {0u, 1u})
+        {
+            EthStratumClient client(60, 1);
+            auto uri = std::make_shared<dev::URI>("stratum://127.0.0.1:1");
+            client.setConnection(uri);
+            uri->SetStratumMode(mode, true);
+            client.startSession();
+            client.m_session->subscribed.store(true);
+            client.processResponse(notify);
+            require(client.m_newjobprocessed && client.m_current.block == 1300 &&
+                        client.m_current.header == dev::h256(header) && !client.m_current.epoch &&
+                        client.m_current.block_boundary == dev::h256(target),
+                "legacy mining.notify did not produce expected work");
+            client.m_newjobprocessed = false;
+            auto invalid = notify;
+            invalid["params"][4] = 1;
+            client.processResponse(invalid);
+            require(!client.m_newjobprocessed, "mining.notify accepted non-boolean clean_jobs");
+            invalid = notify;
+            invalid["params"][2] = "";
+            client.processResponse(invalid);
+            require(!client.m_newjobprocessed, "mining.notify accepted missing seed");
+            if (mode == 1)
+            {
+                Json::Value proxy;
+                proxy["id"] = 0u;
+                proxy["result"] = Json::Value(Json::arrayValue);
+                for (Json::ArrayIndex i = 1; i < notify["params"].size(); ++i)
+                    proxy["result"].append(notify["params"][i]);
+                client.processResponse(proxy);
+                require(client.m_newjobprocessed && client.m_current.header == dev::h256(header),
+                    "eth-proxy result notification failed");
+            }
+        }
+        {
+            EthStratumClient client(60, 1);
+            auto uri = std::make_shared<dev::URI>("stratum2+tcp://127.0.0.1:1");
+            client.setConnection(uri);
+            uri->SetStratumMode(2, true);
+            auto subscription = json(R"({"id":1,"result":[["mining.notify","session","EthereumStratum/1.0.0"]],"error":null})");
+            rejectHandshake(2, subscription);
+            client.processResponse(subscription);
+            require(client.isSubscribed(), "EthereumStratum/1.0.0 subscription failed");
+            auto difficulty = json(R"({"method":"mining.set_difficulty","params":[2]})");
+            client.processResponse(difficulty);
+            auto extranonce = json(R"({"method":"mining.set_extranonce","params":["00ab"]})");
+            client.processResponse(extranonce);
+            auto legacy = json(std::string(R"({"method":"mining.notify","params":["height-job",")") + seed + "\",\"" + header + "\",\"001300\"]}");
+            client.processResponse(legacy);
+            require(client.m_newjobprocessed && client.m_current.block == 1300 &&
+                        client.m_current.startNonce == 0x00ab000000000000ULL &&
+                        client.m_current.exSizeBytes == 4 &&
+                        client.m_current.boundary == dev::h256(dev::getTargetFromDiff(2)),
+                "height-bearing EthereumStratum/1.0.0 job failed");
+            difficulty["params"][0] = 0;
+            client.processResponse(difficulty);
+            require(client.m_session->nextWorkBoundary == client.m_current.boundary,
+                "invalid mining difficulty changed session state");
+        }
+        {
+            EthStratumClient client(60, 1);
+            auto uri = std::make_shared<dev::URI>("stratum3+tcp://127.0.0.1:1");
+            client.setConnection(uri);
+            uri->SetStratumMode(3, true);
+            auto hello = json(R"({"id":1,"result":{"proto":"EthereumStratum/2.0.0","encoding":"json",
+                "resume":false,"timeout":"1e","maxerrors":"a","node":"fixture"},"error":null})");
+            rejectHandshake(3, hello);
+            client.processResponse(hello);
+            auto set = json(std::string(R"({"method":"mining.set","params":{"epoch":"1","target":")") +
+                target + R"(","algo":"progpow","extranonce":"123456789abc"}})");
+            client.processResponse(set);
+            auto job = json(std::string(R"({"method":"mining.notify","params":["job","514",")") + header + "\",\"0\"]}");
+            client.processResponse(job);
+            require(client.m_newjobprocessed && client.m_current.block == 1300 &&
+                        client.m_current.epoch == 1 && client.m_current.exSizeBytes == 12 &&
+                        client.m_current.startNonce == 0x123456789abc0000ULL &&
+                        client.m_current.boundary == dev::h256(target),
+                "EthereumStratum/2.0.0 set/notify failed");
+            require(!client.processExtranonce("123456789abcde", 6) &&
+                        !client.processExtranonce("0x00gg", 6) &&
+                        client.m_session->extraNonce == 0x123456789abc0000ULL,
+                "invalid extranonce changed session state");
+            set["params"]["epoch"] = "-1";
+            set["params"]["target"] = "1";
+            client.processResponse(set);
+            require(client.m_session->epoch == 1 &&
+                        client.m_session->nextWorkBoundary == dev::h256(target),
+                "invalid mining.set partly committed session state");
+        }
+        {
+            EthStratumClient client(60, 1);
+            auto uri = std::make_shared<dev::URI>("stratum://127.0.0.1:1");
+            client.setConnection(uri);
+            client.init_socket();
+            client.m_connectionWanted = true;
+            uri->SetStratumMode(2, false);
+            uri->Responds(true);
+            unsigned disconnected = 0;
+            client.onDisconnected([&] { ++disconnected; client.unsetConnection(); });
+            client.disconnectInternal();
+            require(uri->StratumMode() == 1 && !uri->Responds() && disconnected == 0,
+                "Stratum autodetection did not advance mode");
+            client.disconnect();
+            require(disconnected == 1 && !client.isPendingState(),
+                "explicit disconnect did not cancel queued autodetection");
+            client.start_connect();
+            client.workloop_timer_elapsed({});
+            require(!client.isPendingState(), "queued reconnect restarted a stopped client");
+        }
+        {
+            EthStratumClient client(60, 1);
+            client.setConnection(std::make_shared<dev::URI>("stratum://127.0.0.1:1"));
+            client.init_socket();
+            client.m_connecting.store(true);
+            unsigned disconnected = 0;
+            client.onDisconnected([&] { ++disconnected; });
+            client.disconnect();
+            require(!client.isPendingState() && disconnected == 1,
+                "cancelled connect retained pending state");
+        }
+    }
+};
+
 int main()
 {
+    try
+    {
+        ProtocolTest::run();
+    }
+    catch (std::exception const& ex)
+    {
+        std::cerr << ex.what() << '\n';
+        return 1;
+    }
+
     uint32_t value = 0;
     if (!ParseUInt32("4294967295", &value) || value != std::numeric_limits<uint32_t>::max() ||
-        !ParseUInt32("0x10", &value, 0) || value != 16 ||
+        !ParseUInt32("001300", &value) || value != 1300 ||
         !ParseUInt32("ffffffff", &value, 16) || value != std::numeric_limits<uint32_t>::max() ||
         ParseUInt32("4294967296", &value) || ParseUInt32("100000000", &value, 16) ||
         ParseUInt32("-1", &value) || ParseUInt32("1junk", &value) || ParseUInt32(" 1", &value))
@@ -70,6 +314,15 @@ int main()
         std::cerr << "URI validation or initialization failed\n";
         return 1;
     }
+
+    try
+    {
+        dev::URI tooLong{"stratum+tcp://" + std::string(1025, 'a')};
+        std::cerr << "Pool URI length limit was not enforced\n";
+        return 1;
+    }
+    catch (std::runtime_error const&)
+    {}
     uri.addDuration(7);
     if (uri.getDuration() != 7)
     {
@@ -77,24 +330,42 @@ int main()
         return 1;
     }
 
+    using boost::asio::ip::tcp;
     {
-        auto autodetectUri =
-            std::make_shared<dev::URI>("stratum://127.0.0.1:1");
-        EthStratumClient autodetectClient(60, 1);
-        autodetectClient.setConnection(autodetectUri);
-        autodetectClient.init_socket();
-        autodetectUri->SetStratumMode(2, false);
-        autodetectUri->Responds(true);
-        autodetectClient.disconnect();
-        if (autodetectUri->StratumMode() != 1 || autodetectUri->Responds() ||
-            autodetectUri->IsUnrecoverable())
+        tcp::acceptor server(
+            g_io_service, tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
+        tcp::socket peer(g_io_service);
+        boost::asio::streambuf request;
+        bool subscribed = false;
+        EthStratumClient client(60, 1);
+        client.setConnection(std::make_shared<dev::URI>("stratum2+tcp://127.0.0.1:" +
+            std::to_string(server.local_endpoint().port())));
+        server.async_accept(peer, [&](boost::system::error_code const& ec) {
+            if (!ec)
+                boost::asio::async_read_until(peer, request, '\n',
+                    [&](boost::system::error_code const& readError, size_t) {
+                        if (!readError)
+                        {
+                            std::istream input(&request);
+                            std::string line;
+                            std::getline(input, line);
+                            auto hello = ProtocolTest::json(line);
+                            subscribed = hello["method"] == "mining.subscribe" &&
+                                hello["params"][1] == "EthereumStratum/1.0.0";
+                        }
+                        client.disconnect();
+                    });
+        });
+        client.connect();
+        g_io_service.run();
+        if (!subscribed)
         {
-            std::cerr << "Stratum autodetection carried a stale response into the next mode\n";
+            std::cerr << "stratum2+tcp did not send EthereumStratum/1.0.0 subscription\n";
             return 1;
         }
     }
 
-    using boost::asio::ip::tcp;
+    g_io_service.reset();
     {
         tcp::acceptor stalledServer(
             g_io_service, tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
@@ -120,6 +391,15 @@ int main()
     g_io_service.reset();
     std::map<std::string, dev::eth::DeviceDescriptor> devices;
     dev::eth::Farm farm(devices, {}, {}, {}, {});
+    try
+    {
+        ProtocolTest::networkMismatch();
+    }
+    catch (std::exception const& ex)
+    {
+        std::cerr << ex.what() << '\n';
+        return 1;
+    }
 
     {
         tcp::acceptor stoppedServer(

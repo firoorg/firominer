@@ -121,6 +121,9 @@ static bool url_decode(const std::string& in, std::string& out)
 
 URI::URI(std::string uri, bool _sim) : m_uri{std::move(uri)}
 {
+    // Bound input before any recursive std::regex matcher is invoked.
+    if (m_uri.size() > 1024)
+        throw std::runtime_error("Pool URI exceeds 1024 bytes");
 
     std::regex sch_auth("^([a-zA-Z0-9\\+]{1,})\\:\\/\\/(.*)$");
     std::smatch matches;

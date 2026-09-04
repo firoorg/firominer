@@ -496,17 +496,7 @@ void CLMiner::workLoop()
 
                 // Upper 64 bits of the boundary.
                 const uint64_t target = (uint64_t)(u64)((u256)next.get_boundary() >> 192);
-                assert(target > 0);
 
-                // If upper 64 bits of target are 0xffffffffffffffff then any nonce would
-                // be considered valid by GPU. Skip job.
-                if (target == UINT64_MAX)
-                {
-                    cllog << "Difficulty too low for GPU. Skipping job";
-                    current = next;
-                    nonceRangeExhausted = true;
-                    continue;
-                }
                 currentTarget = target;
 
                 startNonce = next.startNonce;
@@ -529,30 +519,15 @@ void CLMiner::workLoop()
 #endif
             }
 
-            // Keep the expected number of solutions below one per launch so
-            // result-buffer overflow remains negligible at low difficulty.
-            const uint64_t resultLimitedWorkSize =
-                currentTarget == UINT64_MAX ? 0 : UINT64_MAX / (currentTarget + 1);
-            uint64_t launchWorkSize =
-                std::min<uint64_t>(m_settings.globalWorkSize, resultLimitedWorkSize);
-            launchWorkSize -= launchWorkSize % m_settings.localWorkSize;
-            if (launchWorkSize < m_settings.localWorkSize)
+            const uint64_t remaining = next.nonceRange ? next.nonceRange - (startNonce - next.startNonce) : 0;
+            const uint32_t launchWorkSize = gpuBatchSize(
+                m_settings.globalWorkSize, m_settings.localWorkSize, currentTarget, remaining);
+            if (!launchWorkSize)
             {
-                cllog << "Difficulty too low for an OpenCL work group. Skipping job";
+                cllog << "Nonce range exhausted (smaller than an OpenCL work group), waiting for new work";
                 current = next;
                 nonceRangeExhausted = true;
                 continue;
-            }
-            if (next.nonceRange)
-            {
-                const uint64_t offset = startNonce - next.startNonce;
-                launchWorkSize = std::min(launchWorkSize, next.nonceRange - offset);
-                if (launchWorkSize < m_settings.localWorkSize)
-                {
-                    cllog << "Assigned Stratum nonce range is smaller than an OpenCL work group";
-                    pause(MinerPauseEnum::PauseDueToInitEpochError, next);
-                    continue;
-                }
             }
 
             // Run the kernel.
@@ -574,6 +549,8 @@ void CLMiner::workLoop()
             // Increase start nonce for following kernel execution.
             startNonce += launchWorkSize;
             nonceRangeExhausted = next.nonceRange && startNonce - next.startNonce >= next.nonceRange;
+            if (nonceRangeExhausted)
+                cllog << "Nonce range exhausted, waiting for new work";
         }
 
     }

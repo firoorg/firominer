@@ -3,7 +3,6 @@
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <regex>
 
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
@@ -87,6 +86,8 @@ public:
     ApiServer(string address, int portnum, string password);
     ~ApiServer() { stop(); }
     bool isRunning() { return m_running.load(std::memory_order_relaxed); };
+    uint16_t getPort() const { return m_portnumber; }
+    // Port zero requests an ephemeral listener; callers disable the API by not starting it.
     void start();
     void stop();
 

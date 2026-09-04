@@ -155,6 +155,16 @@ void PoolManager::setClientHandlers()
         const auto advertisedEpoch = wp.epoch;
         const auto advertisedSeed = ethash::from_bytes(wp.seed.data());
         const auto epoch = ethash::calculate_epoch_from_block_num(*wp.block, m_Settings.network);
+        if (advertisedEpoch && *advertisedEpoch != epoch &&
+            p_client->getConnection()->Family() == ProtocolFamily::GETWORK)
+        {
+            cwarn << "Getwork daemon epoch " << *advertisedEpoch << " disagrees with "
+                  << m_Settings.network << " epoch " << epoch << ". Refusing work; set "
+                     "--firopow-network to the daemon's network before reconnecting.";
+            p_client->getConnection()->MarkUnrecoverable();
+            p_client->disconnect();
+            return;
+        }
         if (!m_epochMismatchWarned &&
             ((advertisedEpoch && *advertisedEpoch != epoch) ||
                 (!advertisedEpoch &&
@@ -435,7 +445,8 @@ void PoolManager::rotateConnect()
                 new EthStratumClient(m_Settings.noWorkTimeout, m_Settings.noResponseTimeout));
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::SIMULATION)
             p_client =
-                std::unique_ptr<PoolClient>(new SimulateClient(m_Settings.benchmarkBlock, m_Settings.benchmarkDiff));
+                std::unique_ptr<PoolClient>(new SimulateClient(
+                    m_Settings.benchmarkBlock, m_Settings.benchmarkDiff, m_Settings.network));
 
         if (p_client)
             setClientHandlers();

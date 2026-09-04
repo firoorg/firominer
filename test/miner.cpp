@@ -24,6 +24,7 @@ public:
 
     bool initialize(dev::eth::WorkPackage const& work) { return initEpoch(work); }
     dev::eth::WorkPackage currentWork() const { return work(); }
+    void recordHashes(uint32_t size, uint32_t count) { updateHashRate(size, count); }
 
     void kick_miner() override {}
 
@@ -55,6 +56,78 @@ private:
 int main()
 {
     using namespace dev::eth;
+
+    // Batch sizes must remain usable at devnet/regtest difficulty, and every
+    // stream's launch must fit wholly inside its assigned nonce segment.
+    for (uint32_t group : {32u, 64u, 128u, 256u, 512u})
+    {
+        for (uint64_t target : {uint64_t{0}, UINT64_MAX / 2048,
+                 uint64_t{0x00ffff0000000000}, uint64_t{0x7fffffffffffffff}, UINT64_MAX})
+        {
+            if (gpuBatchSize(131072 * group, group, target) < group ||
+                gpuBatchSize(131072 * group, group, target, group / 2) != 0)
+            {
+                std::cerr << "GPU batch rejected low difficulty or exceeded a small nonce range\n";
+                return 1;
+            }
+            for (uint64_t range : {uint64_t{group}, uint64_t{32} * group})
+            {
+                for (uint32_t streams : {1u, 2u, 3u, 8u})
+                {
+                    const uint64_t active = std::min<uint64_t>(streams, range / group);
+                    const auto batch = gpuBatchSize(3 * group, group, target, range / active);
+                    WorkPackage bounded;
+                    bounded.startNonce = UINT64_MAX - range + 1;
+                    bounded.nonceRange = range;
+                    if (!batch || batch % group || range % batch || active * batch > range)
+                    {
+                        std::cerr << "GPU batch does not divide the nonce range\n";
+                        return 1;
+                    }
+                    auto nonce = bounded.startNonce;
+                    for (uint64_t scheduled = 0; scheduled < range; scheduled += batch)
+                    {
+                        if (!nonceInRange(bounded, nonce) || !nonceInRange(bounded, nonce + batch - 1))
+                        {
+                            std::cerr << "GPU launch straddled the nonce range\n";
+                            return 1;
+                        }
+                        nonce = wrapNonce(bounded, nonce + batch);
+                    }
+                    if (nonce != bounded.startNonce)
+                    {
+                        std::cerr << "GPU launch sequence did not cover the nonce range\n";
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+    if (gpuBatchSize(1536, 512, 0, 4096) != 1024 || gpuBatchSize(1536, 512, 0) != 1536 ||
+        gpuBatchSize(1024, 0, 0) != 0)
+    {
+        std::cerr << "GPU batch rounding failed\n";
+        return 1;
+    }
+
+    const auto beforeConstruction = std::chrono::steady_clock::now();
+    TestMiner accounting{0, false};
+    const auto afterConstruction = std::chrono::steady_clock::now();
+    accounting.recordHashes(1024, 2);
+    accounting.recordHashes(64, 4);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    accounting.TriggerHashRateUpdate();
+    const auto beforeUpdate = std::chrono::steady_clock::now();
+    accounting.recordHashes(32, 1);
+    const auto afterUpdate = std::chrono::steady_clock::now();
+    const auto minUs = std::chrono::duration_cast<std::chrono::microseconds>(beforeUpdate - afterConstruction).count();
+    const auto maxUs = std::chrono::duration_cast<std::chrono::microseconds>(afterUpdate - beforeConstruction).count();
+    const float rate = accounting.RetrieveHashRate();
+    if (rate < 2336.0e6f / (maxUs + 1) * 0.999f || rate > 2336.0e6f / minUs * 1.001f)
+    {
+        std::cerr << "hashrate did not accumulate hashes across different batch sizes\n";
+        return 1;
+    }
 
     TestMiner first{0, false};
     TestMiner retry{1, true};
@@ -148,6 +221,28 @@ int main()
     if (retry.currentWork().header != work.header)
     {
         std::cerr << "resumed miner did not retain latest work\n";
+        return 1;
+    }
+
+    retry.pause(PauseDueToFarmPaused);
+    retry.resume(PauseDueToFarmPaused);
+    if (retry.currentWork())
+    {
+        std::cerr << "farm reconnect resumed the previous session's work\n";
+        return 1;
+    }
+    retry.setWork(work, false);
+    retry.pause(PauseDueToInsufficientMemory, retry.currentWork());
+    retry.setWork(work, false);
+    if (!retry.pauseTest(PauseDueToInsufficientMemory) || retry.pausedString() != "Insufficient memory")
+    {
+        std::cerr << "memory failure did not retain its pause reason\n";
+        return 1;
+    }
+    retry.setWork(work, true);
+    if (retry.paused() || !retry.currentWork())
+    {
+        std::cerr << "epoch change did not retry a memory failure\n";
         return 1;
     }
 

@@ -20,6 +20,7 @@
 #define LIBCRYPTO_MINER_H_
 
 
+#include <algorithm>
 #include <bitset>
 #include <condition_variable>
 #include <list>
@@ -359,6 +360,30 @@ inline uint64_t wrapNonce(WorkPackage const& work, uint64_t nonce) noexcept
     return work.startNonce + (nonce - work.startNonce) % work.nonceRange;
 }
 
+inline uint32_t gpuBatchSize(uint32_t requested, uint32_t groupSize, uint64_t target,
+    uint64_t nonceRange = 0) noexcept
+{
+    if (!groupSize)
+        return 0;
+    // ponytail: one workgroup can exceed the result buffer at very low difficulty;
+    // kernels safely discard excess results. Expand buffers if every share is needed.
+    const uint64_t resultLimit = target == UINT64_MAX ? 1 : UINT64_MAX / (target + 1);
+    uint64_t size = std::min<uint64_t>(requested, std::max<uint64_t>(groupSize, resultLimit));
+    if (nonceRange)
+        size = std::min(size, nonceRange);
+    uint32_t groups = static_cast<uint32_t>(size / groupSize);
+    if (nonceRange && groups)
+    {
+        // Both backends use power-of-two groups; this divides an assigned
+        // power-of-two range even when several CUDA streams share it.
+        uint32_t dividingGroups = 1;
+        while (dividingGroups <= groups / 2)
+            dividingGroups *= 2;
+        groups = dividingGroups;
+    }
+    return groups * groupSize;
+}
+
 
 struct Solution
 {
@@ -530,7 +555,7 @@ private:
 
     std::chrono::steady_clock::time_point m_hashTime = std::chrono::steady_clock::now();
     std::atomic<float> m_hashRate = {0.0};
-    uint64_t m_groupCount = 0;
+    uint64_t m_hashCount = 0;
     std::atomic<bool> m_hashRateUpdate = {false};
 };
 

@@ -1,5 +1,8 @@
 #include "ApiServer.h"
 
+#include <algorithm>
+#include <sstream>
+
 #include <firominer/buildinfo.h>
 
 #include <libethcore/Farm.h>
@@ -101,25 +104,14 @@ static bool getRequestValue(const char* membername, uint64_t& refValue, Json::Va
         }
         return optional;
     }
-    /* as there is no isUInt64() function we can not check the type */
-    if (jRequest[membername].empty())
+    if (!jRequest[membername].isUInt64())
     {
         jResponse["error"]["code"] = -32602;
         jResponse["error"]["message"] =
-            std::string("Empty '") + std::string(membername) + std::string("'");
+            std::string("Invalid type of value '") + membername + "'";
         return false;
     }
-    try
-    {
-        refValue = jRequest[membername].asUInt64();
-    }
-    catch (...)
-    {
-        jRequest["error"]["code"] = -32602;
-        jResponse["error"]["message"] =
-            std::string("Bad value in '") + std::string(membername) + std::string("'");
-        return false;
-    }
+    refValue = jRequest[membername].asUInt64();
     return true;
 }
 
@@ -252,9 +244,6 @@ ApiServer::ApiServer(string address, int portnum, string password)
 void ApiServer::start()
 {
     // cnote << "ApiServer::start";
-    if (m_portnumber == 0)
-        return;
-
     tcp::endpoint endpoint(boost::asio::ip::address::from_string(m_address), m_portnumber);
 
     // Try to bind to port number
@@ -266,16 +255,18 @@ void ApiServer::start()
         m_acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
         m_acceptor.bind(endpoint);
         m_acceptor.listen(64);
+        m_portnumber = m_acceptor.local_endpoint().port();
     }
     catch (const std::exception&)
     {
-        cwarn << "Could not start API server on port: " +
-                     to_string(m_acceptor.local_endpoint().port());
+        boost::system::error_code ec;
+        m_acceptor.close(ec);
+        cwarn << "Could not start API server on port: " + to_string(m_portnumber);
         cwarn << "Ensure port is not in use by another service";
         return;
     }
 
-    cnote << "Api server listening on port " + to_string(m_acceptor.local_endpoint().port())
+    cnote << "Api server listening on port " + to_string(m_portnumber)
           << (m_password.empty() ? "." : ". Authentication needed.");
     auto lifetime = std::make_shared<Lifetime>(this);
     m_lifetime = lifetime;
@@ -339,6 +330,9 @@ void ApiServer::handle_accept(std::shared_ptr<ApiConnection> session, boost::sys
 {
     // Start new connection
     // cnote << "ApiServer::handle_accept";
+    tcp::endpoint peer;
+    if (!ec)
+        peer = session->socket().remote_endpoint(ec);
     if (!ec)
     {
         std::weak_ptr<Lifetime> lifetime = state;
@@ -360,7 +354,7 @@ void ApiServer::handle_accept(std::shared_ptr<ApiConnection> session, boost::sys
                 sessions.erase(it);
         });
         m_sessions.push_back(session);
-        cnote << "New API session from " << session->socket().remote_endpoint();
+        cnote << "New API session from " << peer;
         session->start();
     }
     else
@@ -548,10 +542,10 @@ void ApiConnection::processRequest(Json::Value& jRequest, Json::Value& jResponse
             PoolManager::p().addConnection(sUri);
             jResponse["result"] = true;
         }
-        catch (...)
+        catch (const std::exception& ex)
         {
             jResponse["error"]["code"] = -422;
-            jResponse["error"]["message"] = "Bad URI : " + sUri;
+            jResponse["error"]["message"] = ex.what();
         }
     }
 
@@ -665,12 +659,16 @@ void ApiConnection::processRequest(Json::Value& jRequest, Json::Value& jResponse
 
             any_value_provided = true;
 
-            nonceHex = jRequestParams["noncescrambler"].asString();
+            if (jRequestParams["noncescrambler"].isString())
+                nonceHex = jRequestParams["noncescrambler"].asString();
             if (nonceHex.substr(0, 2) == "0x")
             {
                 try
                 {
-                    nonce = std::stoul(nonceHex, nullptr, 16);
+                    std::size_t consumed = 0;
+                    nonce = std::stoull(nonceHex, &consumed, 16);
+                    if (consumed != nonceHex.size())
+                        throw std::invalid_argument("Invalid nonce");
                 }
                 catch (const std::exception&)
                 {
@@ -794,15 +792,6 @@ void ApiConnection::recvSocketData()
 void ApiConnection::onRecvSocketDataCompleted(
     const boost::system::error_code& ec, std::size_t bytes_transferred)
 {
-    /*
-    Standard http request detection pattern
-    1st group : any UPPERCASE word
-    2nd group : the path
-    3rd group : HTTP version
-    */
-    static std::regex http_pattern("^([A-Z]{1,6}) (\\/[\\S]*) (HTTP\\/1\\.[0-9]{1})");
-    std::smatch http_matches;
-
     if (!ec && bytes_transferred > 0)
     {
         // Extract received message and free the buffer
@@ -821,20 +810,26 @@ void ApiConnection::onRecvSocketDataCompleted(
         std::string linedelimiter;
         std::size_t linedelimiteroffset;
 
-        if (m_message.size() < 4 && m_message.find('\n') == std::string::npos)
+        auto requestLineEnd = m_message.find('\n');
+        if (requestLineEnd == std::string::npos)
         {
             recvSocketData();
             return;  // Wait for other data to come in
         }
 
-        if (std::regex_search(
-                m_message, http_matches, http_pattern, std::regex_constants::match_default))
+        // Parse only the complete request line, with no recursive regular expression.
+        std::istringstream requestLine(m_message.substr(0, requestLineEnd));
+        std::string http_method, http_path, http_ver, extra;
+        bool isHttp = (requestLine >> http_method >> http_path >> http_ver) &&
+                      !(requestLine >> extra) && http_method.size() <= 6 &&
+                      std::all_of(http_method.begin(), http_method.end(),
+                          [](char c) { return c >= 'A' && c <= 'Z'; }) &&
+                      http_path.front() == '/' && http_ver.size() == 8 &&
+                      http_ver.compare(0, 7, "HTTP/1.") == 0 &&
+                      http_ver.back() >= '0' && http_ver.back() <= '9';
+        if (isHttp)
         {
             // We got an HTTP request
-            std::string http_method = http_matches[1].str();
-            std::string http_path = http_matches[2].str();
-            std::string http_ver = http_matches[3].str();
-
             if (!m_is_authenticated)
             {
                 std::string what = "Authorization needed";
@@ -941,8 +936,21 @@ void ApiConnection::onRecvSocketDataCompleted(
                         // Test validity of chunk and process
                         Json::Value jMsg;
                         Json::Value jRes;
-                        Json::Reader jRdr;
-                        if (jRdr.parse(line, jMsg))
+                        bool parsed = false;
+                        try
+                        {
+                            Json::CharReaderBuilder builder;
+                            // API requests are shallow; keep parsing within the I/O thread stack.
+                            builder["stackLimit"] = 64;
+                            std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+                            parsed = reader->parse(
+                                line.data(), line.data() + line.size(), &jMsg, nullptr);
+                        }
+                        catch (const std::exception&)
+                        {
+                            // jsoncpp throws when its nesting limit is exceeded.
+                        }
+                        if (parsed)
                         {
                             try
                             {
@@ -954,7 +962,7 @@ void ApiConnection::onRecvSocketDataCompleted(
                                 jRes = Json::Value();
                                 jRes["jsonrpc"] = "2.0";
                                 jRes["id"] = Json::Value::null;
-                                jRes["error"]["errorcode"] = "500";
+                                jRes["error"]["code"] = -32603;
                                 jRes["error"]["message"] = _ex.what();
                             }
                         }
@@ -963,11 +971,8 @@ void ApiConnection::onRecvSocketDataCompleted(
                             jRes = Json::Value();
                             jRes["jsonrpc"] = "2.0";
                             jRes["id"] = Json::Value::null;
-                            jRes["error"]["errorcode"] = "-32700";
-                            string what = jRdr.getFormattedErrorMessages();
-                            boost::replace_all(what, "\n", " ");
-                            cwarn << "API : Got invalid Json message " << what;
-                            jRes["error"]["message"] = "Json parse error : " + what;
+                            jRes["error"]["code"] = -32700;
+                            jRes["error"]["message"] = "Json parse error";
                         }
 
                         // Send response to client

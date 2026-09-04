@@ -10,6 +10,7 @@
 
 #include "ethash.hpp"
 #include "kiss99.hpp"
+#include <array>
 #include <stdint.h>
 #include <string>
 

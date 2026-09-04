@@ -371,33 +371,33 @@ void EthGetworkClient::handle_read(const boost::system::error_code& ec, std::siz
         if (g_logOptions & LOG_JSON)
             cnote << " << " << rx_message;
 
-        Json::Value jRes;
-        Json::Reader jRdr;
-        if (!jRdr.parse(rx_message, jRes))
-        {
-            string what = jRdr.getFormattedErrorMessages();
-            boost::replace_all(what, "\n", " ");
-            cwarn << "Got invalid Json message : " << what;
-            if (httpSuccess)
-                disconnect();
-            else
-                retry_endpoint();
-            return;
-        }
-
-        if (!httpSuccess &&
-            (!jRes.isObject() || !jRes.isMember("error") || jRes["error"].isNull()))
-        {
-            cwarn << m_conn->Host() << ":" << toString(m_conn->Port())
-                  << " returned a non-error JSON body with HTTP status " << http_status_code;
-            retry_endpoint();
-            return;
-        }
-
-        m_pendingRequest.clear();
-
         try
         {
+            Json::Value jRes;
+            Json::Reader jRdr;
+            if (!jRdr.parse(rx_message, jRes))
+            {
+                string what = jRdr.getFormattedErrorMessages();
+                boost::replace_all(what, "\n", " ");
+                cwarn << "Got invalid Json message : " << what;
+                if (httpSuccess)
+                    disconnect();
+                else
+                    retry_endpoint();
+                return;
+            }
+
+            if (!httpSuccess &&
+                (!jRes.isObject() || !jRes.isMember("error") || jRes["error"].isNull()))
+            {
+                cwarn << m_conn->Host() << ":" << toString(m_conn->Port())
+                      << " returned a non-error JSON body with HTTP status " << http_status_code;
+                retry_endpoint();
+                return;
+            }
+
+            m_pendingRequest.clear();
+
             processResponse(jRes);
         }
         catch (std::exception const& ex)
@@ -586,9 +586,9 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
                             (bitsText.size() <= 10 && bitsText.compare(0, 2, "0x") == 0)) &&
                         IsHexNumber(bitsText) && ParseUInt32(bitsText, &bits, 16);
                     bool const validScalars = (epochValue.isString() || epochValue.isIntegral()) &&
-                                              ParseUInt32(epochValue.asString(), &advertisedEpoch, 0) &&
+                                              ParseUInt32(epochValue.asString(), &advertisedEpoch, 10) &&
                                               (heightValue.isString() || heightValue.isIntegral()) &&
-                                              ParseUInt32(heightValue.asString(), &block, 0) && bitsValue.isString() &&
+                                              ParseUInt32(heightValue.asString(), &block, 10) && bitsValue.isString() &&
                                               validBits;
 
                     bool negative = false;
@@ -598,7 +598,7 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
                     auto const parsedTarget = validTarget ? h256(target) : h256{};
                     auto const compactTarget = h256(blockTarget.bytes, dev::h256::ConstructFromPointer);
                     if (!parsedHeader || !parsedTarget || !validScalars || negative || overflow || !compactTarget ||
-                        parsedTarget != compactTarget)
+                        parsedTarget < compactTarget)
                     {
                         cwarn << "Invalid work package data from " << m_conn->Host() << ":"
                               << toString(m_conn->Port());
@@ -653,6 +653,8 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
                 auto const& result = JRes["result"];
                 _isSuccess = result.isNull() || (result.isBool() && result.asBool()) ||
                              (result.isString() && result.asString() == "duplicate");
+                if (!_isSuccess && result.isString())
+                    _errReason = result.asString();
             }
         }
 
@@ -667,6 +669,7 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
         }
         else
         {
+            cwarn << "Getwork submission rejected: " << (_errReason.empty() ? "invalid result" : _errReason);
             if (m_onSolutionRejected)
                 m_onSolutionRejected(_delay, miner_index);
         }

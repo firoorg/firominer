@@ -90,6 +90,8 @@ public:
     bool current() { return static_cast<bool>(m_current); }
 
 private:
+    friend struct ProtocolTest;
+
     struct SocketState
     {
         std::shared_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> secure;
@@ -131,6 +133,7 @@ private:
     }
 
     void startSession();
+    void disconnectInternal();
     void disconnect_finalize();
     void enqueue_response_plea(unsigned id = 0);
     std::chrono::milliseconds dequeue_response_plea(unsigned id);
@@ -159,6 +162,7 @@ private:
     std::atomic<bool> m_disconnecting = {false};
     std::atomic<bool> m_connecting = {false};
     std::atomic<bool> m_authpending = {false};
+    bool m_connectionWanted = false;  // Protected by CallbackState::mutex.
     std::shared_ptr<CallbackState> m_callbackState;
 
     // seconds to trigger a work_timeout (overwritten in constructor)

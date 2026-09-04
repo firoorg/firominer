@@ -231,7 +231,17 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
     DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() begin");
     constexpr size_t blocksize = 64;
 
-    const auto context{ethash::get_epoch_context(w.epoch.value(), true)};
+    std::shared_ptr<ethash::epoch_context> context;
+    try
+    {
+        context = ethash::get_epoch_context(w.epoch.value(), true);
+    }
+    catch (std::exception const& ex)
+    {
+        cpulog << "Unable to allocate CPU dataset: " << ex.what();
+        pause(MinerPauseEnum::PauseDueToInsufficientMemory, w);
+        return;
+    }
     DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() context loaded");
 
     auto header{ethash::from_bytes(w.header.data())};
@@ -242,7 +252,7 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
     bool found{false};
 
     DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() search loop");
-    while (m_new_work.load(std::memory_order_relaxed) == false && !found &&
+    while (!shouldStop() && m_new_work.load(std::memory_order_relaxed) == false && !found &&
            (!w.nonceRange || remaining))
     {
         size_t hashes = 0;

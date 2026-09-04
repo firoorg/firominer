@@ -18,8 +18,8 @@
 #define LDG(x) (x)
 #endif
 
-// Launches are limited to fewer than one expected result. Leave ample room
-// for statistical variance without changing the normal mining batch size.
+// Usually fewer than one expected result per launch; at very low difficulty
+// the minimum workgroup can produce more, and kernels safely discard the excess.
 #define MAX_SEARCH_RESULTS 16U
 
 typedef struct {

@@ -208,8 +208,8 @@ bool CUDAMiner::initEpoch_internal(WorkPackage const& _work)
             cudalog << "Generating DAG + Light (reusing buffers): " << dev::getFormattedMemory((double)RequiredMemory);
         }
 
-        CUDA_SAFE_CALL(cudaMemcpy(reinterpret_cast<void*>(m_device_light), m_epochContext->light_cache,
-            m_epochContext->light_cache_size, cudaMemcpyHostToDevice));
+        CUDA_SAFE_CALL(cudaMemcpyAsync(reinterpret_cast<void*>(m_device_light), m_epochContext->light_cache,
+            m_epochContext->light_cache_size, cudaMemcpyHostToDevice, m_streams[0]));
 
         ethash_generate_dag(m_device_dag, m_epochContext->full_dataset_size, m_device_light,
             m_epochContext->light_cache_num_items, m_settings.gridSize, m_settings.blockSize, m_streams[0]);
@@ -242,6 +242,7 @@ void CUDAMiner::workLoop()
 {
     WorkPackage current;
     current.header = h256();
+    bool nonceRangeExhausted = false;
     uint64_t old_period_seed = -1;
     uint64_t old_dag_elements = 0;
     int old_epoch = -1;
@@ -285,6 +286,8 @@ void CUDAMiner::workLoop()
                 continue;
             }
             if (!w.epochContext || !w.epoch || !w.block)
+                continue;
+            if (nonceRangeExhausted && current.workGeneration == w.workGeneration)
                 continue;
             m_epochContext = w.epochContext;
             if (w.epoch.has_value() && old_epoch != static_cast<int>(w.epoch.value()))
@@ -355,7 +358,7 @@ void CUDAMiner::workLoop()
             uint64_t upper64OfBoundary = (uint64_t)(u64)((u256)w.get_boundary() >> 192);
 
             // Eventually start searching
-            search(current.header.data(), upper64OfBoundary, current.startNonce, w);
+            nonceRangeExhausted = search(current.header.data(), upper64OfBoundary, current.startNonce, w);
         }
 
         cleanup();
@@ -606,52 +609,27 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUmodule&
     cudalog << "Pre-compiled period " << period_seed << " CUDA ProgPow kernel for compute_" << compileArch;
 }
 
-void CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_nonce, const dev::eth::WorkPackage& w)
+bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_nonce, const dev::eth::WorkPackage& w)
 {
-    // If upper 64 bits of target are 0xffffffffffffffff then any nonce would
-    // be considered valid by GPU. Skip job.
-    if (target == UINT64_MAX)
-    {
-        cudalog << "Difficulty too low for GPU. Skipping job";
-        return;
-    }
-
     hash32_t current_header;
     memcpy(&current_header, header, sizeof(current_header));
     hash64_t* dag = m_device_dag;
 
     uint32_t active_streams = m_settings.streams;
-    // Keep the expected number of solutions below one per launch so
-    // result-buffer overflow remains negligible at low difficulty.
-    uint64_t result_limited_grid_size = UINT64_MAX / (target + 1) / m_settings.blockSize;
-    if (!result_limited_grid_size)
-    {
-        cudalog << "Difficulty too low for a CUDA block. Skipping job";
-        return;
-    }
-    uint32_t launch_grid_size = static_cast<uint32_t>(
-        std::min<uint64_t>(m_settings.gridSize, result_limited_grid_size));
     if (w.nonceRange)
     {
         if (w.nonceRange < m_settings.blockSize)
         {
-            cudalog << "Assigned Stratum nonce range is smaller than a CUDA block";
-            return;
+            cudalog << "Nonce range exhausted (smaller than a CUDA block), waiting for new work";
+            return true;
         }
 
         active_streams = static_cast<uint32_t>(
             std::min<uint64_t>(active_streams, w.nonceRange / m_settings.blockSize));
-        launch_grid_size = static_cast<uint32_t>(std::min<uint64_t>(launch_grid_size,
-            w.nonceRange / (static_cast<uint64_t>(active_streams) * m_settings.blockSize)));
-
-        // A power-of-two batch divides the assigned power-of-two range, so no
-        // launch can straddle its end as bases are advanced and wrapped.
-        uint32_t dividing_grid_size = 1;
-        while (dividing_grid_size <= launch_grid_size / 2)
-            dividing_grid_size *= 2;
-        launch_grid_size = dividing_grid_size;
     }
-    const uint32_t launch_batch_size = launch_grid_size * m_settings.blockSize;
+    const uint32_t launch_batch_size = gpuBatchSize(m_settings.gridSize * m_settings.blockSize,
+        m_settings.blockSize, target, w.nonceRange ? w.nonceRange / active_streams : 0);
+    const uint32_t launch_grid_size = launch_batch_size / m_settings.blockSize;
     std::vector<uint64_t> launched_nonce(active_streams);
     std::vector<bool> stream_active(active_streams, true);
     uint64_t next_nonce = start_nonce;
@@ -790,6 +768,10 @@ void CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
         }
     }
 
+    const bool exhausted = !stop_relaunch && !shouldStop() && w.nonceRange && scheduled_hashes >= w.nonceRange;
+    if (exhausted)
+        cudalog << "Nonce range exhausted, waiting for new work";
+
 #ifdef DEV_BUILD
     // Optionally log job switch time
     if (!shouldStop() && (g_logOptions & LOG_SWITCH))
@@ -799,4 +781,5 @@ void CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
                        .count()
                 << " ms.";
 #endif
+    return exhausted;
 }

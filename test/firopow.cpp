@@ -9,6 +9,7 @@
 
 #include <libcrypto/ethash.hpp>
 #include <libcrypto/progpow.hpp>
+#include "firopow_test_vectors.hpp"
 
 namespace
 {
@@ -33,19 +34,25 @@ bool concurrentLazyDagLookupMatchesReference()
         reinterpret_cast<ethash::hash1024*>(full.data())};
     const auto expected = ethash::detail::calculate_dataset_item_2048(context, 64);
 
-    for (unsigned trial = 0; trial != 4; ++trial)
+    for (unsigned trial = 0; trial != 100; ++trial)
     {
         full[64] = {};
         std::atomic<unsigned> ready{0};
         std::atomic<bool> go{false};
+        std::atomic<bool> matched{true};
         std::vector<std::thread> threads;
-        for (unsigned i = 0; i != 8; ++i)
+        for (unsigned i = 0; i != 2; ++i)
         {
             threads.emplace_back([&] {
                 ready.fetch_add(1, std::memory_order_relaxed);
                 while (!go.load(std::memory_order_acquire))
                     std::this_thread::yield();
-                (void)ethash::detail::lazy_lookup_2048(context, 64);
+                for (unsigned lookup = 0; lookup != 10; ++lookup)
+                {
+                    const auto actual = ethash::detail::lazy_lookup_2048(context, 64);
+                    if (std::memcmp(&actual, &expected, sizeof(expected)) != 0)
+                        matched.store(false, std::memory_order_relaxed);
+                }
             });
         }
         while (ready.load(std::memory_order_relaxed) != threads.size())
@@ -53,7 +60,8 @@ bool concurrentLazyDagLookupMatchesReference()
         go.store(true, std::memory_order_release);
         for (auto& thread : threads)
             thread.join();
-        if (std::memcmp(&full[64], &expected, sizeof(expected)) != 0)
+        if (!matched.load(std::memory_order_relaxed) ||
+            std::memcmp(&full[64], &expected, sizeof(expected)) != 0)
             return false;
     }
     return true;
@@ -112,7 +120,34 @@ int main()
         return 1;
     }
 
-    // Firo master at 4f0c771462b2f327e3a7ff7bf2532bc33c727713.
+    // All 55 upstream vectors, including both verification entry points.
+    for (const auto& vector : firopow_hash_test_cases)
+    {
+        const auto ctx = ethash::get_epoch_context(
+            ethash::calculate_epoch_from_block_num(vector.block_number), false);
+        const auto vectorHeader = fromHex(vector.header_hash_hex);
+        const auto vectorBoundary = fromHex(vector.boundary_hex);
+        const auto mix = fromHex(vector.mix_hash_hex);
+        const auto vectorNonce = std::stoull(vector.nonce_hex, nullptr, 16);
+        const auto actual = progpow::hash(*ctx, vector.block_number, vectorHeader, vectorNonce);
+        auto tamperedMix = mix;
+        tamperedMix.bytes[0] ^= 1;
+        if (!ethash::is_equal(actual.mix_hash, mix) ||
+            ethash::to_hex(actual.final_hash) != vector.final_hash_hex ||
+            progpow::verify_full(*ctx, vector.block_number, vectorHeader, mix,
+                vectorNonce, vectorBoundary) != ethash::VerificationResult::kOk ||
+            progpow::verify_full(vector.block_number, vectorHeader, mix,
+                vectorNonce, vectorBoundary) != ethash::VerificationResult::kOk ||
+            progpow::verify_full(*ctx, vector.block_number, vectorHeader, tamperedMix,
+                vectorNonce, vectorBoundary) == ethash::VerificationResult::kOk)
+        {
+            std::cerr << "FiroPoW upstream vector mismatch at block " << vector.block_number << '\n';
+            return 1;
+        }
+    }
+
+    // Additional terminal-epoch regression vector (not in upstream's vector file),
+    // independently reproduced with Firo at 4f0c771462b2f327e3a7ff7bf2532bc33c727713.
     const auto terminalContext = ethash::get_epoch_context(650, false);
     const auto terminalMix = fromHex("ea028f6c32723037aedcbf54112ca795bc93f658f55898d8116c9aed6302f83a");
     const auto terminalResult = progpow::hash(*terminalContext, 1205100, header, nonce);

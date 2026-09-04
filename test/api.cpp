@@ -63,28 +63,31 @@ tcp::socket connect(uint16_t port)
     return socket;
 }
 
-uint16_t reservePort()
-{
-    tcp::acceptor reservation(g_io_service, {boost::asio::ip::address_v4::loopback(), 0});
-    auto port = reservation.local_endpoint().port();
-    reservation.close();
-    return port;
-}
-
 std::string authorize(unsigned id, std::string const& password)
 {
     return "{\"jsonrpc\":\"2.0\",\"id\":" + std::to_string(id) +
            ",\"method\":\"api_authorize\",\"params\":{\"psw\":\"" + password + "\"}}\n";
 }
+
+struct IoRunner
+{
+    std::thread thread{[]() { g_io_service.run(); }};
+    ~IoRunner()
+    {
+        g_io_service.stop();
+        thread.join();
+    }
+};
 }  // namespace
 
-int main()
+int runTests()
 {
     {
-        auto stoppedPort = reservePort();
-        ApiServer stoppedWithoutRunner("127.0.0.1", stoppedPort, "secret");
+        ApiServer stoppedWithoutRunner("127.0.0.1", 0, "secret");
         stoppedWithoutRunner.start();
-        auto stoppedClient = connect(stoppedPort);
+        if (!stoppedWithoutRunner.isRunning())
+            throw std::runtime_error("API server did not start without runner");
+        auto stoppedClient = connect(stoppedWithoutRunner.getPort());
         if (g_io_service.run_one() != 1)
         {
             std::cerr << "API session was not accepted\n";
@@ -95,22 +98,27 @@ int main()
     }
 
     {
-        ApiServer stoppedBeforeRun("127.0.0.1", reservePort(), "secret");
+        ApiServer stoppedBeforeRun("127.0.0.1", 0, "secret");
         stoppedBeforeRun.start();
+        if (!stoppedBeforeRun.isRunning())
+            throw std::runtime_error("API server did not start before run");
         stoppedBeforeRun.stop();
     }
 
-    auto port = reservePort();
+    std::map<std::string, DeviceDescriptor> devices;
+    Farm farm(devices, {}, {}, {}, {});
+    PoolManager manager({});
     std::string password(500, 'a');
     password += 'X';
-    ApiServer server("127.0.0.1", port, password);
+    ApiServer server("127.0.0.1", 0, password);
     server.start();
     if (!server.isRunning())
     {
         std::cerr << "API server did not start\n";
         return 1;
     }
-    std::thread ioThread([]() { g_io_service.run(); });
+    auto port = server.getPort();
+    IoRunner ioRunner;
 
     auto deadline = std::chrono::steady_clock::now() + 5s;
     auto shortJson = connect(port);
@@ -119,6 +127,20 @@ int main()
     {
         std::cerr << "complete three-byte request stalled\n";
         return 1;
+    }
+    // Exercise the API's small nesting budget, well below jsoncpp's default stack limit.
+    std::string nested = std::string(64, '[') + "0" + std::string(64, ']') + '\n';
+    const std::string ping = "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"miner_ping\"}\n";
+    for (auto const& request : {std::string("{]\n"), nested})
+    {
+        boost::asio::write(shortJson, boost::asio::buffer(request));
+        if (readLine(shortJson, std::chrono::steady_clock::now() + 5s)
+                .find("\"code\":-32700") == std::string::npos)
+            throw std::runtime_error("invalid JSON did not return a parse error");
+        boost::asio::write(shortJson, boost::asio::buffer(ping));
+        if (readLine(shortJson, std::chrono::steady_clock::now() + 5s)
+                .find("\"code\":-403") == std::string::npos)
+            throw std::runtime_error("parse error changed session liveness or authorization");
     }
     shortJson.close();
 
@@ -157,8 +179,37 @@ int main()
         }
     }
 
+    auto call = [&](std::string const& method, std::string const& params = "{}") {
+        auto request = "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"" + method +
+                       "\",\"params\":" + params + "}\n";
+        boost::asio::write(json, boost::asio::buffer(request));
+        return readLine(json, std::chrono::steady_clock::now() + 5s);
+    };
+    if (call("miner_setscramblerinfo", "{\"noncescrambler\":\"0xfedcba9876543210\"}")
+                .find("\"result\":true") == std::string::npos ||
+        call("miner_getscramblerinfo").find("0xfedcba9876543210") == std::string::npos ||
+        call("miner_setscramblerinfo", "{\"noncescrambler\":18446744073709551615}")
+                .find("\"result\":true") == std::string::npos ||
+        call("miner_getscramblerinfo").find("0xffffffffffffffff") == std::string::npos)
+        throw std::runtime_error("64-bit nonce scrambler roundtrip failed");
+
+    for (auto value : {"-1", "false", "{}", "\"invalid\""})
+    {
+        if (call("miner_setscramblerinfo", "{\"noncescrambler\":" + std::string(value) + "}")
+                .find("\"code\":-32602") == std::string::npos)
+            throw std::runtime_error("invalid uint64 parameter did not return an error code");
+    }
+    if (call("miner_setscramblerinfo", "{\"noncescrambler\":\"0x1junk\"}")
+            .find("\"code\":-422") == std::string::npos)
+        throw std::runtime_error("nonce scrambler accepted trailing characters");
+    if (call("miner_addconnection", "{\"uri\":\"getwork://127.0.0.1:1234\"}")
+            .find("reward address is required") == std::string::npos)
+        throw std::runtime_error("missing reward address was reported as a malformed URI");
+
     auto http = connect(port);
-    boost::asio::write(http, boost::asio::buffer("GET / HTTP/1.1\r\n\r\n", 18));
+    boost::asio::write(http, boost::asio::buffer("GET / HT", 8));
+    std::this_thread::sleep_for(20ms);
+    boost::asio::write(http, boost::asio::buffer("TP/1.1\r\n\r\n", 10));
     deadline = std::chrono::steady_clock::now() + 5s;
     auto httpResponse = readToClose(http, deadline);
     if (httpResponse.find("401 Unauthorized") == std::string::npos ||
@@ -166,6 +217,24 @@ int main()
     {
         std::cerr << "unauthenticated HTTP request was not rejected\n";
         return 1;
+    }
+
+    {
+        ApiServer publicServer("127.0.0.1", 0, "");
+        publicServer.start();
+        if (!publicServer.isRunning())
+            throw std::runtime_error("public API server did not start");
+        for (auto const& example :
+            {std::make_pair("GET /", "200 Ok"), std::make_pair("GET /missing", "404 Not Found"),
+                std::make_pair("POST /", "405 Method not allowed")})
+        {
+            auto client = connect(publicServer.getPort());
+            auto request = std::string(example.first) + " HTTP/1.1\r\n\r\n";
+            boost::asio::write(client, boost::asio::buffer(request));
+            if (readToClose(client, std::chrono::steady_clock::now() + 5s)
+                    .find(example.second) == std::string::npos)
+                throw std::runtime_error("HTTP request-line parsing failed");
+        }
     }
 
     auto oversized = connect(port);
@@ -179,12 +248,13 @@ int main()
     boost::asio::write(abandoned, boost::asio::buffer(authorization));
     abandoned.close();
 
-    auto destructionPort = reservePort();
     tcp::socket destructionClient(g_io_service);
     {
-        ApiServer destroyedWithSession("127.0.0.1", destructionPort, password);
+        ApiServer destroyedWithSession("127.0.0.1", 0, password);
         destroyedWithSession.start();
-        destructionClient = connect(destructionPort);
+        if (!destroyedWithSession.isRunning())
+            throw std::runtime_error("API server did not start for destruction test");
+        destructionClient = connect(destroyedWithSession.getPort());
         boost::asio::write(destructionClient, boost::asio::buffer(authorization));
         if (readLine(destructionClient, deadline).find("\"id\":1") == std::string::npos)
         {
@@ -202,6 +272,18 @@ int main()
         return 1;
     }
     json.close();
-    g_io_service.stop();
-    ioThread.join();
+    return 0;
+}
+
+int main()
+{
+    try
+    {
+        return runTests();
+    }
+    catch (const std::exception& ex)
+    {
+        std::cerr << ex.what() << '\n';
+        return 1;
+    }
 }

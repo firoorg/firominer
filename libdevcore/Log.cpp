@@ -60,7 +60,13 @@ LogOutputStreamBase::LogOutputStreamBase(char const* _id)
         {
             time_t rawTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
             char buf[24];
-            if (strftime(buf, 24, "%X", localtime(&rawTime)) == 0)
+            tm localTime{};
+#ifdef _WIN32
+            const bool timeValid = localtime_s(&localTime, &rawTime) == 0;
+#else
+            const bool timeValid = localtime_r(&rawTime, &localTime) != nullptr;
+#endif
+            if (!timeValid || strftime(buf, 24, "%X", &localTime) == 0)
                 buf[0] = '\0';  // empty if case strftime fails
             m_sstr << _id << " " EthViolet << buf << " " EthBlue << std::left << std::setw(9)
                    << getThreadName() << " " EthReset;
@@ -105,6 +111,8 @@ void dev::simpleDebugOut(std::string const& _s)
 {
     try
     {
+        static std::mutex outputMutex;
+        std::lock_guard<std::mutex> lock(outputMutex);
         std::ostream& os = g_logStdout ? std::cout : std::clog;
         if (!g_logNoColor)
         {

@@ -65,7 +65,31 @@ Connecting to [MinerMore Testnet](https://minermore.com):
 
 `firominer.exe -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505`
 
+### Solo mining and network selection
+
+Firo's `getwork://` (or `http://`) connections require a block reward address:
+
+```sh
+firominer -P getwork://rpcuser:rpcpass@127.0.0.1:8888 -r <Firo-address>
+```
+
+Use `--firopow-network testnet`, `devnet`, or `regtest` when connecting to those networks; the default is `mainnet`. The miner rejects daemon templates whose advertised epoch disagrees with the selected network. Stratum jobs use the selected network's epoch schedule, with a warning for conflicting pool metadata. Height-bearing EthereumStratum/1.0.0 (`stratum2+tcp`) jobs remain supported.
+
+`--work-timeout` reconnects Stratum sessions that receive no new job for 600 seconds by default. Values from 180 to 1000000 seconds are accepted. Getwork requests have a 30-second response deadline and a 16 MiB response body limit.
+
+### Monitoring and device recovery
+
+When `--api-password` is set, the HTTP status page and `/getstat1` return HTTP 401. Authenticate the plain TCP JSON-RPC API with `api_authorize` to read status or control the miner. HTTP has no password authentication mechanism. Without a password, HTTP monitoring remains available and hides pool URI credentials.
+
+GPU devices wait for a new job after exhausting their assigned nonce range and log the reason for idling. This preserves other devices' ranges and pool extranonce bits. Epoch or kernel initialization failures pause the device and are retried on the next job. `--cl-global-work` controls the multiplier directly; it is not rounded to a power of two.
+
+Very low-difficulty development networks use small GPU batches and may be limited by launch overhead. When even one work group produces more solutions than the result buffer holds, excess results are discarded safely.
+
 ## Build
+
+### Continuous Integration and development builds
+
+GitHub Actions runs core tests normally and under AddressSanitizer/UndefinedBehaviorSanitizer and ThreadSanitizer. GPU jobs compile and upload development binaries for pull requests and pushes to `main`: Linux CUDA 11.8 + OpenCL, Windows CUDA 11.8 + OpenCL, and Windows OpenCL-only. All include the API server; the development-only CPU miner is disabled (`ETHASHCPU=OFF`). Downloads appear in the associated workflow run's artifacts and are unsigned build outputs, not releases. CI has no physical GPUs, so it does not validate device execution or hashrate.
 
 After cloning this repository into `firominer`, it can be built with commands like:
 

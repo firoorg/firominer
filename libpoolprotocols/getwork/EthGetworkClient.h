@@ -33,6 +33,8 @@ public:
     void submitSolution(const Solution& solution) override;
 
 private:
+    friend struct ProtocolTest;
+
     // Async callbacks retain this state and lock it before touching the client.
     struct CallbackState
     {

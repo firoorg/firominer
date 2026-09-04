@@ -205,7 +205,21 @@ void Farm::setWork(WorkPackage const& _newWp)
     if (epochChanged)
     {
         m_currentEc.reset();
-        m_currentEc = ethash::get_epoch_context(_newWp.epoch.value(), false);
+        try
+        {
+            m_currentEc = ethash::get_epoch_context(_newWp.epoch.value(), false);
+        }
+        catch (std::exception const& ex)
+        {
+            cwarn << "Unable to allocate epoch " << _newWp.epoch.value() << " light cache: " << ex.what();
+            m_currentWp = {};
+            for (auto const& miner : m_miners)
+            {
+                miner->setWork({}, false);
+                miner->pause(MinerPauseEnum::PauseDueToInsufficientMemory);
+            }
+            return;
+        }
     }
 
     m_currentWp = _newWp;

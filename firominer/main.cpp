@@ -90,7 +90,20 @@ public:
             &MinerCLI::cliDisplayInterval_elapsed, this, boost::asio::placeholders::error)));
 
         // Start io_service in it's own thread
-        m_io_thread = std::thread{boost::bind(&boost::asio::io_service::run, &g_io_service)};
+        m_io_thread = std::thread{[] {
+            for (;;)
+            {
+                try
+                {
+                    g_io_service.run();
+                    break;
+                }
+                catch (const std::exception& ex)
+                {
+                    cwarn << "IO handler failed: " << ex.what();
+                }
+            }
+        }};
 
         // Io service is now live and running
         // All components using io_service should post to reference of g_io_service
@@ -208,7 +221,7 @@ public:
         app.add_option("--farm-retries", m_PoolSettings.connectionMaxRetries, "", true)->check(CLI::Range(0, 99999));
 
         app.add_option("--work-timeout", m_PoolSettings.noWorkTimeout, "", true)
-            ->check(CLI::Range(100000, 1000000));
+            ->check(CLI::Range(180, 1000000));
 
         app.add_option("--response-timeout", m_PoolSettings.noResponseTimeout, "", true)
             ->check(CLI::Range(2, 999));
@@ -744,6 +757,8 @@ public:
              << "                        how to fill in this value please use" << endl
              << "                        firominer --help-ext con" << endl
              << "    --firopow-network  TEXT {mainnet,testnet,devnet,regtest} Default mainnet" << endl
+             << "    -r,--reward-address TEXT Firo block reward address (required for getwork)" << endl
+             << "    --work-timeout      INT[180 .. 1000000] Default = " << m_PoolSettings.noWorkTimeout << endl
              << endl
 
              << "Common Options :" << endl
@@ -838,6 +853,8 @@ public:
                     "server. "
                  << endl
                  << "                        If not set, any connection is granted access. " << endl
+                 << "                        When set, HTTP monitoring is disabled (401); use" << endl
+                 << "                        JSON-RPC api_authorize before API requests." << endl
                  << "                        Be advised passwords are sent unencrypted over "
                     "plain "
                     "TCP!!"
@@ -858,7 +875,6 @@ public:
                  << endl
                  << "    --cl-global-work    UINT Default = " << m_CLSettings.globalWorkSizeMultiplier << endl
                  << "                        Set the global work size multiplier" << endl
-                 << "                        Value will be adjusted to nearest power of 2" << endl
                  << "    --cl-local-work     UINT {64,128,256} Default = " << m_CLSettings.localWorkSize << endl
                  << "                        Set the local work size multiplier" << endl;
         }
@@ -949,7 +965,7 @@ public:
                  << "                        reconnect to the primary (the first) connection."
                  << endl
                  << "                        before switching to a fail-over connection" << endl
-                 << "    --work-timeout      INT[180 .. 99999] Default = 180" << endl
+                 << "    --work-timeout      INT[180 .. 1000000] Default = " << m_PoolSettings.noWorkTimeout << endl
                  << "                        If no new work received from pool after this" << endl
                  << "                        amount of time the connection is dropped" << endl
                  << "                        Value expressed in seconds." << endl
@@ -1086,7 +1102,9 @@ public:
                     "validation"
                  << endl
                  << endl
-                 << "    Example 1: -P getwork://127.0.0.1:8545" << endl
+                 << "    Firo getwork:// and http:// solo mining require --reward-address (-r)." << endl
+                 << "    Set --firopow-network to match your daemon's network." << endl
+                 << "    Example 1: firominer -P getwork://rpcuser:rpcpass@127.0.0.1:8888 -r <Firo-address>" << endl
                  << "    Example 2: "
                     "-P stratums://0x012345678901234567890234567890123.miner1@ethermine.org:5555"
                  << endl
