@@ -31,7 +31,8 @@ std::string readLine(tcp::socket& socket, std::chrono::steady_clock::time_point 
         {
             break;
         }
-        std::this_thread::sleep_for(1ms);
+        else
+            std::this_thread::sleep_for(1ms);
     }
     return result;
 }
@@ -51,7 +52,8 @@ std::string readToClose(tcp::socket& socket, std::chrono::steady_clock::time_poi
             return result;
         else if (ec != boost::asio::error::would_block && ec != boost::asio::error::try_again)
             break;
-        std::this_thread::sleep_for(1ms);
+        else
+            std::this_thread::sleep_for(1ms);
     }
     throw std::runtime_error("API connection did not close before timeout");
 }

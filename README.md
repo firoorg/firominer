@@ -59,11 +59,11 @@ firominer --help
 
 ### Examples connecting to pools
 
-Connecting to [MinerMore Testnet](https://minermore.com):
+Use your pool's advertised endpoint and replace the placeholders:
 
-`./firominer -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505` or
+`./firominer -P stratum+tcp://WALLET.WORKER:PASSWORD@pool.example.invalid:PORT` or
 
-`firominer.exe -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505`
+`firominer.exe -P stratum+tcp://WALLET.WORKER:PASSWORD@pool.example.invalid:PORT`
 
 ### Solo mining and network selection
 
@@ -89,7 +89,11 @@ Very low-difficulty development networks use small GPU batches and may be limite
 
 ### Continuous Integration and development builds
 
-GitHub Actions runs core tests normally and under AddressSanitizer/UndefinedBehaviorSanitizer and ThreadSanitizer. GPU jobs compile and upload development binaries for pull requests and pushes to `main`: Linux CUDA 11.8 + OpenCL, Windows CUDA 11.8 + OpenCL, and Windows OpenCL-only. All include the API server; the development-only CPU miner is disabled (`ETHASHCPU=OFF`). Downloads appear in the associated workflow run's artifacts and are unsigned build outputs, not releases. CI has no physical GPUs, so it does not validate device execution or hashrate.
+GitHub Actions runs core tests normally and under AddressSanitizer/UndefinedBehaviorSanitizer and ThreadSanitizer. Release builds for Linux and Windows each provide CUDA 11.8 + OpenCL and OpenCL-only packages. All include the API server and CPU diagnostics, selected explicitly with `--cpu`; normal runs still select GPUs. The OpenCL-only builds also run the core tests and smoke-test the packaged executable.
+
+Packages include runtime libraries, documentation, source/build identification, and checksums. They require a compatible GPU driver; the CUDA package requires an NVIDIA driver even when selecting another backend. Linux packages target Ubuntu 22.04 or newer compatible x86-64 systems, and Windows packages target Windows 10/11 x64. See [Testing PR artifacts](docs/TESTING.md) for setup and a functional test guide.
+
+Downloads appear in the associated workflow run's artifacts for pull requests and pushes to `main`. These are unsigned development packages. CI has no physical GPUs, so device execution, accepted pool shares, and hashrate still require hardware testing.
 
 After cloning this repository into `firominer`, it can be built with commands like:
 

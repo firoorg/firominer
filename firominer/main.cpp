@@ -181,7 +181,7 @@ public:
     {
         std::queue<string> warnings;
 
-        CLI::App app("firominer - GPU ProgPOW(0.9.3) miner for Zing");
+        CLI::App app("firominer - FiroPoW GPU miner for Firo");
 
         bool bhelp = false;
         string shelpExt;
@@ -729,7 +729,7 @@ public:
 
     void help()
     {
-        cout << "firominer - GPU ProgPOW(0.9.3) miner for Zing" << endl
+        cout << "firominer - FiroPoW GPU miner for Firo" << endl
              << "minimal usage : firominer [DEVICES_TYPE] [OPTIONS] -P... [-P...]" << endl
              << endl
              << "Devices type options :" << endl
@@ -744,7 +744,7 @@ public:
              << "    -U,--cuda           Mine/Benchmark using CUDA only" << endl
 #endif
 #if ETH_ETHASHCPU
-             << "    --cpu               Development ONLY ! (NO MINING)" << endl
+             << "    --cpu               CPU diagnostics (development only)" << endl
 #endif
              << endl
              << "Connection options :" << endl
