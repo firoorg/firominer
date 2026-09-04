@@ -68,8 +68,12 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Set reproducible timestamp
-        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      - name: Prepare reproducible build
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          epoch="$(git log -1 --format=%ct)"
+          test -n "$epoch"
+          echo "SOURCE_DATE_EPOCH=$epoch" >> "$GITHUB_ENV"
 
       - name: Configure
         run: >-
