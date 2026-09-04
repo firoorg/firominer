@@ -106,3 +106,97 @@ jobs:
           path: firominer-linux-x86_64-cuda11.8-opencl.tar.gz
           if-no-files-found: error
           archive: false
+
+  windows-build:
+    name: Windows GPU backends
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      # Boost 1.76 predates VS 2022, but the runner includes its v142 toolset.
+      VS160COMNTOOLS: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install CUDA
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'cuda-11.8.exe'
+          Invoke-WebRequest https://developer.download.nvidia.com/compute/cuda/11.8.0/network_installers/cuda_11.8.0_windows_network.exe -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne '8A19C2BFE33ECABCFCD9D776FABC8D1596FC1BF3A2565243C30BADCA3A4BDE5B') {
+            throw 'CUDA installer checksum mismatch'
+          }
+          $process = Start-Process $installer -ArgumentList '-s','-n','nvcc_11.8','cudart_11.8','nvrtc_11.8','nvrtc_dev_11.8' -Wait -PassThru
+          if ($process.ExitCode -notin 0, 3010) {
+            throw "CUDA installer failed with exit code $($process.ExitCode)"
+          }
+          $cuda = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8'
+          if (!(Test-Path "$cuda\bin\nvcc.exe")) { throw 'nvcc missing after CUDA installation' }
+          "CUDA_PATH=$cuda" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "$cuda\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$cuda\bin\nvcc.exe" --version
+
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T v142
+          -DBUILD_TESTING=OFF
+          -DAPICORE=OFF
+          -DETHASHCL=ON
+          -DETHASHCUDA=ON
+          -DETHASHCPU=OFF
+          -DETHDBUS=OFF
+          -DHUNTER_JOBS_NUMBER=2
+          -DCUDA_TOOLKIT_ROOT_DIR="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8"
+
+      - name: Configure OpenCL-only build
+        shell: pwsh
+        run: >-
+          cmake -S . -B build-opencl -G "Visual Studio 17 2022" -A x64 -T v142
+          -DBUILD_TESTING=OFF
+          -DAPICORE=OFF
+          -DETHASHCL=ON
+          -DETHASHCUDA=OFF
+          -DETHASHCPU=OFF
+          -DETHDBUS=OFF
+          -DHUNTER_JOBS_NUMBER=2
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cmake --build build --config Release --target firominer --parallel 2
+          cmake --build build-opencl --config Release --target firominer --parallel 2
+
+      - name: Package binary
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cmake --install build --config Release --prefix stage-cuda-opencl
+          cmake --install build-opencl --config Release --prefix stage-opencl
+          Copy-Item "$env:CUDA_PATH\bin\nvrtc*.dll" stage-cuda-opencl\bin
+          if (!(Test-Path stage-cuda-opencl\bin\firominer.exe) -or !(Test-Path stage-opencl\bin\firominer.exe)) {
+            throw 'firominer.exe missing from package'
+          }
+          7z a -tzip -mx=9 -mtc=off -mta=off -mtm=off firominer-windows-x86_64-cuda11.8-opencl.zip .\stage-cuda-opencl\*
+          7z a -tzip -mx=9 -mtc=off -mta=off -mtm=off firominer-windows-x86_64-opencl.zip .\stage-opencl\*
+          Get-FileHash firominer-windows-x86_64-cuda11.8-opencl.zip -Algorithm SHA256
+          Get-FileHash firominer-windows-x86_64-opencl.zip -Algorithm SHA256
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: firominer-windows-x86_64-cuda11.8-opencl.zip
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload OpenCL binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: firominer-windows-x86_64-opencl.zip
+          if-no-files-found: error
+          archive: false
