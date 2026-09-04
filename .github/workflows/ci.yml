@@ -52,7 +52,7 @@ jobs:
     name: GPU backends
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    container: nvidia/cuda:11.8.0-devel-ubuntu22.04
+    container: nvidia/cuda:11.8.0-devel-ubuntu22.04@sha256:94fd755736cb58979173d491504f0b573247b1745250249415b07fefc738e41f
 
     steps:
       - name: Install build tools
@@ -67,6 +67,9 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+      - name: Set reproducible timestamp
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
       - name: Configure
         run: >-
@@ -83,3 +86,19 @@ jobs:
 
       - name: Build
         run: /usr/bin/cmake --build build --target firominer --parallel 2
+
+      - name: Package binary
+        run: |
+          tar --format=ustar --mtime="@${SOURCE_DATE_EPOCH}" \
+            --owner=0 --group=0 --numeric-owner --mode=0755 \
+            -cf firominer-linux-x86_64-cuda11.8-opencl.tar \
+            -C build/firominer firominer
+          gzip -n firominer-linux-x86_64-cuda11.8-opencl.tar
+          sha256sum firominer-linux-x86_64-cuda11.8-opencl.tar.gz
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: firominer-linux-x86_64-cuda11.8-opencl.tar.gz
+          if-no-files-found: error
+          archive: false
