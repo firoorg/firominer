@@ -6,6 +6,7 @@
 #include <thread>
 
 boost::asio::io_service g_io_service;
+bool g_exitOnError = false;
 
 namespace
 {
