@@ -447,7 +447,7 @@ ethash::hash256 hash_seed(const ethash::hash256& header_hash, uint64_t nonce) no
     return output;
 }
 
-ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t period, uint64_t seed)
+ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint64_t period, uint64_t seed)
 {
     auto mix{init_mix(seed)};
     mix_rng_state state(period);
@@ -505,7 +505,7 @@ ethash::hash256 hash_final(const ethash::hash256& input_hash, const ethash::hash
 }
 
 ethash::result hash(
-    const ethash::epoch_context& context, const uint32_t period, const ethash::hash256& header_hash, uint64_t nonce)
+    const ethash::epoch_context& context, const uint64_t period, const ethash::hash256& header_hash, uint64_t nonce)
 {
     const ethash::hash256 seed_hash{progpow::hash_seed(header_hash, nonce)};
     const uint64_t seed_64{seed_hash.word64s[0]};
@@ -514,7 +514,7 @@ ethash::result hash(
     return {final_hash, mix_hash};
 }
 
-ethash::VerificationResult verify_full(const ethash::epoch_context& context, const uint32_t period,
+ethash::VerificationResult verify_full(const ethash::epoch_context& context, const uint64_t period,
     const ethash::hash256& header_hash, const ethash::hash256& mix_hash, uint64_t nonce,
     const ethash::hash256& boundary) noexcept
 {

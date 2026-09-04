@@ -96,6 +96,7 @@ int main()
     const auto expectedMix = fromHex("cfab3766331d6c4e6913e6688a71e4c26b7f36c1581cdbec0f5b19db8956eb50");
     const auto nonce = std::stoull("85f22c9b3cd2f123", nullptr, 16);
     const auto result = progpow::hash(*context, 1, header, nonce);
+    const auto widePeriodResult = progpow::hash(*context, (uint64_t{1} << 32) + 1, header, nonce);
 
     if (!ethash::is_equal(result.mix_hash, expectedMix) ||
         ethash::to_hex(result.final_hash) != "00017c7de1fa499314f9e3dd3537546982073624f7d478592cf28a6d13929f2d" ||
@@ -103,6 +104,11 @@ int main()
             ethash::VerificationResult::kOk)
     {
         std::cerr << "FiroPoW reference vector mismatch\n";
+        return 1;
+    }
+    if (ethash::is_equal(widePeriodResult.mix_hash, result.mix_hash))
+    {
+        std::cerr << "FiroPoW program seed was truncated to 32 bits\n";
         return 1;
     }
 
