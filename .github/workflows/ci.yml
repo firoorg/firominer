@@ -166,11 +166,12 @@ jobs:
           -DHUNTER_JOBS_NUMBER=2
 
       - name: Build
-        shell: pwsh
+        shell: cmd
         run: |
-          $PSNativeCommandUseErrorActionPreference = $true
-          cmake --build build --config Release --target firominer --parallel 2
-          cmake --build build-opencl --config Release --target firominer --parallel 2
+          rem CUDA 11.8 cannot compile against the runner's newer v143 headers.
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" amd64 -vcvars_ver=14.29 || exit /b 1
+          cmake --build build --config Release --target firominer --parallel 2 || exit /b 1
+          cmake --build build-opencl --config Release --target firominer --parallel 2 || exit /b 1
 
       - name: Package binary
         shell: pwsh
