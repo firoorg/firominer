@@ -564,20 +564,26 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUmodule&
         std::vector<char> ptx(ptxSize);
         NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
         // Load the generated PTX and get a handle to the kernel.
-        std::vector<char> jitInfo(32 * 1024);
-        std::vector<char> jitErr(32 * 1024);
-        CUjit_option jitOpt[] = {CU_JIT_INFO_LOG_BUFFER, CU_JIT_ERROR_LOG_BUFFER, CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
-            CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES, CU_JIT_LOG_VERBOSE, CU_JIT_GENERATE_LINE_INFO};
-        void* jitOptVal[] =
-            {jitInfo.data(), jitErr.data(), (void*)(32 * 1024), (void*)(32 * 1024), (void*)(1), (void*)(1)};
-        CU_SAFE_CALL(cuModuleLoadDataEx(&newModule, ptx.data(), 6, jitOpt, jitOptVal));
 #ifdef DEV_BUILD
         if (g_logOptions & LOG_COMPILE)
         {
+            std::vector<char> jitInfo(32 * 1024);
+            std::vector<char> jitErr(32 * 1024);
+            CUjit_option jitOpt[] = {CU_JIT_INFO_LOG_BUFFER, CU_JIT_ERROR_LOG_BUFFER, CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
+                CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES, CU_JIT_LOG_VERBOSE, CU_JIT_GENERATE_LINE_INFO};
+            void* jitOptVal[] =
+                {jitInfo.data(), jitErr.data(), (void*)(32 * 1024), (void*)(32 * 1024), (void*)(1), (void*)(1)};
+            CU_SAFE_CALL(cuModuleLoadDataEx(&newModule, ptx.data(), 6, jitOpt, jitOptVal));
             cudalog << "JIT info: \n" << jitInfo.data();
             cudalog << "JIT err: \n" << jitErr.data();
         }
+        else
 #endif
+        {
+            CUjit_option jitOpt[] = {CU_JIT_GENERATE_LINE_INFO};
+            void* jitOptVal[] = {(void*)(1)};
+            CU_SAFE_CALL(cuModuleLoadDataEx(&newModule, ptx.data(), 1, jitOpt, jitOptVal));
+        }
         // Find the mangled name
         const char* mangledName;
         NVRTC_SAFE_CALL(nvrtcGetLoweredName(prog, name, &mangledName));

@@ -385,15 +385,10 @@ void CLMiner::workLoop()
 
         while (!shouldStop())
         {
-            // no need to read the abort flag.
-            m_queue.enqueueReadBuffer(m_searchBuffer, CL_TRUE, offsetof(SearchResults, count),
-                2 * sizeof(results.count), (void*)&results.count);
+            // Read results and counters together; the abort queue may update the final word.
+            m_queue.enqueueReadBuffer(
+                m_searchBuffer, CL_TRUE, 0, offsetof(SearchResults, abort), &results);
             results.count = std::min(results.count, static_cast<uint32_t>(c_maxSearchResults));
-            if (results.count)
-            {
-                m_queue.enqueueReadBuffer(
-                    m_searchBuffer, CL_TRUE, 0, results.count * sizeof(results.rslt[0]), (void*)&results);
-            }
             // clean the solution count, hash count, and abort flag
             {
                 std::scoped_lock lock(m_abortMutex);
