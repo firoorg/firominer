@@ -18,7 +18,9 @@
 #include <CLI/CLI.hpp>
 
 #include <firominer/buildinfo.h>
-#include <condition_variable>
+#include <algorithm>
+#include <atomic>
+#include <limits>
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
@@ -41,9 +43,7 @@
 #include <regex>
 #endif
 
-#if defined(__linux__) || defined(__APPLE__)
-#include <execinfo.h>
-#elif defined(_WIN32)
+#if defined(_WIN32)
 #include <Windows.h>
 #endif
 
@@ -53,10 +53,11 @@ using namespace dev::eth;
 
 
 // Global vars
-bool g_running = false;
+std::atomic<bool> g_running = {false};
+std::atomic<int> g_signal = {0};
+static_assert(std::atomic<int>::is_always_lock_free, "signal flag must be lock-free");
 bool g_exitOnError = false;  // Whether or not firominer should exit on mining threads errors
 
-condition_variable g_shouldstop;
 boost::asio::io_service g_io_service;  // The IO service itself
 
 struct MiningChannel : public LogChannel
@@ -89,7 +90,20 @@ public:
             &MinerCLI::cliDisplayInterval_elapsed, this, boost::asio::placeholders::error)));
 
         // Start io_service in it's own thread
-        m_io_thread = std::thread{boost::bind(&boost::asio::io_service::run, &g_io_service)};
+        m_io_thread = std::thread{[] {
+            for (;;)
+            {
+                try
+                {
+                    g_io_service.run();
+                    break;
+                }
+                catch (const std::exception& ex)
+                {
+                    cwarn << "IO handler failed: " << ex.what();
+                }
+            }
+        }};
 
         // Io service is now live and running
         // All components using io_service should post to reference of g_io_service
@@ -105,7 +119,7 @@ public:
 
     void cliDisplayInterval_elapsed(const boost::system::error_code& ec)
     {
-        if (!ec && g_running)
+        if (!ec && g_running.load(std::memory_order_relaxed))
         {
             string logLine =
                 PoolManager::p().isConnected() ? Farm::f().Telemetry().str() : "Not connected";
@@ -121,57 +135,9 @@ public:
         }
     }
 
-    static void signalHandler(int sig)
+    static void signalHandler(int sig) noexcept
     {
-        dev::setThreadName("main");
-
-        switch (sig)
-        {
-#if defined(__linux__) || defined(__APPLE__)
-#define BACKTRACE_MAX_FRAMES 100
-        case SIGSEGV:
-            static bool in_handler = false;
-            if (!in_handler)
-            {
-                int j, nptrs;
-                void* buffer[BACKTRACE_MAX_FRAMES];
-                char** symbols;
-
-                in_handler = true;
-
-                dev::setThreadName("main");
-                cerr << "SIGSEGV encountered ...\n";
-                cerr << "stack trace:\n";
-
-                nptrs = backtrace(buffer, BACKTRACE_MAX_FRAMES);
-                cerr << "backtrace() returned " << nptrs << " addresses\n";
-
-                symbols = backtrace_symbols(buffer, nptrs);
-                if (symbols == NULL)
-                {
-                    perror("backtrace_symbols()");
-                    exit(EXIT_FAILURE);  // Also exit 128 ??
-                }
-                for (j = 0; j < nptrs; j++)
-                    cerr << symbols[j] << "\n";
-                free(symbols);
-
-                in_handler = false;
-            }
-            exit(128);
-#undef BACKTRACE_MAX_FRAMES
-#endif
-        case (999U):
-            // Compiler complains about the lack of
-            // a case statement in Windows
-            // this makes it happy.
-            break;
-        default:
-            cnote << "Got interrupt ...";
-            g_running = false;
-            g_shouldstop.notify_all();
-            break;
-        }
+        g_signal.store(sig, std::memory_order_relaxed);
     }
 
 #if API_CORE
@@ -215,7 +181,7 @@ public:
     {
         std::queue<string> warnings;
 
-        CLI::App app("firominer - GPU ProgPOW(0.9.3) miner for Zing");
+        CLI::App app("firominer - FiroPoW GPU miner for Firo");
 
         bool bhelp = false;
         string shelpExt;
@@ -255,7 +221,7 @@ public:
         app.add_option("--farm-retries", m_PoolSettings.connectionMaxRetries, "", true)->check(CLI::Range(0, 99999));
 
         app.add_option("--work-timeout", m_PoolSettings.noWorkTimeout, "", true)
-            ->check(CLI::Range(100000, 1000000));
+            ->check(CLI::Range(180, 1000000));
 
         app.add_option("--response-timeout", m_PoolSettings.noResponseTimeout, "", true)
             ->check(CLI::Range(2, 999));
@@ -272,8 +238,12 @@ public:
         vector<string> pools;
         app.add_option("-P,--pool", pools, "");
 
+        app.add_set("--firopow-network", m_PoolSettings.network,
+            {"mainnet", "testnet", "devnet", "regtest"}, "", true);
+
         string rewardAddress;
         app.add_option("-r,--reward-address", m_PoolSettings.rewardAddress, "");
+        app.add_option("--coinbase-message", m_PoolSettings.coinbaseMessage, "");
 
         app.add_option("--failover-timeout", m_PoolSettings.poolFailoverTimeout, "", true)
             ->check(CLI::Range(0, 999));
@@ -317,9 +287,11 @@ public:
 
         app.add_option("--opencl-device,--opencl-devices,--cl-devices", m_CLSettings.devices, "");
 
-        app.add_option("--cl-global-work", m_CLSettings.globalWorkSize, "", true);
+        app.add_option("--cl-global-work", m_CLSettings.globalWorkSizeMultiplier, "", true);
 
         app.add_set("--cl-local-work", m_CLSettings.localWorkSize, {64, 128, 256}, "", true);
+
+        app.add_flag("--cl-experimental-inline", m_CLSettings.experimentalInline, "");
 
 #endif
 
@@ -393,6 +365,13 @@ public:
             return false;
         }
 
+#if ETH_ETHASHCL
+        const uint64_t clGlobalWorkSize =
+            uint64_t{m_CLSettings.localWorkSize} * m_CLSettings.globalWorkSizeMultiplier;
+        if (clGlobalWorkSize == 0 || clGlobalWorkSize > std::numeric_limits<unsigned>::max())
+            throw std::invalid_argument(
+                "--cl-global-work produces an invalid OpenCL global work size");
+#endif
 
         if (cl_miner)
             m_minerType = MinerType::CL;
@@ -458,6 +437,22 @@ public:
             }
         }
 
+        if (m_PoolSettings.rewardAddress.empty() &&
+            std::any_of(m_PoolSettings.connections.begin(), m_PoolSettings.connections.end(),
+                [](const std::shared_ptr<URI>& connection) {
+                    return connection && connection->Family() == ProtocolFamily::GETWORK;
+                }))
+            throw std::invalid_argument("--reward-address is required for Firo Getwork connections");
+
+        if (m_PoolSettings.coinbaseMessage.size() > 80)
+            throw std::invalid_argument("--coinbase-message must be at most 80 UTF-8 bytes");
+        if (!m_PoolSettings.coinbaseMessage.empty() &&
+            std::any_of(m_PoolSettings.connections.begin(), m_PoolSettings.connections.end(),
+                [](const std::shared_ptr<URI>& connection) {
+                    return connection && connection->Host() != "exit" &&
+                           connection->Family() != ProtocolFamily::GETWORK;
+                }))
+            throw std::invalid_argument("--coinbase-message is solo-only; pools control their coinbase");
 
 #if ETH_ETHASHCUDA
         if (sched == "auto")
@@ -731,12 +726,10 @@ public:
             throw std::runtime_error("No mining device selected. Aborting ...");
 
         // Enable
-        g_running = true;
+        g_running.store(true, std::memory_order_relaxed);
+        g_signal.store(0, std::memory_order_relaxed);
 
         // Signal traps
-#if defined(__linux__) || defined(__APPLE__)
-        signal(SIGSEGV, MinerCLI::signalHandler);
-#endif
         signal(SIGINT, MinerCLI::signalHandler);
         signal(SIGTERM, MinerCLI::signalHandler);
 
@@ -749,7 +742,7 @@ public:
 
     void help()
     {
-        cout << "firominer - GPU ProgPOW(0.9.3) miner for Zing" << endl
+        cout << "firominer - FiroPoW GPU miner for Firo" << endl
              << "minimal usage : firominer [DEVICES_TYPE] [OPTIONS] -P... [-P...]" << endl
              << endl
              << "Devices type options :" << endl
@@ -764,7 +757,7 @@ public:
              << "    -U,--cuda           Mine/Benchmark using CUDA only" << endl
 #endif
 #if ETH_ETHASHCPU
-             << "    --cpu               Development ONLY ! (NO MINING)" << endl
+             << "    --cpu               CPU diagnostics (development only)" << endl
 #endif
              << endl
              << "Connection options :" << endl
@@ -776,6 +769,10 @@ public:
              << "                        For an explication and some samples about" << endl
              << "                        how to fill in this value please use" << endl
              << "                        firominer --help-ext con" << endl
+             << "    --firopow-network  TEXT {mainnet,testnet,devnet,regtest} Default mainnet" << endl
+             << "    -r,--reward-address TEXT Firo block reward address (required for getwork)" << endl
+             << "    --coinbase-message TEXT Solo tag, at most 80 UTF-8 bytes; requires patched Firo daemon" << endl
+             << "    --work-timeout      INT[180 .. 1000000] Default = " << m_PoolSettings.noWorkTimeout << endl
              << endl
 
              << "Common Options :" << endl
@@ -870,6 +867,8 @@ public:
                     "server. "
                  << endl
                  << "                        If not set, any connection is granted access. " << endl
+                 << "                        When set, HTTP monitoring is disabled (401); use" << endl
+                 << "                        JSON-RPC api_authorize before API requests." << endl
                  << "                        Be advised passwords are sent unencrypted over "
                     "plain "
                     "TCP!!"
@@ -890,9 +889,12 @@ public:
                  << endl
                  << "    --cl-global-work    UINT Default = " << m_CLSettings.globalWorkSizeMultiplier << endl
                  << "                        Set the global work size multiplier" << endl
-                 << "                        Value will be adjusted to nearest power of 2" << endl
                  << "    --cl-local-work     UINT {64,128,256} Default = " << m_CLSettings.localWorkSize << endl
-                 << "                        Set the local work size multiplier" << endl;
+                 << "                        Set the local work size multiplier" << endl
+                 << "    --cl-experimental-inline Default = off" << endl
+                 << "                        Force helper inlining and disable the volatile" << endl
+                 << "                        mix workaround. Requires a compatible OpenCL" << endl
+                 << "                        compiler; test with host verification enabled." << endl;
         }
 
         if (ctx == "cu")
@@ -981,7 +983,7 @@ public:
                  << "                        reconnect to the primary (the first) connection."
                  << endl
                  << "                        before switching to a fail-over connection" << endl
-                 << "    --work-timeout      INT[180 .. 99999] Default = 180" << endl
+                 << "    --work-timeout      INT[180 .. 1000000] Default = " << m_PoolSettings.noWorkTimeout << endl
                  << "                        If no new work received from pool after this" << endl
                  << "                        amount of time the connection is dropped" << endl
                  << "                        Value expressed in seconds." << endl
@@ -1118,7 +1120,9 @@ public:
                     "validation"
                  << endl
                  << endl
-                 << "    Example 1: -P getwork://127.0.0.1:8545" << endl
+                 << "    Firo getwork:// and http:// solo mining require --reward-address (-r)." << endl
+                 << "    Set --firopow-network to match your daemon's network." << endl
+                 << "    Example 1: firominer -P getwork://rpcuser:rpcpass@127.0.0.1:8888 -r <Firo-address>" << endl
                  << "    Example 2: "
                     "-P stratums://0x012345678901234567890234567890123.miner1@ethermine.org:5555"
                  << endl
@@ -1221,10 +1225,11 @@ private:
         m_cliDisplayTimer.async_wait(m_io_strand.wrap(boost::bind(
             &MinerCLI::cliDisplayInterval_elapsed, this, boost::asio::placeholders::error)));
 
-        // Stay in non-busy wait till signals arrive
-        unique_lock<mutex> clilock(m_climtx);
-        while (g_running)
-            g_shouldstop.wait(clilock);
+        // Poll the lock-free signal flag; signal handlers cannot safely notify a condition variable.
+        while (!g_signal.load(std::memory_order_relaxed))
+            this_thread::sleep_for(chrono::milliseconds(50));
+        cnote << "Got interrupt ...";
+        g_running.store(false, std::memory_order_relaxed);
 
 #if API_CORE
 
@@ -1269,8 +1274,6 @@ private:
         5;  // Display stats/info on cli interface every this number of seconds
 
     // -- CLI Flow control
-    mutex m_climtx;
-
 #if API_CORE
     // -- API and Http interfaces related params
     string m_api_bind;                  // API interface binding address in form <address>:<port>

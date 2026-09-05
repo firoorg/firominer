@@ -14,6 +14,8 @@
 * stratum mining without proxy
 * OpenCL devices picking
 * farm failover (getwork + stratum)
+* desktop launcher for solo and pool mining, with live logs and OpenCL experiment detection
+* custom solo coinbase messages with the companion Firo daemon patch
 
 
 ## Table of Contents
@@ -33,7 +35,7 @@
 
 [Releases][Releases]
 
-Standalone **executables** for *Linux*, *macOS* and *Windows* are provided in
+Prebuilt **executables** for *Linux*, *macOS* and *Windows* are provided in
 the [Releases] section.
 Download an archive for your operating system and unpack the content to a place
 accessible from command line. The firominer is ready to go.
@@ -43,28 +45,100 @@ accessible from command line. The firominer is ready to go.
 | Last   | [GitHub release](https://github.com/firoorg/firominer/releases) 
 
 
-If you have trouble with missing .dll or CUDA errors, [please install the latest version of CUDA drivers](https://developer.nvidia.com/cuda-downloads) or report to project maintainers.
+On Windows, install the [Microsoft Visual C++ 2015-2022 Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+CUDA or OpenCL errors require a current NVIDIA or AMD graphics driver.
 
 ## Usage
 
-The **firominer** is a command line program. This means you launch it either
-from a Windows command prompt or Linux console, or create shortcuts to
-predefined command lines using a Linux Bash script or Windows batch/cmd file.
-For a full list of available command, please run:
+Use the desktop launcher below, or launch **firominer** from a terminal.
+For a full list of command line options, run:
 
 ```sh
 firominer --help
 ```
 
+### Desktop GUI
+
+The launcher requires Python 3.9 or newer with Tk 8.6 or newer. Windows and macOS Python
+installers from python.org include Tk; on Ubuntu/Debian install `python3-tk`.
+Apple's old system Python/Tk is not supported; use a current Python installer on macOS.
+Run from the source checkout:
+
+```sh
+python3 gui/firominer_gui.py
+```
+
+Installed packages include `bin/firominer-gui.py` on Linux/macOS
+(`python3 bin/firominer-gui.py`) or `bin/firominer-gui.pyw` on Windows
+(double-click it, or run `py bin/firominer-gui.pyw`). Select the miner executable
+if it is not found automatically.
+
+Choose **Pool** or **Solo**, enter the endpoint and login details, and select
+the network. Solo mining also needs your block reward address. Start and Stop
+control the miner, and the log shows its connection, device and share status.
+Windows 10 version 1903 or newer is needed for Unicode coinbase messages
+([Windows UTF-8 support](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page)).
+Credentials are kept only for the current session. The launcher passes them to
+the miner on its command line, as the CLI does.
+
+The OpenCL scan enables **Experimental OpenCL inline** only when the selected
+miner detects a usable OpenCL GPU/accelerator. Checking it selects OpenCL mining
+so the experiment runs even on cards that also support CUDA. It is off by default;
+see [hardware verification](docs/TESTING.md#experimental-opencl-inlining).
+
+The optional coinbase message is available for solo mining with a patched node;
+see the next section. Pools construct their own coinbase and cannot accept a
+worker-supplied message through this miner's Stratum protocol.
+
 ### Examples connecting to pools
 
-Connecting to [MinerMore Testnet](https://minermore.com):
+Use your pool's advertised endpoint and replace the placeholders:
 
-`./firominer -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505` or
+`./firominer -P stratum+tcp://WALLET.WORKER:PASSWORD@pool.example.invalid:PORT` or
 
-`firominer.exe -P stratum+tcp://<wallet>.worker@rvnt.minermore.com:4505`
+`firominer.exe -P stratum+tcp://WALLET.WORKER:PASSWORD@pool.example.invalid:PORT`
+
+### Solo mining and network selection
+
+Firo's `getwork://` (or `http://`) connections require a block reward address:
+
+```sh
+firominer -P getwork://rpcuser:rpcpass@127.0.0.1:8888 -r <Firo-address>
+```
+
+Use `--firopow-network testnet`, `devnet`, or `regtest` when connecting to those networks; the default is `mainnet`. The miner rejects daemon templates whose advertised epoch disagrees with the selected network. Stratum jobs use the selected network's epoch schedule, with a warning for conflicting pool metadata. Height-bearing EthereumStratum/1.0.0 (`stratum2+tcp`) jobs remain supported.
+
+To include a pool-style signature in blocks you solo-mine, first apply the
+[companion daemon patch](patches/README.md) to Firo and rebuild your node, then use:
+
+```sh
+firominer -P getwork://rpcuser:rpcpass@127.0.0.1:8888 -r <Firo-address> --coinbase-message "Mined by my rig"
+```
+
+Messages may contain up to 80 UTF-8 bytes. Leaving the option empty preserves
+normal behavior with unmodified nodes. With a message set, the miner requires
+the node to acknowledge it before accepting work; an unmodified node is rejected.
+The patch is also included in installed packages under `share/firominer/patches/`.
+
+`--work-timeout` reconnects Stratum sessions that receive no new job for 600 seconds by default. Values from 180 to 1000000 seconds are accepted. Getwork requests have a 30-second response deadline and a 16 MiB response body limit.
+
+### Monitoring and device recovery
+
+When `--api-password` is set, the HTTP status page and `/getstat1` return HTTP 401. Authenticate the plain TCP JSON-RPC API with `api_authorize` to read status or control the miner. HTTP has no password authentication mechanism. Without a password, HTTP monitoring remains available and hides pool URI credentials.
+
+GPU devices wait for a new job after exhausting their assigned nonce range and log the reason for idling. This preserves other devices' ranges and pool extranonce bits. Epoch or kernel initialization failures pause the device and are retried on the next job. `--cl-global-work` controls the multiplier directly; it is not rounded to a power of two.
+
+Very low-difficulty development networks use small GPU batches and may be limited by launch overhead. When even one work group produces more solutions than the result buffer holds, excess results are discarded safely.
 
 ## Build
+
+### Continuous Integration and development builds
+
+GitHub Actions runs core tests normally and under AddressSanitizer/UndefinedBehaviorSanitizer and ThreadSanitizer. Release builds for Linux and Windows each provide CUDA 11.8 + OpenCL and OpenCL-only packages. All include the API server and CPU diagnostics, selected explicitly with `--cpu`; normal runs still select GPUs. The OpenCL-only builds also run the core tests and smoke-test the packaged executable.
+
+Packages include runtime libraries, documentation, source/build identification, and checksums. They require a compatible GPU driver; the CUDA package requires an NVIDIA driver even when selecting another backend. Linux packages target Ubuntu 22.04 or newer compatible x86-64 systems, and Windows packages target Windows 10/11 x64. See [Testing PR artifacts](docs/TESTING.md) for setup and a functional test guide.
+
+Downloads appear in the associated workflow run's artifacts for pull requests and pushes to `main`. These are unsigned development packages. CI has no physical GPUs, so device execution, accepted pool shares, and hashrate still require hardware testing.
 
 After cloning this repository into `firominer`, it can be built with commands like:
 

@@ -1,6 +1,8 @@
 #pragma once
 
-#include <regex>
+#include <deque>
+#include <memory>
+#include <mutex>
 
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
@@ -18,7 +20,7 @@ using namespace std::chrono;
 
 using boost::asio::ip::tcp;
 
-class ApiConnection
+class ApiConnection : public std::enable_shared_from_this<ApiConnection>
 {
 public:
 
@@ -38,6 +40,10 @@ public:
     tcp::socket& socket() { return m_socket; }
 
 private:
+    friend class ApiServer;
+
+    static constexpr std::size_t c_maxRequestSize = 64 * 1024;
+
     void disconnect();
     void processRequest(Json::Value& jRequest, Json::Value& jResponse);
     void recvSocketData();
@@ -45,7 +51,8 @@ private:
         const boost::system::error_code& ec, std::size_t bytes_transferred);
     void sendSocketData(Json::Value const& jReq, bool _disconnect = false);
     void sendSocketData(std::string const& _s, bool _disconnect = false);
-    void onSendSocketDataCompleted(const boost::system::error_code& ec, bool _disconnect = false);
+    void startSend();
+    void onSendSocketDataCompleted(const boost::system::error_code& ec);
 
     Json::Value getMinerStatDetail();
     Json::Value getMinerStatDetailPerMiner(const TelemetryType& _t, std::shared_ptr<Miner> _miner);
@@ -57,9 +64,10 @@ private:
     int m_sessionId;
 
     tcp::socket m_socket;
-    boost::asio::io_service::strand& m_io_strand;
-    boost::asio::streambuf m_sendBuffer;
+    boost::asio::io_service::strand m_io_strand;
+    std::mutex m_mutex;
     boost::asio::streambuf m_recvBuffer;
+    std::deque<std::pair<std::string, bool>> m_sendQueue;
     Json::StreamWriterBuilder m_jSwBuilder;
 
     std::string m_message;  // The internal message string buffer
@@ -68,6 +76,7 @@ private:
     std::string m_password = "";
 
     bool m_is_authenticated = true;
+    bool m_disconnected = false;
 };
 
 
@@ -75,17 +84,27 @@ class ApiServer
 {
 public:
     ApiServer(string address, int portnum, string password);
+    ~ApiServer() { stop(); }
     bool isRunning() { return m_running.load(std::memory_order_relaxed); };
+    uint16_t getPort() const { return m_portnumber; }
+    // Port zero requests an ephemeral listener; callers disable the API by not starting it.
     void start();
     void stop();
 
 private:
-    void begin_accept();
-    void handle_accept(std::shared_ptr<ApiConnection> session, boost::system::error_code ec);
+    struct Lifetime
+    {
+        explicit Lifetime(ApiServer* server) : server(server) {}
+        std::mutex mutex;
+        ApiServer* server;
+    };
+
+    void begin_accept(std::shared_ptr<Lifetime> const& lifetime);
+    void handle_accept(std::shared_ptr<ApiConnection> session, boost::system::error_code ec,
+        std::shared_ptr<Lifetime> const& lifetime);
 
     int lastSessionId = 0;
 
-    std::thread m_workThread;
     std::atomic<bool> m_readonly = {false};
     std::string m_password = "";
     std::atomic<bool> m_running = {false};
@@ -94,4 +113,5 @@ private:
     tcp::acceptor m_acceptor;
     boost::asio::io_service::strand m_io_strand;
     std::vector<std::shared_ptr<ApiConnection>> m_sessions;
+    std::shared_ptr<Lifetime> m_lifetime;
 };

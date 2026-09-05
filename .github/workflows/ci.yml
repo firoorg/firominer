@@ -1,0 +1,336 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Core tests (${{ matrix.sanitizer }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: ['OFF', 'address,undefined', thread]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install pinned build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends cmake ninja-build clang python3
+
+      - name: Configure
+        run: >-
+          /usr/bin/cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DSANITIZE=${{ matrix.sanitizer }}
+          -DBUILD_TESTING=ON
+          -DAPICORE=ON
+          -DETHASHCL=OFF
+          -DETHASHCUDA=OFF
+          -DETHASHCPU=ON
+          -DETHDBUS=OFF
+          -DHUNTER_JOBS_NUMBER=2
+
+      - name: Build
+        run: /usr/bin/cmake --build build --parallel 2
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1
+          TSAN_OPTIONS: halt_on_error=1
+        run: /usr/bin/ctest --test-dir build --output-on-failure --timeout 300
+
+  gpu-build:
+    name: Linux (${{ matrix.package }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: nvidia/cuda:11.8.0-devel-ubuntu22.04@sha256:94fd755736cb58979173d491504f0b573247b1745250249415b07fefc738e41f
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: cuda11.8-opencl
+            cuda: 'ON'
+            tests: 'OFF'
+          - package: opencl
+            cuda: 'OFF'
+            tests: 'ON'
+    env:
+      PACKAGE: firominer-linux-x86_64-${{ matrix.package }}
+
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates cmake git ninja-build perl python3 \
+            mesa-common-dev libglu1-mesa-dev freeglut3-dev
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Prepare reproducible build
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          epoch="$(git log -1 --format=%ct)"
+          test -n "$epoch"
+          echo "SOURCE_DATE_EPOCH=$epoch" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: >-
+          /usr/bin/cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=${{ matrix.tests }}
+          -DAPICORE=ON
+          -DETHASHCL=ON
+          -DETHASHCUDA=${{ matrix.cuda }}
+          -DETHASHCPU=ON
+          -DETHDBUS=OFF
+          -DHUNTER_JOBS_NUMBER=2
+          -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda
+          -DCMAKE_INSTALL_LIBDIR=lib
+          -DCMAKE_INSTALL_RPATH='$ORIGIN/../lib'
+
+      - name: Build
+        run: /usr/bin/cmake --build build --parallel 2
+
+      - name: Test Release build
+        if: matrix.tests == 'ON'
+        run: /usr/bin/ctest --test-dir build --output-on-failure --timeout 300
+
+      - name: Stage package
+        run: |
+          /usr/bin/cmake --install build --prefix "$PWD/stage"
+          cp LICENSE README.md stage/
+          mkdir -p stage/docs
+          cp docs/TESTING.md docs/API_DOCUMENTATION.md stage/docs/
+          if [ '${{ matrix.cuda }}' = ON ]; then
+            mkdir -p stage/lib
+            cp -a /usr/local/cuda/lib64/libnvrtc.so* \
+              /usr/local/cuda/lib64/libnvrtc-builtins.so* \
+              /usr/local/cuda/lib64/libcudart.so* stage/lib/
+            test -e stage/lib/libnvrtc.so.11.2
+            test -e stage/lib/libnvrtc-builtins.so.11.8
+          fi
+          printf '%s\n' \
+            "Source: https://github.com/$GITHUB_REPOSITORY/tree/$(git rev-parse HEAD)" \
+            "PR head: ${{ github.event.pull_request.head.sha || github.sha }}" \
+            "Build: Release; CUDA=${{ matrix.cuda }}; OpenCL=ON; CPU=ON; API=ON; DBUS=OFF" \
+            "Platform: Linux x86-64, Ubuntu 22.04, CUDA toolkit 11.8" \
+            "CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            > stage/BUILD-INFO.txt
+          (cd stage && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Package and verify
+        run: |
+          tar --sort=name --format=ustar --mtime="@${SOURCE_DATE_EPOCH}" \
+            --owner=0 --group=0 --numeric-owner \
+            -cf "$PACKAGE.tar" -C stage .
+          gzip -n "$PACKAGE.tar"
+          sha256sum "$PACKAGE.tar.gz" > "$PACKAGE.tar.gz.sha256"
+          mkdir unpacked
+          tar -xzf "$PACKAGE.tar.gz" -C unpacked
+          cd unpacked
+          sha256sum --check SHA256SUMS
+          test -f bin/firominer-gui.py
+          test -f share/firominer/patches/firo-coinbase-message.patch
+          readelf -d bin/firominer | grep -F '$ORIGIN/../lib'
+          ldd bin/firominer > dependencies.txt || true
+          cat dependencies.txt
+          # GPU-less runners lack libcuda.so.1, supplied by the user's NVIDIA driver.
+          if grep 'not found' dependencies.txt | grep -v 'libcuda.so.1'; then exit 1; fi
+          if [ '${{ matrix.cuda }}' = OFF ]; then
+            if grep -E 'libcuda|libnvrtc' dependencies.txt; then exit 1; fi
+            ./bin/firominer --version
+            ./bin/firominer --help > help.txt
+            grep -F -- '--cpu' help.txt
+            ./bin/firominer --help-ext api | grep -F -- '--api-bind'
+            ./bin/firominer --cpu --list-devices
+          fi
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: firominer-linux-x86_64-${{ matrix.package }}.tar.gz
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload checksum
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: firominer-linux-x86_64-${{ matrix.package }}.tar.gz.sha256
+          if-no-files-found: error
+          archive: false
+
+  windows-build:
+    name: Windows GPU backends
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      # Boost 1.76 predates VS 2022, but the runner includes its v142 toolset.
+      VS160COMNTOOLS: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install CUDA
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'cuda-11.8.exe'
+          Invoke-WebRequest https://developer.download.nvidia.com/compute/cuda/11.8.0/network_installers/cuda_11.8.0_windows_network.exe -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne '8A19C2BFE33ECABCFCD9D776FABC8D1596FC1BF3A2565243C30BADCA3A4BDE5B') {
+            throw 'CUDA installer checksum mismatch'
+          }
+          $process = Start-Process $installer -ArgumentList '-s','-n','nvcc_11.8','cudart_11.8','nvrtc_11.8','nvrtc_dev_11.8' -Wait -PassThru
+          if ($process.ExitCode -notin 0, 3010) {
+            throw "CUDA installer failed with exit code $($process.ExitCode)"
+          }
+          $cuda = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8'
+          if (!(Test-Path "$cuda\bin\nvcc.exe")) { throw 'nvcc missing after CUDA installation' }
+          '@call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" %* -vcvars_ver=14.29' |
+            Set-Content "$env:RUNNER_TEMP\vcvars142.bat" -Encoding ascii
+          "CUDA_PATH=$cuda" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "$cuda\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$cuda\bin\nvcc.exe" --version
+
+      - name: Configure Windows builds
+        shell: cmd
+        run: |
+          rem Build dependencies with the same v142 runtime used by firominer and CUDA.
+          call "%RUNNER_TEMP%\vcvars142.bat" amd64 || exit /b 1
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T v142 ^
+            -DBUILD_TESTING=OFF ^
+            -DAPICORE=ON ^
+            -DETHASHCL=ON ^
+            -DETHASHCUDA=ON ^
+            -DETHASHCPU=ON ^
+            -DETHDBUS=OFF ^
+            -DHUNTER_JOBS_NUMBER=2 ^
+            -DHUNTER_MSVC_VCVARSALL:FILEPATH="%RUNNER_TEMP%\vcvars142.bat" ^
+            -DCUDA_USE_STATIC_CUDA_RUNTIME=OFF ^
+            -DCUDA_TOOLKIT_ROOT_DIR="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8" || exit /b 1
+          cmake -S . -B build-opencl -G "Visual Studio 17 2022" -A x64 -T v142 ^
+            -DBUILD_TESTING=ON ^
+            -DAPICORE=ON ^
+            -DETHASHCL=ON ^
+            -DETHASHCUDA=OFF ^
+            -DETHASHCPU=ON ^
+            -DETHDBUS=OFF ^
+            -DHUNTER_JOBS_NUMBER=2 ^
+            -DHUNTER_MSVC_VCVARSALL:FILEPATH="%RUNNER_TEMP%\vcvars142.bat" || exit /b 1
+
+      - name: Build
+        shell: cmd
+        run: |
+          rem CUDA 11.8 and its dependencies must use the same v142 environment.
+          call "%RUNNER_TEMP%\vcvars142.bat" amd64 || exit /b 1
+          cmake --build build --config Release --target firominer --parallel 2 || exit /b 1
+          cmake --build build-opencl --config Release --parallel 2 || exit /b 1
+
+      - name: Test Release build
+        run: ctest --test-dir build-opencl --build-config Release --output-on-failure --timeout 300
+
+      - name: Package and verify
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cmake --install build --config Release --prefix stage-cuda-opencl
+          cmake --install build-opencl --config Release --prefix stage-opencl
+          Copy-Item "$env:CUDA_PATH\bin\cudart64_*.dll" stage-cuda-opencl\bin -ErrorAction Stop
+          Copy-Item "$env:CUDA_PATH\bin\nvrtc*.dll" stage-cuda-opencl\bin -ErrorAction Stop
+          foreach ($variant in @('cuda-opencl', 'opencl')) {
+            $stage = "stage-$variant"
+            Copy-Item LICENSE, README.md $stage
+            New-Item -ItemType Directory "$stage/docs" | Out-Null
+            Copy-Item docs/TESTING.md, docs/API_DOCUMENTATION.md "$stage/docs"
+            foreach ($file in @('firominer.exe', 'firominer-gui.pyw', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+              if (!(Test-Path "$stage/bin/$file")) { throw "$file missing from $stage" }
+            }
+            $cuda = if ($variant -eq 'cuda-opencl') { 'ON' } else { 'OFF' }
+            @(
+              "Source: https://github.com/$env:GITHUB_REPOSITORY/tree/$(git rev-parse HEAD)"
+              "PR head: ${{ github.event.pull_request.head.sha || github.sha }}"
+              "Build: Release; CUDA=$cuda; OpenCL=ON; CPU=ON; API=ON; DBUS=OFF"
+              'Platform: Windows x86-64, v142 toolset, CUDA toolkit 11.8'
+              "CI: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            ) | Set-Content "$stage/BUILD-INFO.txt" -Encoding utf8
+            Push-Location $stage
+            Get-ChildItem -File -Recurse | Where-Object Name -ne SHA256SUMS | Sort-Object FullName | ForEach-Object {
+              $relative = (Resolve-Path -Relative $_.FullName).Replace('\', '/')
+              "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $relative"
+            } | Set-Content SHA256SUMS -Encoding utf8
+            Pop-Location
+          }
+          7z a -tzip -mx=9 -mtc=off -mta=off -mtm=off firominer-windows-x86_64-cuda11.8-opencl.zip .\stage-cuda-opencl\*
+          7z a -tzip -mx=9 -mtc=off -mta=off -mtm=off firominer-windows-x86_64-opencl.zip .\stage-opencl\*
+          Get-ChildItem firominer-windows-*.zip | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content SHA256SUMS-windows.txt -Encoding utf8
+          foreach ($archive in Get-ChildItem firominer-windows-*.zip) {
+            $unpacked = Join-Path $env:RUNNER_TEMP $archive.BaseName
+            Expand-Archive $archive.FullName $unpacked
+            Push-Location $unpacked
+            foreach ($line in Get-Content SHA256SUMS) {
+              $expected, $path = $line -split '  ', 2
+              if ((Get-FileHash $path -Algorithm SHA256).Hash.ToLower() -ne $expected) {
+                throw "Checksum mismatch: $path"
+              }
+            }
+            Pop-Location
+          }
+          # Use the extracted OpenCL-only package: CUDA executables import the driver DLL.
+          $binary = Join-Path $env:RUNNER_TEMP 'firominer-windows-x86_64-opencl/bin/firominer.exe'
+          # 41 accented characters are 82 UTF-8 bytes; catch Windows argv code-page loss.
+          python -c "import subprocess; p = subprocess.run([r'$binary', '--list-devices', '--coinbase-message=' + chr(233)*41], capture_output=True, text=True, encoding='utf-8'); assert p.returncode != 0 and '80 UTF-8 bytes' in p.stdout+p.stderr"
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          & $binary --version
+          $help = & $binary --help | Out-String
+          if (!$help.Contains('--cpu')) { throw 'CPU diagnostics missing from help' }
+          $apiHelp = & $binary --help-ext api | Out-String
+          if (!$apiHelp.Contains('--api-bind')) { throw 'API missing from help' }
+          & $binary --cpu --list-devices
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: firominer-windows-x86_64-cuda11.8-opencl.zip
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload OpenCL binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: firominer-windows-x86_64-opencl.zip
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: SHA256SUMS-windows.txt
+          if-no-files-found: error
+          archive: false

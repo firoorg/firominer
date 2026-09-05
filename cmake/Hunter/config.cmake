@@ -1,5 +1,9 @@
 hunter_config(CURL VERSION ${HUNTER_CURL_VERSION} CMAKE_ARGS HTTP_ONLY=ON CMAKE_USE_OPENSSL=ON CMAKE_USE_LIBSSH2=OFF CURL_CA_PATH=none)
-hunter_config(Boost VERSION 1.72.0-p1)    # <-- Highest available on hunter
+hunter_config(
+    Boost
+    URL "https://archives.boost.io/release/1.76.0/source/boost_1_76_0.tar.bz2"
+    SHA1 "8064156508312dde1d834fec3dca9b11006555b6"
+)
 
 #hunter_config(
 #    ethash VERSION 1.0.0

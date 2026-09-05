@@ -78,7 +78,7 @@ void keccak_f800_round(uint32_t st[25], const int r)
 // Keccak - implemented as a variant of SHAKE
 // The width is 800, with a bitrate of 576, a capacity of 224, and no padding
 // Only need 64 bits of output for mining
-uint64_t keccak_f800(uint32_t* st)
+void keccak_f800(uint32_t* st)
 {
     // Complete all 22 rounds as a separate impl to
     // evaluate only first 8 words is wasteful of regsters
@@ -110,6 +110,9 @@ uint32_t kiss99(kiss99_t* st)
     return ((MWC ^ st->jcong) + st->jsr);
 }
 
+#if FIROPOW_CL_INLINE_MIX
+static inline __attribute__((always_inline))
+#endif
 void fill_mix(local uint32_t* seed, uint32_t lane_id, uint32_t* mix)
 {
     // Use FNV to expand the per-warp seed to per-lane
@@ -128,7 +131,6 @@ void fill_mix(local uint32_t* seed, uint32_t lane_id, uint32_t* mix)
 typedef struct
 {
     uint32_t uint32s[PROGPOW_LANES];
-    uint64_t uint64s[PROGPOW_LANES / 2];
 } shuffle_t;
 
 // NOTE: This struct must match the one defined in CLMiner.cpp
@@ -153,13 +155,19 @@ __kernel void
 ethash_search(__global struct SearchResults* restrict g_output, __constant hash32_t const* g_header,
     __global dag_t const* g_dag, ulong start_nonce, ulong target, uint hack_false)
 {
-    if (g_output->abort)
+    uint32_t const lid = get_local_id(0);
+    __local uint32_t should_abort;
+    if (lid == 0)
+        should_abort = g_output->abort;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (should_abort)
         return;
 
     __local shuffle_t share[HASHES_PER_GROUP];
+    // Keep DAG offsets separate from per-hash seed and digest storage.
+    __local uint32_t loop_offsets[HASHES_PER_GROUP];
     __local uint32_t c_dag[PROGPOW_CACHE_WORDS];
 
-    uint32_t const lid = get_local_id(0);
     uint32_t const gid = get_global_id(0);
     uint64_t const nonce = start_nonce + gid;
 
@@ -225,7 +233,7 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
 
 #pragma unroll 1
         for (uint32_t l = 0; l < PROGPOW_CNT_DAG; l++)
-            progPowLoop(l, mix, g_dag, c_dag, share[0].uint64s, hack_false);
+            progPowLoop(l, mix, g_dag, c_dag, loop_offsets, hack_false);
 
         // Reduce mix data to a per-lane 32-bit digest
         uint32_t mix_hash = FNV_OFFSET_BASIS;
@@ -285,7 +293,6 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
             for (int i = 0; i < 8; i++)
                 g_output->rslt[slot].mix[i] = digest.uint32s[i];
         }
-        atomic_inc(&g_output->abort);
     }
 }
 
@@ -545,7 +552,7 @@ __kernel void ethash_calculate_dag_item(
     uint start, __global hash64_t const* g_light, __global hash64_t* g_dag, uint isolate)
 {
     uint const node_index = start + get_global_id(0);
-    if (node_index * sizeof(hash64_t) >= PROGPOW_DAG_BYTES)
+    if (node_index >= DAG_NODES)
         return;
 
     hash200_t dag_node;

@@ -5,15 +5,19 @@
 add_custom_command(
 	OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/CUDAMiner_kernel.h
 	COMMAND ${CMAKE_COMMAND} ARGS
-	-DTXT2STR_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/CUDAMiner_kernel.cu"
+	"-DTXT2STR_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/CUDAMiner_kernel.cu"
 	-DTXT2STR_VARIABLE_NAME=CUDAMiner_kernel
-	-DTXT2STR_HEADER_FILE="${CMAKE_CURRENT_BINARY_DIR}/CUDAMiner_kernel.h"
+	"-DTXT2STR_HEADER_FILE=${CMAKE_CURRENT_BINARY_DIR}/CUDAMiner_kernel.h"
 	-P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/txt2str.cmake"
 	COMMENT "Generating CUDA Kernel"
 	DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/CUDAMiner_kernel.cu
+	VERBATIM
 )
 add_custom_target(cuda_kernel DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/CUDAMiner_kernel.h ${CMAKE_CURRENT_SOURCE_DIR}/CUDAMiner_kernel.cu)
 
+if(POLICY CMP0146)
+	cmake_policy(SET CMP0146 OLD)
+endif()
 find_package(CUDA REQUIRED)
 
 set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};--ptxas-options=-v;-lineinfo;-use_fast_math)
@@ -36,6 +40,8 @@ message("")
 
 if(COMPUTE AND (COMPUTE GREATER 0))
 	list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_${COMPUTE},code=sm_${COMPUTE}")
+elseif(NOT CUDA_VERSION VERSION_LESS 11.5)
+	list(APPEND CUDA_NVCC_FLAGS "-arch=all-major")
 else()
 	if(CUDA_VERSION VERSION_LESS 11.0)
 		list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_30,code=sm_30")
@@ -51,6 +57,8 @@ else()
 	list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_62,code=sm_62")
 	if(NOT CUDA_VERSION VERSION_LESS 9.0)
 		list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_70,code=sm_70")
+	endif()
+	if(NOT CUDA_VERSION VERSION_LESS 9.2)
 		list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_72,code=sm_72")
 	endif()
 	if(NOT CUDA_VERSION VERSION_LESS 10.0)
@@ -58,8 +66,24 @@ else()
 	endif()
 	if(NOT CUDA_VERSION VERSION_LESS 11.0)
 		list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_80,code=sm_80")
+	endif()
+	if(NOT CUDA_VERSION VERSION_LESS 11.1)
 		list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_86,code=sm_86")
 	endif()
+	if(NOT CUDA_VERSION VERSION_LESS 11.1)
+		set(FIROMINER_CUDA_PTX_ARCH 86)
+	elseif(NOT CUDA_VERSION VERSION_LESS 11.0)
+		set(FIROMINER_CUDA_PTX_ARCH 80)
+	elseif(NOT CUDA_VERSION VERSION_LESS 10.0)
+		set(FIROMINER_CUDA_PTX_ARCH 75)
+	elseif(NOT CUDA_VERSION VERSION_LESS 9.2)
+		set(FIROMINER_CUDA_PTX_ARCH 72)
+	elseif(NOT CUDA_VERSION VERSION_LESS 9.0)
+		set(FIROMINER_CUDA_PTX_ARCH 70)
+	else()
+		set(FIROMINER_CUDA_PTX_ARCH 62)
+	endif()
+	list(APPEND CUDA_NVCC_FLAGS "-gencode arch=compute_${FIROMINER_CUDA_PTX_ARCH},code=compute_${FIROMINER_CUDA_PTX_ARCH}")
 endif()
 
 file(GLOB sources CUDAMiner.cpp CUDAMiner_cuda.cu)
@@ -70,7 +94,7 @@ add_dependencies(ethash-cuda cuda_kernel)
 # Cmake doesn't handle nvrtc automatically
 find_library(CUDA_nvrtc_LIBRARY NAMES nvrtc PATHS ${CUDA_TOOLKIT_ROOT_DIR} PATH_SUFFIXES lib64 lib/x64 lib64/stubs lib/x64/stubs lib NO_DEFAULT_PATH)
 find_library(CUDA_cuda_LIBRARY NAMES cuda PATHS ${CUDA_TOOLKIT_ROOT_DIR} PATH_SUFFIXES lib64 lib/x64 lib64/stubs lib/x64/stubs lib NO_DEFAULT_PATH)
-target_link_libraries(ethash-cuda ethcore crypto Boost::thread)
+target_link_libraries(ethash-cuda ethcore crypto Threads::Threads)
 target_link_libraries(ethash-cuda ${CUDA_nvrtc_LIBRARY} ${CUDA_cuda_LIBRARY})
 target_include_directories(ethash-cuda PUBLIC ${CUDA_INCLUDE_DIRS})
 target_include_directories(ethash-cuda PRIVATE .. ${CMAKE_CURRENT_BINARY_DIR})

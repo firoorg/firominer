@@ -116,7 +116,7 @@ private:
     UriHostNameType m_hostType = UriHostNameType::Unknown;
     bool m_isLoopBack;
 
-    unsigned long m_totalDuration; // Total duration on this connection in minutes
+    unsigned long m_totalDuration = 0;  // Total duration on this connection in minutes
 
 };
 }  // namespace dev

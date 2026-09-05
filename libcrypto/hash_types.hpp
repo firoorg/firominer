@@ -159,7 +159,7 @@ inline void shiftLeft(hash256& hash, uint32_t bitsToShift)
 
     for (int i = num_of_elements - 1; i - elements_to_jump_over >= 0; i--)
     {
-        if (i - elements_to_jump_over - 1 >= 0)
+        if (bitsToShift && i - elements_to_jump_over - 1 >= 0)
         {
             hash.word64s[i - elements_to_jump_over - 1] = be::uint64(tmp.word64s[i] >> (bits_of_element - bitsToShift));
         }

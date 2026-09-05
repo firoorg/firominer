@@ -10,6 +10,7 @@
 
 #include "ethash.hpp"
 #include "kiss99.hpp"
+#include <array>
 #include <stdint.h>
 #include <string>
 
@@ -58,18 +59,18 @@ private:
 std::string getKern(uint64_t seed, kernel_type kern);
 
 ethash::hash256 hash_seed(const ethash::hash256& header_hash, uint64_t nonce) noexcept;
-ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t period, uint64_t seed);
+ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint64_t period, uint64_t seed);
 ethash::hash256 hash_final(const ethash::hash256& input_hash, const ethash::hash256& mix_hash) noexcept;
 
 ethash::result hash(
-    const ethash::epoch_context& context, const uint32_t period, const ethash::hash256& header_hash, uint64_t nonce);
+    const ethash::epoch_context& context, const uint64_t period, const ethash::hash256& header_hash, uint64_t nonce);
 
-ethash::VerificationResult verify_full(const ethash::epoch_context& context, const uint32_t period,
+ethash::VerificationResult verify_full(const ethash::epoch_context& context, const uint64_t period,
     const ethash::hash256& header_hash, const ethash::hash256& mix_hash, uint64_t nonce,
     const ethash::hash256& boundary) noexcept;
 
 ethash::VerificationResult verify_full(const uint64_t block_number, const ethash::hash256& header_hash,
-    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary) noexcept;
+    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary);
 
 }  // namespace progpow
 

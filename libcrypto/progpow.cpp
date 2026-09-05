@@ -175,6 +175,9 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "#define GROUP_SIZE 128\n";
         ret << "#endif\n";
         ret << "#define GROUP_SHARE (GROUP_SIZE / " << kLanes << ")\n";
+        ret << "#ifndef FIROPOW_CL_INLINE_MIX\n";
+        ret << "#define FIROPOW_CL_INLINE_MIX 0\n";
+        ret << "#endif\n";
         ret << "\n";
         ret << "typedef unsigned int       uint32_t;\n";
         ret << "typedef unsigned long      uint64_t;\n";
@@ -208,11 +211,16 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
                "dag_t;\n";
         ret << "\n";
         ret << "// Inner loop for prog_seed " << prog_seed << "\n";
+        ret << "#if FIROPOW_CL_INLINE_MIX\n";
+        ret << "static inline __attribute__((always_inline)) void progPowLoop(const uint32_t loop,\n";
+        ret << "        uint32_t mix[PROGPOW_REGS],\n";
+        ret << "#else\n";
         ret << "inline void progPowLoop(const uint32_t loop,\n";
         ret << "        volatile uint32_t mix_arg[PROGPOW_REGS],\n";
+        ret << "#endif\n";
         ret << "        __global const dag_t *g_dag,\n";
         ret << "        __local const uint32_t c_dag[PROGPOW_CACHE_WORDS],\n";
-        ret << "        __local uint64_t share[GROUP_SHARE],\n";
+        ret << "        __local uint32_t loop_offsets[GROUP_SHARE],\n";
         ret << "        const bool hack_false)\n";
     }
     ret << "{\n";
@@ -223,9 +231,11 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     // See https://github.com/gangnamtestnet/firominer/issues/16
     if (kern == kernel_type::OpenCL)
     {
+        ret << "#if !FIROPOW_CL_INLINE_MIX\n";
         ret << "uint32_t mix[PROGPOW_REGS];\n";
         ret << "for(int i=0; i<PROGPOW_REGS; i++)\n";
         ret << "    mix[i] = mix_arg[i];\n";
+        ret << "#endif\n";
     }
 
     if (kern == kernel_type::Cuda)
@@ -246,9 +256,9 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     else
     {
         ret << "if(lane_id == (loop % PROGPOW_LANES))\n";
-        ret << "    share[group_id] = mix[0];\n";
+        ret << "    loop_offsets[group_id] = mix[0];\n";
         ret << "barrier(CLK_LOCAL_MEM_FENCE);\n";
-        ret << "offset = share[group_id];\n";
+        ret << "offset = loop_offsets[group_id];\n";
     }
     ret << "offset %= PROGPOW_DAG_ELEMENTS;\n";
     ret << "offset = offset * PROGPOW_LANES + (lane_id ^ loop) % PROGPOW_LANES;\n";
@@ -322,8 +332,10 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     // Work around AMD OpenCL compiler bug
     if (kern == kernel_type::OpenCL)
     {
+        ret << "#if !FIROPOW_CL_INLINE_MIX\n";
         ret << "for(int i=0; i<PROGPOW_REGS; i++)\n";
         ret << "    mix_arg[i] = mix[i];\n";
+        ret << "#endif\n";
     }
     ret << "}\n";
     ret << "\n";
@@ -447,7 +459,7 @@ ethash::hash256 hash_seed(const ethash::hash256& header_hash, uint64_t nonce) no
     return output;
 }
 
-ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint32_t period, uint64_t seed)
+ethash::hash256 hash_mix(const ethash::epoch_context& context, const uint64_t period, uint64_t seed)
 {
     auto mix{init_mix(seed)};
     mix_rng_state state(period);
@@ -505,7 +517,7 @@ ethash::hash256 hash_final(const ethash::hash256& input_hash, const ethash::hash
 }
 
 ethash::result hash(
-    const ethash::epoch_context& context, const uint32_t period, const ethash::hash256& header_hash, uint64_t nonce)
+    const ethash::epoch_context& context, const uint64_t period, const ethash::hash256& header_hash, uint64_t nonce)
 {
     const ethash::hash256 seed_hash{progpow::hash_seed(header_hash, nonce)};
     const uint64_t seed_64{seed_hash.word64s[0]};
@@ -514,7 +526,7 @@ ethash::result hash(
     return {final_hash, mix_hash};
 }
 
-ethash::VerificationResult verify_full(const ethash::epoch_context& context, const uint32_t period,
+ethash::VerificationResult verify_full(const ethash::epoch_context& context, const uint64_t period,
     const ethash::hash256& header_hash, const ethash::hash256& mix_hash, uint64_t nonce,
     const ethash::hash256& boundary) noexcept
 {
@@ -531,7 +543,7 @@ ethash::VerificationResult verify_full(const ethash::epoch_context& context, con
 }
 
 ethash::VerificationResult verify_full(const uint64_t block_number, const ethash::hash256& header_hash,
-    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary) noexcept
+    const ethash::hash256& mix_hash, uint64_t nonce, const ethash::hash256& boundary)
 {
     auto dag_epoch_number{ethash::calculate_epoch_from_block_num(block_number)};
     auto dag_epoch_context{ethash::get_epoch_context(dag_epoch_number, false)};

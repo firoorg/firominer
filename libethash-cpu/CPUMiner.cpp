@@ -205,7 +205,7 @@ bool CPUMiner::initDevice()
  * to check again dag sizes. They're changed for sure
  * We've all related infos in m_epochContext (.dagSize, .dagNumItems, .lightSize, .lightNumItems)
  */
-bool CPUMiner::initEpoch_internal()
+bool CPUMiner::initEpoch_internal(WorkPackage const&)
 {
     // std::cout << "initEpoch_internal" << std::endl;
     return true;
@@ -231,22 +231,38 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
     DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() begin");
     constexpr size_t blocksize = 64;
 
-    const auto context{ethash::get_epoch_context(w.epoch.value(), true)};
+    std::shared_ptr<ethash::epoch_context> context;
+    try
+    {
+        context = ethash::get_epoch_context(w.epoch.value(), true);
+    }
+    catch (std::exception const& ex)
+    {
+        cpulog << "Unable to allocate CPU dataset: " << ex.what();
+        pause(MinerPauseEnum::PauseDueToInsufficientMemory, w);
+        return;
+    }
     DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() context loaded");
 
     auto header{ethash::from_bytes(w.header.data())};
     auto boundary{ethash::from_bytes(w.get_boundary().data())};
     auto period{w.block.value() / progpow::kPeriodLength};
     auto nonce{w.startNonce};
+    uint64_t remaining = w.nonceRange;
     bool found{false};
 
     DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() search loop");
-    while (m_new_work.load(std::memory_order_relaxed) == false && !found)
+    while (!shouldStop() && m_new_work.load(std::memory_order_relaxed) == false && !found &&
+           (!w.nonceRange || remaining))
     {
+        size_t hashes = 0;
         // Do the search
-        for (size_t i{0}; i < blocksize; i++, nonce++)
+        while (hashes < blocksize && (!w.nonceRange || remaining))
         {
             auto result{progpow::hash(*context, period, header, nonce)};
+            ++hashes;
+            if (w.nonceRange)
+                --remaining;
             if (ethash::is_less_or_equal(result.final_hash, boundary))
             {
                 h256 mix{reinterpret_cast<::byte*>(result.mix_hash.bytes), h256::ConstructFromPointer};
@@ -258,10 +274,11 @@ void CPUMiner::search(const dev::eth::WorkPackage& w)
                 found = true;
                 break;
             }
+            ++nonce;
         }
 
         // Update the hash rate
-        updateHashRate(blocksize, 1);
+        updateHashRate(1, static_cast<uint32_t>(hashes));
     }
 
     DEV_BUILD_LOG_PROGRAMFLOW(cpulog, "cp-" << m_index << " CPUMiner::search() end");

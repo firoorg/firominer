@@ -10,9 +10,8 @@ include(CMakeParseArguments)
 set(oneValueArgs SOURCE_FILE VARIABLE_NAME HEADER_FILE)
 
 # reads source file contents as hex string
-file(READ ${TXT2STR_SOURCE_FILE} asciiString)
+file(READ "${TXT2STR_SOURCE_FILE}" asciiString)
 
 # wrte the wrapped string declaration
-file(WRITE ${TXT2STR_HEADER_FILE}
+file(WRITE "${TXT2STR_HEADER_FILE}"
 "static const char* ${TXT2STR_VARIABLE_NAME} = R\"delim(\n\n${asciiString}\n\n)delim\";\n")
-
