@@ -32,7 +32,7 @@ jobs:
       - name: Install pinned build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends cmake ninja-build clang
+          sudo apt-get install --yes --no-install-recommends cmake ninja-build clang python3
 
       - name: Configure
         run: >-
@@ -80,7 +80,7 @@ jobs:
         run: |
           apt-get update
           apt-get install --yes --no-install-recommends \
-            build-essential ca-certificates cmake git ninja-build perl \
+            build-essential ca-certificates cmake git ninja-build perl python3 \
             mesa-common-dev libglu1-mesa-dev freeglut3-dev
 
       - name: Check out source
@@ -152,6 +152,8 @@ jobs:
           tar -xzf "$PACKAGE.tar.gz" -C unpacked
           cd unpacked
           sha256sum --check SHA256SUMS
+          test -f bin/firominer-gui.py
+          test -f share/firominer/patches/firo-coinbase-message.patch
           readelf -d bin/firominer | grep -F '$ORIGIN/../lib'
           ldd bin/firominer > dependencies.txt || true
           cat dependencies.txt
@@ -265,7 +267,7 @@ jobs:
             Copy-Item LICENSE, README.md $stage
             New-Item -ItemType Directory "$stage/docs" | Out-Null
             Copy-Item docs/TESTING.md, docs/API_DOCUMENTATION.md "$stage/docs"
-            foreach ($file in @('firominer.exe', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+            foreach ($file in @('firominer.exe', 'firominer-gui.pyw', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
               if (!(Test-Path "$stage/bin/$file")) { throw "$file missing from $stage" }
             }
             $cuda = if ($variant -eq 'cuda-opencl') { 'ON' } else { 'OFF' }
@@ -302,6 +304,8 @@ jobs:
           }
           # Use the extracted OpenCL-only package: CUDA executables import the driver DLL.
           $binary = Join-Path $env:RUNNER_TEMP 'firominer-windows-x86_64-opencl/bin/firominer.exe'
+          # 41 accented characters are 82 UTF-8 bytes; catch Windows argv code-page loss.
+          python -c "import subprocess; p = subprocess.run([r'$binary', '--list-devices', '--coinbase-message=' + chr(233)*41], capture_output=True, text=True, encoding='utf-8'); assert p.returncode != 0 and '80 UTF-8 bytes' in p.stdout+p.stderr"
           $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
           & $binary --version
           $help = & $binary --help | Out-String

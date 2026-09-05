@@ -14,6 +14,12 @@ PoolManager::PoolManager(PoolSettings _settings)
     m_failovertimer(g_io_service),
     m_submithrtimer(g_io_service)
 {
+    if (m_Settings.coinbaseMessage.size() > 80)
+        throw std::invalid_argument("Coinbase message exceeds 80 UTF-8 bytes");
+    if (!m_Settings.coinbaseMessage.empty())
+        for (auto const& connection : m_Settings.connections)
+            if (connection && connection->Host() != "exit" && connection->Family() != ProtocolFamily::GETWORK)
+                throw std::invalid_argument("Coinbase messages require solo Getwork; pools control their coinbase");
     m_this = this;
 
     m_currentWp.header = h256();
@@ -271,6 +277,9 @@ void PoolManager::addConnection(std::shared_ptr<URI> _uri)
 {
     if (!_uri)
         throw std::invalid_argument("Connection must not be null");
+    if (!m_Settings.coinbaseMessage.empty() && _uri->Host() != "exit" &&
+        _uri->Family() != ProtocolFamily::GETWORK)
+        throw std::invalid_argument("Coinbase messages require solo Getwork; pools control their coinbase");
     if (_uri->Family() == ProtocolFamily::GETWORK && m_Settings.rewardAddress.empty())
         throw std::invalid_argument("A reward address is required for Firo Getwork connections");
     m_Settings.connections.push_back(_uri);
@@ -439,7 +448,8 @@ void PoolManager::rotateConnect()
 
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::GETWORK)
             p_client = std::unique_ptr<PoolClient>(
-                new EthGetworkClient(m_Settings.noWorkTimeout, m_Settings.getWorkPollInterval, m_Settings.rewardAddress));
+                new EthGetworkClient(m_Settings.noWorkTimeout, m_Settings.getWorkPollInterval,
+                    m_Settings.rewardAddress, m_Settings.coinbaseMessage));
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::STRATUM)
             p_client = std::unique_ptr<PoolClient>(
                 new EthStratumClient(m_Settings.noWorkTimeout, m_Settings.noResponseTimeout));

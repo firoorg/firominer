@@ -19,7 +19,8 @@ constexpr auto kHttpTimeoutSeconds = 30;
 constexpr uint64_t kMaxHttpBodySize = 16 * 1024 * 1024;
 }
 
-EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, const std::string &rewardAddress)
+EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, const std::string& rewardAddress,
+    const std::string& coinbaseMessage)
   : PoolClient(),
     m_farmRecheckPeriod(farmRecheckPeriod),
     m_callbackState(std::make_shared<CallbackState>(this)),
@@ -28,10 +29,13 @@ EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, 
     m_socket(g_io_service),
     m_resolver(g_io_service),
     m_endpoints(),
+    m_coinbaseMessage(coinbaseMessage),
     m_getwork_timer(g_io_service),
     m_request_timer(g_io_service),
     m_worktimeout(worktimeout)
 {
+    if (coinbaseMessage.size() > 80)
+        throw std::invalid_argument("Coinbase message exceeds 80 UTF-8 bytes");
     m_jSwBuilder.settings_["indentation"] = "";
 
     Json::Value jGetWork;
@@ -41,6 +45,8 @@ EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, 
 
     Json::Value params = Json::Value(Json::arrayValue);
     params.append(Json::Value(Json::objectValue));
+    if (!coinbaseMessage.empty())
+        params[0]["coinbase_message"] = coinbaseMessage;
     params.append(rewardAddress);
     jGetWork["params"] = params;
 
@@ -552,6 +558,19 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
             else
             {
                 Json::Value JPrm = JRes.get("result", Json::Value::null);
+
+                // Stock daemons ignore unknown template fields. Require acknowledgement
+                // from the companion daemon patch before mining a tagged coinbase.
+                if (!m_coinbaseMessage.empty() &&
+                    (!JPrm["coinbase_message"].isString() ||
+                        JPrm["coinbase_message"].asString() != m_coinbaseMessage))
+                {
+                    cwarn << "Daemon did not confirm --coinbase-message. Install the Firo coinbase-message "
+                             "patch in patches/ or remove the message.";
+                    m_conn->MarkUnrecoverable();
+                    disconnect();
+                    return;
+                }
 
                 // Sanity checks
                 if (!JPrm.isMember("pprpcheader") || !JPrm.isMember("pprpcepoch") || !JPrm.isMember("height") ||

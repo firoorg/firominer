@@ -23,7 +23,8 @@ using namespace eth;
 class EthGetworkClient : public PoolClient
 {
 public:
-    EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, const std::string &rewardAddress);
+    EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, const std::string& rewardAddress,
+        const std::string& coinbaseMessage = "");
     ~EthGetworkClient();
 
     void connect() override;
@@ -90,6 +91,7 @@ private:
 
     Json::StreamWriterBuilder m_jSwBuilder;
     std::string m_jsonGetWork;
+    std::string m_coinbaseMessage;
     std::string m_pendingRequest;
     Json::Value m_pendingJReq;
     std::chrono::time_point<std::chrono::steady_clock> m_pending_tstamp;

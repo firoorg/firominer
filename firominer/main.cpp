@@ -243,6 +243,7 @@ public:
 
         string rewardAddress;
         app.add_option("-r,--reward-address", m_PoolSettings.rewardAddress, "");
+        app.add_option("--coinbase-message", m_PoolSettings.coinbaseMessage, "");
 
         app.add_option("--failover-timeout", m_PoolSettings.poolFailoverTimeout, "", true)
             ->check(CLI::Range(0, 999));
@@ -442,6 +443,16 @@ public:
                     return connection && connection->Family() == ProtocolFamily::GETWORK;
                 }))
             throw std::invalid_argument("--reward-address is required for Firo Getwork connections");
+
+        if (m_PoolSettings.coinbaseMessage.size() > 80)
+            throw std::invalid_argument("--coinbase-message must be at most 80 UTF-8 bytes");
+        if (!m_PoolSettings.coinbaseMessage.empty() &&
+            std::any_of(m_PoolSettings.connections.begin(), m_PoolSettings.connections.end(),
+                [](const std::shared_ptr<URI>& connection) {
+                    return connection && connection->Host() != "exit" &&
+                           connection->Family() != ProtocolFamily::GETWORK;
+                }))
+            throw std::invalid_argument("--coinbase-message is solo-only; pools control their coinbase");
 
 #if ETH_ETHASHCUDA
         if (sched == "auto")
@@ -760,6 +771,7 @@ public:
              << "                        firominer --help-ext con" << endl
              << "    --firopow-network  TEXT {mainnet,testnet,devnet,regtest} Default mainnet" << endl
              << "    -r,--reward-address TEXT Firo block reward address (required for getwork)" << endl
+             << "    --coinbase-message TEXT Solo tag, at most 80 UTF-8 bytes; requires patched Firo daemon" << endl
              << "    --work-timeout      INT[180 .. 1000000] Default = " << m_PoolSettings.noWorkTimeout << endl
              << endl
 

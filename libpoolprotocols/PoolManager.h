@@ -36,6 +36,7 @@ struct PoolSettings
     unsigned benchmarkBlock = 0;  // Block number used by SimulateClient to test performances
     float benchmarkDiff = 1.0;    // Difficulty used by SimulateClient to test performances
     std::string rewardAddress;    // Reward address in case of solo mining
+    std::string coinbaseMessage;  // Optional solo tag; requires the companion Firo daemon patch
     std::string network = "mainnet";  // Firo network whose DAG schedule should be used
 };
 

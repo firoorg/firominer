@@ -1,0 +1,167 @@
+--- a/src/rpc/mining.cpp
++++ b/src/rpc/mining.cpp
+@@ -428,6 +428,7 @@
+             "1. template_request         (json object, optional) A json object in the following spec\n"
+             "     {\n"
+             "       \"mode\":\"template\"    (string, optional) This must be set to \"template\", \"proposal\" (see BIP 23), or omitted\n"
++            "       \"coinbase_message\":\"text\" (string, optional) Solo coinbase tag, at most 80 UTF-8 bytes; requires reward_address\n"
+             "       \"capabilities\":[     (array, optional) A list of strings\n"
+             "           \"support\"          (string) client side supported feature, 'longpoll', 'coinbasetxn', 'coinbasevalue', 'proposal', 'serverlist', 'workid'\n"
+             "           ,...\n"
+@@ -470,6 +471,7 @@
+             "      \"flags\" : \"xx\"                  (string) key name is to be ignored, and value included in scriptSig\n"
+             "  },\n"
+             "  \"coinbasevalue\" : n,              (numeric) maximum allowable input to coinbase transaction, including the generation award and transaction fees (in Satoshis)\n"
++            "  \"coinbase_message\" : \"text\",      (string) tag included in this template's coinbase (empty if omitted)\n"
+             "  \"coinbasetxn\" : { ... },          (json object) information for coinbase transaction\n"
+             "  \"target\" : \"xxxx\",                (string) The hash target\n"
+             "  \"mintime\" : xxx,                  (numeric) The minimum timestamp appropriate for next block time in seconds since epoch (Jan 1 1970 GMT)\n"
+@@ -504,12 +506,23 @@
+     LOCK(cs_main);
+ 
+     std::string strMode = "template";
++    std::string coinbaseMessage;
+     UniValue lpval = NullUniValue;
+     std::set<std::string> setClientRules;
+     int64_t nMaxVersionPreVB = -1;
+     if (request.params.size() > 0)
+     {
+         const auto oparam = request.params[0].get_obj();
++        const auto message = find_value(oparam, "coinbase_message");
++        if (!message.isNull()) {
++            if (!message.isStr())
++                throw JSONRPCError(RPC_INVALID_PARAMETER, "coinbase_message must be a string");
++            coinbaseMessage = message.get_str();
++            if (coinbaseMessage.size() > 80)
++                throw JSONRPCError(RPC_INVALID_PARAMETER, "coinbase_message exceeds 80 UTF-8 bytes");
++            if (!coinbaseMessage.empty() && request.params.size() < 2)
++                throw JSONRPCError(RPC_INVALID_PARAMETER, "coinbase_message requires reward_address");
++        }
+         const auto modeval = find_value(oparam, "mode");
+         if (modeval.isStr())
+             strMode = modeval.get_str();
+@@ -664,7 +677,9 @@
+         // Need to update only after we know CreateNewBlock succeeded
+         pindexPrev = pindexPrevNew;
+     }
+-    CBlock* pblock = &pblocktemplate->block; // pointer for convenience
++    // Reward addresses and messages belong to this request, not the shared base template.
++    CBlock requestBlock = pblocktemplate->block;
++    CBlock* pblock = &requestBlock;
+     const Consensus::Params& consensusParams = Params().GetConsensus();
+ 
+     // Update nTime
+@@ -681,6 +696,11 @@
+ 
+         CMutableTransaction coinbaseTx = *pblock->vtx[0];
+         coinbaseTx.vout[0].scriptPubKey = GetScriptForDestination(rewardAddress.Get());
++        if (!coinbaseMessage.empty()) {
++            coinbaseTx.vin[0].scriptSig << std::vector<unsigned char>(coinbaseMessage.begin(), coinbaseMessage.end());
++            if (coinbaseTx.vin[0].scriptSig.size() > 100)
++                throw JSONRPCError(RPC_INVALID_PARAMETER, "coinbase_message exceeds coinbase scriptSig limit");
++        }
+         pblock->vtx[0] = MakeTransactionRef(CTransaction(coinbaseTx));
+ 
+         fRewardAddressSet = true;
+@@ -808,6 +828,7 @@
+     result.push_back(Pair("transactions", transactions));
+     result.push_back(Pair("coinbaseaux", aux));
+     result.push_back(Pair("coinbasevalue", (int64_t)pblock->vtx[0]->vout[0].nValue));
++    result.push_back(Pair("coinbase_message", coinbaseMessage));
+     result.push_back(Pair("longpollid", chainActive.Tip()->GetBlockHash().GetHex() + i64tostr(nTransactionsUpdatedLast)));
+     result.push_back(Pair("target", hashTarget.GetHex()));
+     result.push_back(Pair("mintime", (int64_t)pindexPrev->GetMedianTimePast()+1));
+@@ -861,7 +882,11 @@
+ 
+     if (pblock->IsProgPow()) {
+         static std::string lastHeader{};
+-        if (mapPPBlockTemplates.count(lastHeader) && ((pblock->nTime - 30) < mapPPBlockTemplates.at(lastHeader).nTime))
++        auto previous = mapPPBlockTemplates.find(lastHeader);
++        if (fRewardAddressSet && previous != mapPPBlockTemplates.end() &&
++            pblock->vtx[0]->GetHash() == previous->second.vtx[0]->GetHash() &&
++            pblock->nVersion == previous->second.nVersion && pblock->nBits == previous->second.nBits &&
++            pblock->nTime >= previous->second.nTime && pblock->nTime - previous->second.nTime < 30)
+         {
+             result.pushKV("pprpcheader", lastHeader);
+             result.pushKV("pprpcepoch", ethash::get_epoch_number(pblock->nHeight));
+@@ -930,14 +955,16 @@
+         throw JSONRPCError(RPC_INVALID_PARAMS, "Invalid hex nonce");
+     }
+     
+-    // Check provided header_hash is in cache
+-    if (!mapPPBlockTemplates.count(header_hex))
+-    {
+-        throw JSONRPCError(RPC_INVALID_PARAMS, "Job not found");
+-    }
+-
+     std::shared_ptr<CBlock> blockptr = std::make_shared<CBlock>();
+-    *blockptr = mapPPBlockTemplates.at(header_hex);
++    {
++        // getblocktemplate updates this map under cs_main. Preserve the submitted job
++        // before releasing the lock for proof-of-work verification.
++        LOCK(cs_main);
++        auto job = mapPPBlockTemplates.find(header_hex);
++        if (job == mapPPBlockTemplates.end())
++            throw JSONRPCError(RPC_INVALID_PARAMS, "Job not found");
++        *blockptr = job->second;
++    }
+     blockptr->nNonce64 = nonce;
+ 
+     // Check provided solution is formally valid
+--- /dev/null
++++ b/qa/rpc-tests/getblocktemplate_coinbase.py
+@@ -0,0 +1,54 @@
++#!/usr/bin/env python3
++"""Solo coinbase tags must identify independent cached FiroPoW jobs."""
++from test_framework.test_framework import BitcoinTestFramework
++from test_framework.util import (
++    assert_equal, assert_raises_jsonrpc, connect_nodes_bi, start_nodes,
++)
++
++
++class CoinbaseMessageTest(BitcoinTestFramework):
++    def set_test_params(self):
++        self.num_nodes = 2
++        self.setup_clean_chain = True
++
++    def setup_network(self):
++        self.nodes = start_nodes(2, self.options.tmpdir,
++                                 [["-ppswitchtime=2000000000"] for _ in range(2)])
++        connect_nodes_bi(self.nodes, 0, 1)
++
++    def run_test(self):
++        node = self.nodes[0]
++        # Leave IBD before activating FiroPoW, avoiding an expensive full DAG.
++        node.generate(1)
++        for peer in self.nodes:
++            peer.setmocktime(2000000001)
++        address = node.getnewaddress()
++        other_address = node.getnewaddress()
++        plain = node.getblocktemplate({}, address)
++        first = node.getblocktemplate({"coinbase_message": 'Firo "caf\u00e9"'}, address)
++        second = node.getblocktemplate({"coinbase_message": "another miner"}, address)
++        other_reward = node.getblocktemplate({"coinbase_message": "another miner"}, other_address)
++        assert_equal(first["coinbase_message"], 'Firo "caf\u00e9"')
++        assert_equal(second["coinbase_message"], "another miner")
++        assert_equal(len({item["pprpcheader"] for item in
++                          (plain, first, second, other_reward)}), 4)
++        assert_equal(node.getblocktemplate({}, address)["pprpcheader"], plain["pprpcheader"])
++        assert_equal(node.getblocktemplate({"coinbase_message": "another miner"}, other_address)
++                     ["pprpcheader"], other_reward["pprpcheader"])
++        assert_equal(node.getblocktemplate({"coinbase_message": "\u00e9" * 40}, address)
++                     ["coinbase_message"], "\u00e9" * 40)
++        assert_raises_jsonrpc(-8, "80 UTF-8 bytes", node.getblocktemplate,
++                              {"coinbase_message": "\u00e9" * 41}, address)
++        assert_raises_jsonrpc(-8, "must be a string", node.getblocktemplate,
++                              {"coinbase_message": 123}, address)
++        assert_raises_jsonrpc(-8, "requires reward_address", node.getblocktemplate,
++                              {"coinbase_message": "solo"})
++        # A different miner's request must not evict or mutate an outstanding job.
++        # A deliberately wrong mix reaches solution validation rather than 'Job not found'.
++        for job in (plain, first, second, other_reward):
++            assert_raises_jsonrpc(-32602, "mismatching mix_hash", node.pprpcsb,
++                                  job["pprpcheader"], "0" * 64, "0x0")
++
++
++if __name__ == "__main__":
++    CoinbaseMessageTest().main()

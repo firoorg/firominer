@@ -54,7 +54,18 @@ struct ProtocolTest
     static void networkMismatch()
     {
         dev::eth::PoolSettings settings;
+        settings.coinbaseMessage = "solo tag";
+        settings.connections.push_back(std::make_shared<dev::URI>("stratum://127.0.0.1:1"));
+        bool poolRejected = false;
+        try { dev::eth::PoolManager unsupported(settings); }
+        catch (std::invalid_argument const&) { poolRejected = true; }
+        require(poolRejected, "pool manager accepted coinbase messages with Stratum");
+        settings.connections.clear();
         dev::eth::PoolManager manager(settings);
+        poolRejected = false;
+        try { manager.addConnection("stratum://127.0.0.1:1"); }
+        catch (std::invalid_argument const&) { poolRejected = true; }
+        require(poolRejected, "API-added Stratum connection ignored configured coinbase message");
         auto uri = std::make_shared<dev::URI>("getwork://127.0.0.1:8888");
         auto client = std::make_unique<EthGetworkClient>(60, 1000, "reward");
         client->setConnection(uri);
@@ -82,6 +93,42 @@ struct ProtocolTest
         const auto header = response["result"]["pprpcheader"].asString();
         const auto target = response["result"]["target"].asString();
         const auto seed = std::string(64, '0');
+        {
+            EthGetworkClient plain(60, 1000, "reward");
+            require(!json(plain.m_jsonGetWork)["params"][0].isMember("coinbase_message"),
+                "empty coinbase message changed stock daemon requests");
+            const std::string message = "Mined by \"Firo\" / caf\xc3\xa9";
+            EthGetworkClient tagged(60, 1000, "reward", message);
+            auto request = json(tagged.m_jsonGetWork);
+            require(request["params"][0]["coinbase_message"].asString() == message &&
+                        request["params"][1].asString() == "reward",
+                "coinbase message or reward did not survive JSON encoding");
+            EthGetworkClient maximum(60, 1000, "reward", std::string(80, 'x'));
+            std::string unicode;
+            for (unsigned i = 0; i < 40; ++i)
+                unicode += "\xc3\xa9";
+            EthGetworkClient unicodeMaximum(60, 1000, "reward", unicode);
+            bool oversizedRejected = false;
+            try { EthGetworkClient oversized(60, 1000, "reward", unicode + "\xc3\xa9"); }
+            catch (std::invalid_argument const&) { oversizedRejected = true; }
+            require(oversizedRejected, "oversized coinbase message was accepted");
+
+            for (auto const& acknowledgement : {Json::Value(), Json::Value("wrong"), Json::Value(message)})
+            {
+                EthGetworkClient client(60, 1000, "reward", message);
+                auto uri = std::make_shared<dev::URI>("getwork://127.0.0.1:8888");
+                client.setConnection(uri);
+                client.m_pendingJReq["id"] = 1u;
+                unsigned jobs = 0;
+                client.onWorkReceived([&](dev::eth::WorkPackage&) { ++jobs; });
+                auto reply = response;
+                reply["result"]["coinbase_message"] = acknowledgement;
+                client.processResponse(reply);
+                const bool confirmed = acknowledgement == Json::Value(message);
+                require(jobs == unsigned(confirmed) && uri->IsUnrecoverable() != confirmed,
+                    "tagged work did not require an exact daemon acknowledgement");
+            }
+        }
         {
             EthGetworkClient client(60, 1000, "reward");
             client.setConnection(std::make_shared<dev::URI>("getwork://127.0.0.1:8888"));
