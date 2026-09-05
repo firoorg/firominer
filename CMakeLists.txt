@@ -97,6 +97,21 @@ if (BUILD_TESTING)
 	target_include_directories(firopow-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 	target_link_libraries(firopow-test PRIVATE crypto Threads::Threads)
 	add_test(NAME firopow-reference-vector COMMAND firopow-test)
+	find_program(OPENCL_TEST_CLANG NAMES clang)
+	if (OPENCL_TEST_CLANG)
+		add_executable(opencl-kernel-generator test/opencl-kernel.cpp)
+		target_include_directories(opencl-kernel-generator PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+		target_link_libraries(opencl-kernel-generator PRIVATE crypto Threads::Threads)
+		add_test(NAME opencl-generated-kernels COMMAND ${CMAKE_COMMAND}
+			"-DGENERATOR=$<TARGET_FILE:opencl-kernel-generator>"
+			"-DKERNEL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/libethash-cl/CLMiner_kernel.cl"
+			"-DCLANG=${OPENCL_TEST_CLANG}"
+			"-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/test-opencl"
+			-P "${CMAKE_CURRENT_SOURCE_DIR}/test/opencl-kernels.cmake")
+		set_tests_properties(opencl-generated-kernels PROPERTIES TIMEOUT 150)
+	else()
+		message(STATUS "Clang not found: skipping offline OpenCL kernel compilation test")
+	endif()
 endif()
 add_subdirectory(libdevcore)
 if (BUILD_TESTING)

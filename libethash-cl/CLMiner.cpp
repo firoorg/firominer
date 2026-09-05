@@ -268,6 +268,8 @@ CLMiner::CLMiner(unsigned _index, CLSettings _settings, DeviceDescriptor& _devic
     m_settings.localWorkSize = ((m_settings.localWorkSize + 7) / 8) * 8;
     m_settings.globalWorkSize = checkedGlobalWorkSize(
         uint64_t{m_settings.localWorkSize} * m_settings.globalWorkSizeMultiplier);
+    if (m_settings.experimentalInline)
+        cllog << "Experimental OpenCL inline mix kernel enabled";
 }
 
 CLMiner::~CLMiner()
@@ -929,6 +931,7 @@ bool CLMiner::compileKernel(uint64_t period_seed,
     code += std::string(CLMiner_kernel);
 
     addDefinition(code, "GROUP_SIZE", m_settings.localWorkSize);
+    addDefinition(code, "FIROPOW_CL_INLINE_MIX", m_settings.experimentalInline);
     addDefinition(code, "ACCESSES", 64);
     addDefinition(code, "LIGHT_WORDS", epochContext->light_cache_num_items);
     addDefinition(code, "DAG_NODES", epochContext->full_dataset_num_items * 2);

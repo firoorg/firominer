@@ -175,6 +175,9 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "#define GROUP_SIZE 128\n";
         ret << "#endif\n";
         ret << "#define GROUP_SHARE (GROUP_SIZE / " << kLanes << ")\n";
+        ret << "#ifndef FIROPOW_CL_INLINE_MIX\n";
+        ret << "#define FIROPOW_CL_INLINE_MIX 0\n";
+        ret << "#endif\n";
         ret << "\n";
         ret << "typedef unsigned int       uint32_t;\n";
         ret << "typedef unsigned long      uint64_t;\n";
@@ -208,8 +211,13 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
                "dag_t;\n";
         ret << "\n";
         ret << "// Inner loop for prog_seed " << prog_seed << "\n";
+        ret << "#if FIROPOW_CL_INLINE_MIX\n";
+        ret << "static inline __attribute__((always_inline)) void progPowLoop(const uint32_t loop,\n";
+        ret << "        uint32_t mix[PROGPOW_REGS],\n";
+        ret << "#else\n";
         ret << "inline void progPowLoop(const uint32_t loop,\n";
         ret << "        volatile uint32_t mix_arg[PROGPOW_REGS],\n";
+        ret << "#endif\n";
         ret << "        __global const dag_t *g_dag,\n";
         ret << "        __local const uint32_t c_dag[PROGPOW_CACHE_WORDS],\n";
         ret << "        __local uint32_t loop_offsets[GROUP_SHARE],\n";
@@ -223,9 +231,11 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     // See https://github.com/gangnamtestnet/firominer/issues/16
     if (kern == kernel_type::OpenCL)
     {
+        ret << "#if !FIROPOW_CL_INLINE_MIX\n";
         ret << "uint32_t mix[PROGPOW_REGS];\n";
         ret << "for(int i=0; i<PROGPOW_REGS; i++)\n";
         ret << "    mix[i] = mix_arg[i];\n";
+        ret << "#endif\n";
     }
 
     if (kern == kernel_type::Cuda)
@@ -322,8 +332,10 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
     // Work around AMD OpenCL compiler bug
     if (kern == kernel_type::OpenCL)
     {
+        ret << "#if !FIROPOW_CL_INLINE_MIX\n";
         ret << "for(int i=0; i<PROGPOW_REGS; i++)\n";
         ret << "    mix_arg[i] = mix[i];\n";
+        ret << "#endif\n";
     }
     ret << "}\n";
     ret << "\n";

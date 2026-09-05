@@ -110,6 +110,9 @@ uint32_t kiss99(kiss99_t* st)
     return ((MWC ^ st->jcong) + st->jsr);
 }
 
+#if FIROPOW_CL_INLINE_MIX
+static inline __attribute__((always_inline))
+#endif
 void fill_mix(local uint32_t* seed, uint32_t lane_id, uint32_t* mix)
 {
     // Use FNV to expand the per-warp seed to per-lane

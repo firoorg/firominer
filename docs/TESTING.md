@@ -60,6 +60,30 @@ Test individual devices with `--cl-devices 0` or `--cu-devices 0`, then several
 with `--cl-devices 0 1` or `--cu-devices 0 1`. Finally test the default selection on
 mixed hardware. Keep host verification enabled (omit `--noeval`).
 
+## Experimental OpenCL inlining
+
+Add `--cl-experimental-inline` to an OpenCL (`-G`) command to test forced helper
+inlining and direct private mix storage without the old volatile-array workaround.
+The option is off by default. Each selected OpenCL miner logs that the experiment
+is enabled. It requires an OpenCL C 1.2-compatible compiler that supports
+`always_inline`; older compiler workarounds remain available by omitting the flag.
+A build failure uses normal device error handling, without silently switching
+kernel variants.
+
+Run the same workload with and without the flag, keeping the device, driver,
+clocks, local/global work sizes and other options fixed. Leave host verification
+enabled and compare accepted, invalid, rejected and stale shares across several
+periods before comparing hashrate. Include workgroup sizes 64, 128 and 256. Revert
+to the default path if the experimental variant fails compilation or produces
+invalid results. CPU tests and generated-kernel compilation do not establish GPU
+correctness or a speedup.
+
+Use simulation for functional and period-transition checks. Easy simulated work
+can change periods about every 200 ms, so it is not a stable kernel-throughput
+benchmark. For performance comparisons, allow warmup and sample the same fixed
+jobs/periods with a suitable GPU profiling setup, or compare repeated realistic
+pool runs while recording the changing jobs and targets.
+
 ## Pool and daemon tests
 
 Replace all uppercase placeholders and the reserved example hostname before use:

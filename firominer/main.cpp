@@ -290,6 +290,8 @@ public:
 
         app.add_set("--cl-local-work", m_CLSettings.localWorkSize, {64, 128, 256}, "", true);
 
+        app.add_flag("--cl-experimental-inline", m_CLSettings.experimentalInline, "");
+
 #endif
 
 #if ETH_ETHASHCUDA
@@ -876,7 +878,11 @@ public:
                  << "    --cl-global-work    UINT Default = " << m_CLSettings.globalWorkSizeMultiplier << endl
                  << "                        Set the global work size multiplier" << endl
                  << "    --cl-local-work     UINT {64,128,256} Default = " << m_CLSettings.localWorkSize << endl
-                 << "                        Set the local work size multiplier" << endl;
+                 << "                        Set the local work size multiplier" << endl
+                 << "    --cl-experimental-inline Default = off" << endl
+                 << "                        Force helper inlining and disable the volatile" << endl
+                 << "                        mix workaround. Requires a compatible OpenCL" << endl
+                 << "                        compiler; test with host verification enabled." << endl;
         }
 
         if (ctx == "cu")
