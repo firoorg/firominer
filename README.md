@@ -1,60 +1,70 @@
-# firominer (ethminer fork with ProgPoW implementation)
+# firominer
 
-> firopow miner with OpenCL, CUDA and stratum support
+> FiroPoW miner for Firo, with OpenCL, CUDA and Stratum support
 
-**firominer** is an ProgPoW GPU mining worker: with firominer you can mine Firo, which relies on an ProgPoW-based Proof of Work thus including Ethereum ProgPoW and others. This is the actively maintained version of firominer. It originates from the [ethminer](https://github.com/ethereum-mining/ethminer) project. Check the original [ProgPoW](https://github.com/ifdefelse/progpow) implementation and [EIP-1057](https://eips.ethereum.org/EIPS/eip-1057) for specification.
+**firominer** mines Firo using FiroPoW, Firo's ProgPoW-based proof of work. It supports pool mining over Stratum and solo mining against a Firo daemon over HTTP. It originates from the [ethminer](https://github.com/ethereum-mining/ethminer) project and the [ProgPoW](https://github.com/ifdefelse/progpow) implementation. Its hashing and network rules are specific to Firo; it is not a general Ethereum or ProgPoW miner.
 
 ## Features
 
-* First commercial ProgPOW Firo miner software for miners.
-* OpenCL mining
-* Nvidia CUDA mining
-* realistic benchmarking against arbitrary epoch/DAG/blocknumber
-* on-GPU DAG generation (no more DAG files on disk)
-* stratum mining without proxy
-* OpenCL devices picking
-* farm failover (getwork + stratum)
-* desktop launcher for solo and pool mining, with live logs and OpenCL experiment detection
-* custom solo coinbase messages with the companion Firo daemon patch
+* OpenCL and NVIDIA CUDA mining, with individual device selection
+* Local mining simulation starting at a specified block height
+* On-GPU DAG generation, with no DAG files on disk
+* Stratum pool mining and HTTP solo mining, with endpoint failover
+* Mainnet, testnet, devnet and regtest epoch schedules
+* Optional HTTP monitoring and TCP JSON-RPC control API
+* Development CPU backend, selected explicitly with `--cpu` when compiled in
+* Desktop launcher for solo and pool mining, with live logs and OpenCL experiment detection
+* Custom solo coinbase messages with the companion Firo daemon patch
 
 
 ## Table of Contents
 
 * [Install](#install)
 * [Usage](#usage)
+    * [Desktop GUI](#desktop-gui)
     * [Examples connecting to pools](#examples-connecting-to-pools)
+    * [Device selection and local testing](#device-selection-and-local-testing)
+    * [Solo mining and network selection](#solo-mining-and-network-selection)
+    * [Monitoring and device recovery](#monitoring-and-device-recovery)
 * [Build](#build)
     * [Continuous Integration and development builds](#continuous-integration-and-development-builds)
     * [Building from source](#building-from-source)
+* [FiroPoW parameters](#firopow-parameters)
 * [Maintainers & Authors](#maintainers--authors)
 * [Contribute](#contribute)
+* [License](#license)
 * [F.A.Q.](#faq)
 
 
 ## Install
 
-[Releases][Releases]
+Download a package for your operating system from [Releases], or use a
+development artifact from GitHub Actions. The current packaging workflow produces
+Linux x86-64 and Windows x64 packages in two variants:
 
-Prebuilt **executables** for *Linux* and *Windows* are provided in
-the [Releases] section.
-Download an archive for your operating system and unpack the content to a place
-accessible from command line. The firominer is ready to go.
+| Package | Required driver | Backends |
+| --- | --- | --- |
+| `cuda11.8-opencl` | NVIDIA driver | CUDA, OpenCL, CPU diagnostics |
+| `opencl` | Vendor OpenCL driver for GPU mining | OpenCL, CPU diagnostics |
 
-| Builds | Release |
-| ------ | ------- |
-| Last   | [GitHub release](https://github.com/firoorg/firominer/releases) 
-
-
-On Windows, install the [Microsoft Visual C++ 2015-2022 Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe).
-CUDA or OpenCL errors require a current NVIDIA or AMD graphics driver.
+Both variants include the API and Python desktop launcher. Keep the extracted
+directory intact: the executable in `bin/` needs its companion libraries.
+Current packages bundle the CUDA runtime/compiler libraries where applicable
+and the Visual C++ runtime on Windows. A full CUDA Toolkit is needed to build
+the CUDA backend, but not to run these packages. GPU drivers and Python/Tk
+are installed separately. See [Testing PR artifacts](docs/TESTING.md) for
+checksum verification and platform requirements.
 
 ## Usage
 
 Use the desktop launcher below, or launch **firominer** from a terminal.
-For a full list of command line options, run:
+The commands below assume `firominer` is on your `PATH`. From an extracted
+package, use `./bin/firominer` on Linux or `.\bin\firominer.exe` in Windows
+PowerShell. For command line help, run:
 
 ```sh
 firominer --help
+firominer --help-ext con
 ```
 
 ### Desktop GUI
@@ -92,18 +102,61 @@ worker-supplied message through this miner's Stratum protocol.
 
 ### Examples connecting to pools
 
-Use your pool's advertised endpoint and replace the placeholders:
+For Firo pool mining, replace `WALLET`, `WORKER` and `PASSWORD` with your
+Firo payout address, worker name and pool password:
 
-`./firominer -P stratum+tcp://WALLET.WORKER:PASSWORD@pool.example.invalid:PORT` or
+```sh
+./bin/firominer -P "stratum+tcp://WALLET.WORKER:PASSWORD@firo.cedric-crispin.com:4064"
+```
 
-`firominer.exe -P stratum+tcp://WALLET.WORKER:PASSWORD@pool.example.invalid:PORT`
+Windows PowerShell:
+
+```powershell
+.\bin\firominer.exe -P "stratum+tcp://WALLET.WORKER:PASSWORD@firo.cedric-crispin.com:4064"
+```
+
+Follow the pool's login requirements. URL-encode reserved characters in login
+values. Repeat `-P` with additional pool URLs to configure failover in order;
+`-P exit` ends the cycle when reached. Use `--help-ext con` for connection schemes
+and `--help-ext misc` for retry and failover settings.
+
+### Device selection and local testing
+
+By default, the miner uses detected GPUs and prefers CUDA for devices available
+through both CUDA and OpenCL. Use `-G` for OpenCL only or `-U` for CUDA only.
+List devices with the same backend selection you will use for mining:
+
+```sh
+firominer -G --list-devices
+firominer -U --list-devices
+```
+
+Select devices with `--cl-devices 0 1` or `--cu-devices 0 1`. Only options for
+backends compiled into the executable are available. Use `--help-ext cl` or
+`--help-ext cu` for their work-size settings.
+
+To exercise a GPU locally without a pool connection:
+
+```sh
+firominer -G -M 0 --diff 0.01
+```
+
+`-M` (`--benchmark`) and `-Z` (`--simulation`) select the same simulation mode.
+The argument is the starting block height; the simulation advances on accepted
+solutions. Allow DAG generation and kernel compilation to finish, then press
+Ctrl-C to stop. Block 0 only starts at the initial epoch. Test a recent height
+and the intended network to exercise the corresponding DAG size. See
+[hardware testing](docs/TESTING.md) for validation and performance comparisons.
 
 ### Solo mining and network selection
 
-Firo's `getwork://` (or `http://`) connections require a block reward address:
+Run a synchronized Firo daemon with RPC enabled and use its configured RPC
+credentials and port. Firo's `getwork://` (or `http://`) connections require a
+block reward address. These URI schemes use Firo's `getblocktemplate` RPC.
+Replace `FIRO_REWARD_ADDRESS` below with your payout address:
 
 ```sh
-firominer -P getwork://rpcuser:rpcpass@127.0.0.1:8888 -r <Firo-address>
+firominer -P "getwork://rpcuser:rpcpass@127.0.0.1:8888" -r FIRO_REWARD_ADDRESS
 ```
 
 Use `--firopow-network testnet`, `devnet`, or `regtest` when connecting to those networks; the default is `mainnet`. The miner rejects daemon templates whose advertised epoch disagrees with the selected network. Stratum jobs use the selected network's epoch schedule, with a warning for conflicting pool metadata. Height-bearing EthereumStratum/1.0.0 (`stratum2+tcp`) jobs remain supported.
@@ -112,7 +165,7 @@ To include a pool-style signature in blocks you solo-mine, first apply the
 [companion daemon patch](patches/README.md) to Firo and rebuild your node, then use:
 
 ```sh
-firominer -P getwork://rpcuser:rpcpass@127.0.0.1:8888 -r <Firo-address> --coinbase-message "Mined by my rig"
+firominer -P "getwork://rpcuser:rpcpass@127.0.0.1:8888" -r FIRO_REWARD_ADDRESS --coinbase-message "Mined by my rig"
 ```
 
 Messages may contain up to 80 UTF-8 bytes. Leaving the option empty preserves
@@ -123,6 +176,11 @@ The patch is also included in installed packages under `share/firominer/patches/
 `--work-timeout` reconnects Stratum sessions that receive no new job for 600 seconds by default. Values from 180 to 1000000 seconds are accepted. Getwork requests have a 30-second response deadline and a 16 MiB response body limit.
 
 ### Monitoring and device recovery
+
+The API is disabled by default. Add `--api-bind 127.0.0.1:3333` to a mining
+command to enable it locally, or `--api-bind 127.0.0.1:-3333` for read-only
+access. HTTP monitoring and TCP JSON-RPC share the port. See the
+[API documentation](docs/API_DOCUMENTATION.md) for methods and response formats.
 
 When `--api-password` is set, the HTTP status page and `/getstat1` return HTTP 401. Authenticate the plain TCP JSON-RPC API with `api_authorize` to read status or control the miner. HTTP has no password authentication mechanism. Without a password, HTTP monitoring remains available and hides pool URI credentials.
 
@@ -138,74 +196,95 @@ GitHub Actions runs core tests normally and under AddressSanitizer/UndefinedBeha
 
 Packages include runtime libraries, documentation, source/build identification, and checksums. They require a compatible GPU driver; the CUDA package requires an NVIDIA driver even when selecting another backend. Linux packages target Ubuntu 22.04 or newer compatible x86-64 systems, and Windows packages target Windows 10/11 x64. See [Testing PR artifacts](docs/TESTING.md) for setup and a functional test guide.
 
-Downloads appear in the associated workflow run's artifacts for pull requests and pushes to `main`. These are unsigned development packages. A tag matching `v` plus `PROJECT_VERSION` (for example, `v1.2.4`) publishes the same verified packages as a GitHub release. CI has no physical GPUs, so device execution, accepted pool shares, and hashrate still require hardware testing.
+Downloads appear in the associated workflow run's artifacts for pull requests and pushes to `main`. These are unsigned development packages. A tag matching `v` plus `PROJECT_VERSION` (for example, `v1.2.0`) publishes the same verified packages as a GitHub release. CI has no physical GPUs, so device execution, accepted pool shares, and hashrate still require hardware testing.
 
-After cloning this repository into `firominer`, it can be built with commands like:
+### Building from source
 
-### Ubuntu / OSX
-```
-cd firominer
+The project uses C++17, CMake and Hunter to build its dependencies. Initialize
+submodules before configuring. The examples below use CMake 3.20 or newer within
+the 3.x series and build
+OpenCL, the API and tests; CUDA is optional. Python 3.9+ enables the launcher
+tests, and Clang enables offline OpenCL kernel compilation tests.
+
+#### Linux
+
+The Linux packaging job builds on Ubuntu 22.04 with GCC. Install its build
+prerequisites, then run these commands from the repository root:
+
+```sh
+sudo apt-get update
+sudo apt-get install build-essential ca-certificates cmake git ninja-build perl python3 mesa-common-dev libglu1-mesa-dev freeglut3-dev
 git submodule update --init --recursive
-mkdir build
-cd build
-cmake .. -DETHASHCUDA=ON -DETHASHCL=ON -DAPICORE=ON
-make -sj $(nproc)
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DETHASHCL=ON -DETHASHCUDA=OFF -DAPICORE=ON -DBUILD_TESTING=ON
+cmake --build build --parallel 2
+ctest --test-dir build --output-on-failure
+cmake --install build --prefix "$PWD/stage"
 ```
 
+The installed miner is `stage/bin/firominer`. For CUDA support, install CUDA
+Toolkit 11.8 (the version used by CI), set `-DETHASHCUDA=ON`, and pass
+`-DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda` if needed. A local installation does
+not bundle CUDA libraries automatically; the CI packaging steps add them.
 
-### Windows
+#### Windows
 
-### Prerequisites:
-1. Install Visual Studios (2019) (with the additional installation package "C++ Cmake Tools for Windows)
-2. Install latest perl to C:\Perl (https://www.perl.org/get.html)
-   Follow the steps outlined and the default perl installtion should work
+Install Visual Studio C++ build tools with the v142 (VS 2019) x64 toolset,
+CMake, Git and Perl. For a VS 2019 installation, open its x64 Native Tools
+Command Prompt and run these commands from the repository root:
 
-### Building via Visual Studios Command Line:
-Open "Developer Command Prompt for VS 2019"
-1. Open StartMenu and search for "Developer Command Prompt for VS 2019"
-2. Follow these steps:
-```
-cd C:\Users\USER_NAME\PATH_TO_FIROMINER\firominer
+```bat
 git submodule update --init --recursive
-mkdir build
-cd build
-cmake -G "Visual Studio 16 2019" -A X64 -H. -Bbuild -DETHASHCL=ON -DETHASHCUDA=ON -DAPICORE=ON ..
-cd build
-cmake --build . --config Release
+cmake -S . -B build -G "Visual Studio 16 2019" -A x64 -T v142 -DETHASHCL=ON -DETHASHCUDA=OFF -DAPICORE=ON -DBUILD_TESTING=ON
+cmake --build build --config Release --parallel 2
+ctest --test-dir build --build-config Release --output-on-failure
+cmake --install build --config Release --prefix stage
 ```
-(Yes, two nested build/build directories.)
 
-### Building via Visual Studios GUI (This build doesn't seem to work for some 20XX Nvidia cards)
-   1. Open Visual Studios
-   2. Open CMakeLists.txt file with File->Open->CMake
-   3. Wait for intelligence to build the cache (this can take some time)
-   4. Build the project (CTRL+SHIFT+B) or find the build command in the menu
+The installed miner is `stage\bin\firominer.exe`. For CUDA support, install
+CUDA Toolkit 11.8 and configure with `-DETHASHCUDA=ON` and
+`-DCUDA_TOOLKIT_ROOT_DIR="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8"`.
+CI uses VS 2022 with the v142 toolset and explicitly sets Hunter's compiler
+environment to match. See the Windows configure steps in
+[the CI workflow](.github/workflows/ci.yaml) when using that setup.
 
-ProgPoW can be tuned using the following parameters.  The proposed settings have been tuned for a range of existing, commodity GPUs:
+#### Build options and platform coverage
 
-* `PROGPOW_PERIOD`: Number of blocks before changing the random program
-* `PROGPOW_LANES`: The number of parallel lanes that coordinate to calculate a single hash instance
-* `PROGPOW_REGS`: The register file usage size
-* `PROGPOW_DAG_LOADS`: Number of uint32 loads from the DAG per lane
-* `PROGPOW_CACHE_BYTES`: The size of the cache
-* `PROGPOW_CNT_DAG`: The number of DAG accesses, defined as the outer loop of the algorithm (64 is the same as Ethash)
-* `PROGPOW_CNT_CACHE`: The number of cache accesses per loop
-* `PROGPOW_CNT_MATH`: The number of math operations per loop
+| CMake option | Default | Purpose |
+| --- | --- | --- |
+| `ETHASHCL` | `ON` | OpenCL backend |
+| `ETHASHCUDA` | `ON` | CUDA backend |
+| `ETHASHCPU` | `OFF` | Development CPU backend, enabled at runtime with `--cpu` |
+| `APICORE` | `ON` | HTTP and TCP JSON-RPC API |
+| `ETHDBUS` | `OFF` | D-Bus support |
+| `DEVBUILD` | `OFF` | Developer logging |
+| `BUILD_TESTING` | `ON` | CTest targets |
 
-The value of these parameters has been tweaked to use 0.9.4 specs with a PROGPOW_PEROD of 1 to fit Firo's blocktimes.  See [this medium post](https://medium.com/@ifdefelse/progpow-progress-da5bb31a651b) for details.
+For core tests without GPU SDKs, configure with `-DETHASHCL=OFF`,
+`-DETHASHCUDA=OFF` and `-DETHASHCPU=ON`. Tests check reference hashes, miner state,
+protocol parsing and, when enabled, the API and launcher. They do not replace
+GPU execution tests. The code contains macOS support, but the current CI
+workflow does not build or package macOS.
 
-| Parameter             | 0.9.2 | 0.9.3 | 0.9.4 |
-|-----------------------|-------|-------|--------|
-| `PROGPOW_PERIOD`      | `50`  | `10`  |  `1`   |
-| `PROGPOW_LANES`       | `16`  | `16`  |  `16`  |
-| `PROGPOW_REGS`        | `32`  | `32`  |  `32`  |
-| `PROGPOW_DAG_LOADS`   | `4`   | `4`   |  `4`   |
-| `PROGPOW_CACHE_BYTES` | `16x1024` | `16x1024` | `16x1024` |
-| `PROGPOW_CNT_DAG`     | `64`  | `64`  | `64`  |
-| `PROGPOW_CNT_CACHE`   | `12`  | `11`  | `11`  |
-| `PROGPOW_CNT_MATH`    | `20`  | `18`  | `18`  |
+## FiroPoW parameters
 
-Epoch length = 1300 blocks
+FiroPoW uses the ProgPoW 0.9.4 parameters with a program period of one block.
+These are hashing rules, not performance tuning options. Changing them produces
+hashes that do not match Firo's proof of work. The implementation is in
+[`libcrypto/progpow.hpp`](libcrypto/progpow.hpp) and
+[`libcrypto/ethash.cpp`](libcrypto/ethash.cpp).
+
+DAG size depends on the epoch derived from the block height and selected
+network. The code uses `floor(height / 1300)` until the network's DAG reduction
+height, then fixes the epoch as follows:
+
+| Network | Reduction height | Fixed epoch from that height |
+| --- | --- | --- |
+| Mainnet | 1,205,100 | 650 |
+| Testnet | 189,800 | 100 |
+| Devnet / regtest | 3,900 | 1 |
+
+Use `--firopow-network` to match the daemon or pool. Tune GPU launch settings
+through the CLI backend options instead of changing algorithm constants.
 
 ## Maintainers & Authors
 
@@ -241,77 +320,47 @@ All bug reports, pull requests and code reviews are very much welcome.
 Licensed under the [GNU General Public License, Version 3](LICENSE).
 
 
-## F.A.Q
+## F.A.Q.
 
-### Why is my hashrate with Nvidia cards on Windows 10 so low?
+### How much GPU memory do I need?
 
-The new WDDM 2.x driver on Windows 10 uses a different way of addressing the GPU. This is good for a lot of things, but not for ETH mining.
+Each GPU needs enough available memory for the current network's DAG, light
+cache and working buffers. The requirement depends on the network's epoch
+schedule, including the DAG reduction and fixed epoch described above. Check the
+miner's DAG and memory logs at the height you intend to mine; a fixed claim
+such as "4 GB is enough" becomes outdated. A device that cannot allocate the
+required memory cannot mine that epoch.
 
-* For Kepler GPUs: I actually don't know. Please let me know what works best for good old Kepler.
-* For Maxwell 1 GPUs: Unfortunately the issue is a bit more serious on the GTX750Ti, already causing suboptimal performance on Win7 and Linux. Apparently about 4MH/s can still be reached on Linux, which, depending on ETH price, could still be profitable, considering the relatively low power draw.
-* For Maxwell 2 GPUs: There is a way of mining ETH at Win7/8/Linux speeds on Win10, by downgrading the GPU driver to a Win7 one (350.12 recommended) and using a build that was created using CUDA 6.5.
-* For Pascal GPUs: You have to use the latest WDDM 2.1 compatible drivers in combination with Windows 10 Anniversary edition in order to get the full potential of your Pascal GPU.
+### Which performance settings should I use?
 
-### Why is a GTX 1080 slower than a GTX 1070?
+Start with the defaults, then compare accepted shares and sustained hashrate
+on your hardware. Use `--help-ext cl` and `--help-ext cu` for supported options.
+`--cl-global-work` is a direct multiplier; it need not be a power of two.
+`--cl-experimental-inline` is opt-in and requires hardware verification.
+Keep host solution verification enabled by leaving out `--noeval`.
 
-Because of the GDDR5X memory, which can't be fully utilized for FIRO mining (yet).
+### Can I CPU mine?
 
-### Are AMD cards also affected by slowdowns with increasing DAG size?
+A development CPU backend is available when built with `-DETHASHCPU=ON`.
+Select it explicitly with `--cpu`; it is intended for diagnostics and testing.
+The CI packages include it, but normal mining runs select GPUs only.
 
-Only GCN 1.0 GPUs (78x0, 79x0, 270, 280), but in a different way. You'll see that on each new epoch (30K blocks), the hashrate will go down a little bit.
+### Why does the miner fail to load CUDA or OpenCL?
 
-### Can I still mine FIRO with my 2GB GPU?
+Use a package that matches your installed driver and keep its companion
+libraries in their original directories. The CUDA
+package requires an NVIDIA driver even when you select OpenCL or CPU. On a
+machine without that driver, use the OpenCL-only package. For a source build,
+make the matching CUDA runtime/compiler libraries available to the executable.
+See [package setup](docs/TESTING.md#choose-and-unpack-a-package).
 
-Not really, your VRAM must be above the DAG size (Currently about 4 GB.) to get best performance. Without it severe hash loss will occur.
+### How do I select the same CUDA devices between runs?
 
-### What are the optimal launch parameters?
+Use `--list-devices` with your chosen backend and select its reported indexes.
+Setting `CUDA_DEVICE_ORDER=PCI_BUS_ID` before launching asks CUDA to enumerate
+by PCI bus ID. For example, use `export CUDA_DEVICE_ORDER=PCI_BUS_ID` in a Linux
+shell or `$env:CUDA_DEVICE_ORDER = "PCI_BUS_ID"` in PowerShell, then list devices
+again before choosing `--cu-devices`.
 
-The default parameters are fine in most scenario's (CUDA). For OpenCL it varies a bit more. Just play around with the numbers and use powers of 2. GPU's like powers of 2.
-
-### What does the `--cuda-parallel-hash` flag do?
-
-[@davilizh](https://github.com/davilizh) made improvements to the CUDA kernel hashing process and added this flag to allow changing the number of tasks it runs in parallel. These improvements were optimised for GTX 1060 GPUs which saw a large increase in hashrate, GTX 1070 and GTX 1080/Ti GPUs saw some, but less, improvement. The default value is 4 (which does not need to be set with the flag) and in most cases this will provide the best performance.
-
-### What is firominer's relationship with [Genoil's fork]?
-
-[Genoil's fork] was the original source of this version, but as Genoil is no longer consistently maintaining that fork it became almost impossible for developers to get new code merged there. In the interests of progressing development without waiting for reviews this fork should be considered the active one and Genoil's as legacy code.
-
-### Can I CPU Mine?
-
-No.
-
-### CUDA GPU order changes sometimes. What can I do?
-
-There is an environment var `CUDA_DEVICE_ORDER` which tells the Nvidia CUDA driver how to enumerates the graphic cards.
-The following values are valid:
-
-* `FASTEST_FIRST` (Default) - causes CUDA to guess which device is fastest using a simple heuristic.
-* `PCI_BUS_ID` - orders devices by PCI bus ID in ascending order.
-
-To prevent some unwanted changes in the order of your CUDA devices you **might set the environment variable to `PCI_BUS_ID`**.
-This can be done with one of the 2 ways:
-
-* Linux:
-    * Adapt the `/etc/environment` file and add a line `CUDA_DEVICE_ORDER=PCI_BUS_ID`
-    * Adapt your start script launching firominer and add a line `export CUDA_DEVICE_ORDER=PCI_BUS_ID`
-
-* Windows:
-    * Adapt your environment using the control panel (just search `setting environment windows control panel` using your favorite search engine)
-    * Adapt your start (.bat) file launching firominer and add a line `set CUDA_DEVICE_ORDER=PCI_BUS_ID` or `setx CUDA_DEVICE_ORDER PCI_BUS_ID`. For more info about `set` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/set_1), for more info about `setx` see [here](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/setx)
-
-### nvrtc64_102_0.dll not found...
-
-```text
-Error: The code execution cannot be processed because nvrtc64_102_0.dll was not found.
-or
-error while loading shared libraries: libnvrtc.so.10.2: cannot open shared object file: No such file or directory
-```
-
-You have to upgrade your Nvidia drivers. Install cuda 10.2.
-
-
-[Amazon S3 is needed]: https://docs.travis-ci.com/user/uploading-artifacts/
-[cpp-ethereum]: https://github.com/ethereum/cpp-ethereum
 [Contributors statistics since 2015-08-20]: https://github.com/firoorg/firominer/graphs/contributors?from=2015-08-20
-[Genoil's fork]: https://github.com/Genoil/cpp-ethereum
 [Releases]: https://github.com/firoorg/firominer/releases
