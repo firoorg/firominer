@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 permissions:
@@ -10,7 +11,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   test:
@@ -87,6 +88,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
           submodules: recursive
 
       - name: Prepare reproducible build
@@ -134,7 +136,7 @@ jobs:
           fi
           printf '%s\n' \
             "Source: https://github.com/$GITHUB_REPOSITORY/tree/$(git rev-parse HEAD)" \
-            "PR head: ${{ github.event.pull_request.head.sha || github.sha }}" \
+            "Source commit: ${{ github.event.pull_request.head.sha || github.sha }}" \
             "Build: Release; CUDA=${{ matrix.cuda }}; OpenCL=ON; CPU=ON; API=ON; DBUS=OFF" \
             "Platform: Linux x86-64, Ubuntu 22.04, CUDA toolkit 11.8" \
             "CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
@@ -195,6 +197,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install CUDA
@@ -273,7 +276,7 @@ jobs:
             $cuda = if ($variant -eq 'cuda-opencl') { 'ON' } else { 'OFF' }
             @(
               "Source: https://github.com/$env:GITHUB_REPOSITORY/tree/$(git rev-parse HEAD)"
-              "PR head: ${{ github.event.pull_request.head.sha || github.sha }}"
+              "Source commit: ${{ github.event.pull_request.head.sha || github.sha }}"
               "Build: Release; CUDA=$cuda; OpenCL=ON; CPU=ON; API=ON; DBUS=OFF"
               'Platform: Windows x86-64, v142 toolset, CUDA toolkit 11.8'
               "CI: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
@@ -334,3 +337,96 @@ jobs:
           path: SHA256SUMS-windows.txt
           if-no-files-found: error
           archive: false
+
+  release:
+    name: Publish GitHub release
+    if: github.ref_type == 'tag'
+    needs: [test, gpu-build, windows-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^set\(PROJECT_VERSION[[:space:]]+([^ )]+)\)$/\1/p' CMakeLists.txt)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|rc)\.[0-9]+)?$ ]]; then
+            echo "Invalid PROJECT_VERSION: $version" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Release tag $GITHUB_REF_NAME does not match PROJECT_VERSION $version" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tag $GITHUB_REF_NAME is not on main" >&2
+            exit 1
+          fi
+
+      - name: Download release packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: firominer-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Download Windows checksums
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: SHA256SUMS-windows.txt
+          path: release-assets
+
+      - name: Verify release assets
+        shell: bash
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          assets=(
+            firominer-linux-x86_64-cuda11.8-opencl.tar.gz
+            firominer-linux-x86_64-cuda11.8-opencl.tar.gz.sha256
+            firominer-linux-x86_64-opencl.tar.gz
+            firominer-linux-x86_64-opencl.tar.gz.sha256
+            firominer-windows-x86_64-cuda11.8-opencl.zip
+            firominer-windows-x86_64-opencl.zip
+            SHA256SUMS-windows.txt
+          )
+          for asset in "${assets[@]}"; do
+            test -f "$asset"
+          done
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq "${#assets[@]}"
+          sha256sum --check firominer-linux-x86_64-cuda11.8-opencl.tar.gz.sha256
+          sha256sum --check firominer-linux-x86_64-opencl.tar.gz.sha256
+          sed -i 's/\r$//' SHA256SUMS-windows.txt
+          sha256sum --check SHA256SUMS-windows.txt
+
+      - name: Publish release
+        shell: bash
+        working-directory: release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          assets=(
+            firominer-linux-x86_64-cuda11.8-opencl.tar.gz
+            firominer-linux-x86_64-cuda11.8-opencl.tar.gz.sha256
+            firominer-linux-x86_64-opencl.tar.gz
+            firominer-linux-x86_64-opencl.tar.gz.sha256
+            firominer-windows-x86_64-cuda11.8-opencl.zip
+            firominer-windows-x86_64-opencl.zip
+            SHA256SUMS-windows.txt
+          )
+          options=(--verify-tag --generate-notes)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            options+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" "${options[@]}"
