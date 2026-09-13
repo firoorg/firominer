@@ -54,7 +54,11 @@ public:
     void removeConnection(unsigned int idx);
     void start();
     void stop();
-    bool isConnected() { return p_client && p_client->isConnected(); };
+    bool isConnected()
+    {
+        std::lock_guard<std::mutex> lifecycleLock(m_lifecycleMutex);
+        return p_client && p_client->isConnected();
+    }
     bool isRunning() { return m_running; };
     int getCurrentEpoch();
     double getCurrentDifficulty();
@@ -80,7 +84,7 @@ private:
     std::atomic<bool> m_running = {false};
     std::atomic<bool> m_stopping = {false};
     std::atomic<bool> m_async_pending = {false};
-    std::mutex m_lifecycleMutex;  // Serializes client publication and shutdown.
+    std::mutex m_lifecycleMutex;  // Protects client publication, status reads, and final release.
 
     unsigned m_connectionAttempt = 0;
 

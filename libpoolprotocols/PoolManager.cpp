@@ -1,4 +1,5 @@
 #include <chrono>
+#include <future>
 
 #include "PoolManager.h"
 
@@ -245,14 +246,56 @@ void PoolManager::stop()
         m_async_pending.store(true, std::memory_order_relaxed);
         m_stopping.store(true, std::memory_order_relaxed);
 
-        if (p_client && (p_client->isConnected() || p_client->isPendingState()))
+        if (p_client)
         {
-            p_client->disconnect();
-            // Wait for async operations to complete
+            // Client callbacks and socket operations run on the I/O thread. Keep it
+            // alive until both disconnection and client destruction have completed.
+            boost::asio::io_service::work keepAlive(g_io_service);
+            std::exception_ptr disconnectError;
+            g_io_service.post(m_io_strand.wrap([this, &disconnectError]() {
+                try
+                {
+                    if (p_client->isConnected() || p_client->isPendingState())
+                        p_client->disconnect();
+                    else
+                        m_running.store(false, std::memory_order_release);
+                }
+                catch (...)
+                {
+                    disconnectError = std::current_exception();
+                    m_running.store(false, std::memory_order_release);
+                }
+            }));
+
+            // Status readers on the I/O thread also take this mutex.
+            lifecycleLock.unlock();
             while (m_running.load(std::memory_order_acquire))
                 this_thread::sleep_for(chrono::milliseconds(500));
 
-            p_client = nullptr;
+            auto released = std::make_shared<std::promise<void>>();
+            auto completed = released->get_future();
+            g_io_service.post(m_io_strand.wrap([this, released]() {
+                try
+                {
+                    {
+                        std::lock_guard<std::mutex> lifecycleLock(m_lifecycleMutex);
+                        boost::system::error_code ignored;
+                        m_failovertimer.cancel(ignored);
+                        m_submithrtimer.cancel(ignored);
+                        if (Farm::f().isMining())
+                            Farm::f().stop();
+                        p_client.reset();
+                    }
+                    released->set_value();
+                }
+                catch (...)
+                {
+                    released->set_exception(std::current_exception());
+                }
+            }));
+            completed.get();
+            if (disconnectError)
+                std::rethrow_exception(disconnectError);
         }
         else
         {
@@ -401,7 +444,7 @@ void PoolManager::start()
 void PoolManager::rotateConnect()
 {
     std::lock_guard<std::mutex> lifecycleLock(m_lifecycleMutex);
-    if (!m_running.load(std::memory_order_relaxed))
+    if (!m_running.load(std::memory_order_relaxed) || m_stopping.load(std::memory_order_relaxed))
         return;
 
     if (p_client && p_client->isConnected())

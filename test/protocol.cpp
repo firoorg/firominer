@@ -127,6 +127,53 @@ struct ProtocolTest
         require(manager.m_epochMismatchWarned, "advertised epoch vouched for an unchecked seed");
     }
 
+    static void managerShutdown()
+    {
+        dev::eth::PoolManager manager({});
+        std::thread::id disconnectThread, destructionThread;
+        bool statusRead = false;
+        struct Client : dev::eth::PoolClient
+        {
+            dev::eth::PoolManager& manager;
+            std::thread::id& disconnectThread;
+            std::thread::id& destructionThread;
+            bool& statusRead;
+            Client(dev::eth::PoolManager& manager, std::thread::id& disconnectThread,
+                std::thread::id& destructionThread, bool& statusRead)
+              : manager(manager), disconnectThread(disconnectThread),
+                destructionThread(destructionThread), statusRead(statusRead)
+            {
+                m_connected.store(true);
+            }
+            ~Client() override { destructionThread = std::this_thread::get_id(); }
+            void connect() override {}
+            void disconnect() override
+            {
+                disconnectThread = std::this_thread::get_id();
+                m_connected.store(false);
+                g_io_service.post([this]() {
+                    statusRead = !manager.isConnected();
+                    m_onDisconnected();
+                });
+            }
+            void submitHashrate(uint64_t const&, std::string const&) override {}
+            void submitSolution(dev::eth::Solution const&) override {}
+        };
+        manager.p_client = std::make_unique<Client>(
+            manager, disconnectThread, destructionThread, statusRead);
+        manager.setClientHandlers();
+        manager.m_running.store(true);
+        std::thread ioThread([]() { g_io_service.run(); });
+        const auto ioId = ioThread.get_id();
+        manager.stop();
+        g_io_service.stop();
+        ioThread.join();
+        require(disconnectThread == ioId && destructionThread == ioId && statusRead &&
+                    !manager.isConnected() && !manager.isRunning(),
+            "pool shutdown did not serialize client teardown with I/O status readers");
+        g_io_service.reset();
+    }
+
     static void run()
     {
         auto response = json(R"({"id":1,"error":null,"result":{
@@ -485,6 +532,7 @@ int main()
     {
         ProtocolTest::networkMismatch();
         ProtocolTest::seedValidation();
+        ProtocolTest::managerShutdown();
     }
     catch (std::exception const& ex)
     {
