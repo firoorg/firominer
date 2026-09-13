@@ -2,6 +2,7 @@
 #include <future>
 
 #include "PoolManager.h"
+#include "stratum/utilstrencodings.h"
 
 using namespace std;
 using namespace dev;
@@ -17,6 +18,8 @@ PoolManager::PoolManager(PoolSettings _settings)
 {
     if (m_Settings.coinbaseMessage.size() > 80)
         throw std::invalid_argument("Coinbase message exceeds 80 UTF-8 bytes");
+    if (!IsValidUTF8(m_Settings.coinbaseMessage))
+        throw std::invalid_argument("Coinbase message must be valid UTF-8");
     if (!m_Settings.coinbaseMessage.empty())
         for (auto const& connection : m_Settings.connections)
             if (connection && connection->Host() != "exit" && connection->Family() != ProtocolFamily::GETWORK)

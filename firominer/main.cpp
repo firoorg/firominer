@@ -37,6 +37,7 @@
 #include <libethash-cpu/CPUMiner.h>
 #endif
 #include <libpoolprotocols/PoolManager.h>
+#include <libpoolprotocols/stratum/utilstrencodings.h>
 
 #if API_CORE
 #include <libapicore/ApiServer.h>
@@ -446,6 +447,8 @@ public:
 
         if (m_PoolSettings.coinbaseMessage.size() > 80)
             throw std::invalid_argument("--coinbase-message must be at most 80 UTF-8 bytes");
+        if (!IsValidUTF8(m_PoolSettings.coinbaseMessage))
+            throw std::invalid_argument("--coinbase-message must be valid UTF-8");
         if (!m_PoolSettings.coinbaseMessage.empty() &&
             std::any_of(m_PoolSettings.connections.begin(), m_PoolSettings.connections.end(),
                 [](const std::shared_ptr<URI>& connection) {

@@ -6,6 +6,8 @@
 
 #include "utilstrencodings.h"
 
+#include <boost/locale/utf.hpp>
+
 #include <cstdlib>
 #include <cstring>
 #include <errno.h>
@@ -29,6 +31,15 @@ std::string SanitizeString(const std::string& str, int rule)
             strResult.push_back(str[i]);
     }
     return strResult;
+}
+
+bool IsValidUTF8(const std::string& str)
+{
+    namespace utf = boost::locale::utf;
+    for (auto it = str.begin(); it != str.end();)
+        if (!utf::is_valid_codepoint(utf::utf_traits<char>::decode(it, str.end())))
+            return false;
+    return true;
 }
 
 const signed char p_util_hexdigit[256] =

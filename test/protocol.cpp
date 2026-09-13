@@ -242,6 +242,23 @@ struct ProtocolTest
         const auto header = response["result"]["pprpcheader"].asString();
         const auto target = response["result"]["target"].asString();
         const auto seed = std::string(64, '0');
+        for (const std::string text : {"", "ASCII", "caf\xc3\xa9", "\xf4\x8f\xbf\xbf"})
+            require(IsValidUTF8(text), "valid UTF-8 text was rejected");
+        require(IsValidUTF8(std::string("a\0b", 3)), "UTF-8 validation rejected embedded NUL");
+        for (const std::string text : {"\x80", "\xc0\xaf", "\xe2\x82", "\xed\xa0\x80",
+                 "\xf4\x90\x80\x80", "\xe2\x28\xa1"})
+        {
+            require(!IsValidUTF8(text), "malformed UTF-8 text was accepted");
+            bool clientRejected = false, managerRejected = false;
+            try { EthGetworkClient invalid(60, 1000, "reward", text); }
+            catch (std::invalid_argument const&) { clientRejected = true; }
+            dev::eth::PoolSettings settings;
+            settings.coinbaseMessage = text;
+            try { dev::eth::PoolManager invalid(settings); }
+            catch (std::invalid_argument const&) { managerRejected = true; }
+            require(clientRejected && managerRejected,
+                "coinbase message validation accepted malformed UTF-8");
+        }
         {
             EthGetworkClient plain(60, 1000, "reward");
             require(!json(plain.m_jsonGetWork)["params"][0].isMember("coinbase_message"),

@@ -36,6 +36,8 @@ EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, 
 {
     if (coinbaseMessage.size() > 80)
         throw std::invalid_argument("Coinbase message exceeds 80 UTF-8 bytes");
+    if (!IsValidUTF8(coinbaseMessage))
+        throw std::invalid_argument("Coinbase message must be valid UTF-8");
     m_jSwBuilder.settings_["indentation"] = "";
 
     Json::Value jGetWork;

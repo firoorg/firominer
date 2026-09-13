@@ -1,6 +1,14 @@
 --- a/src/rpc/mining.cpp
 +++ b/src/rpc/mining.cpp
-@@ -428,6 +428,7 @@
+@@ -36,6 +36,7 @@
+ #include <stdint.h>
+ 
+ #include <boost/assign/list_of.hpp>
++#include <boost/locale/utf.hpp>
+ #include <boost/shared_ptr.hpp>
+ 
+ #include <univalue.h>
+@@ -428,6 +429,7 @@
              "1. template_request         (json object, optional) A json object in the following spec\n"
              "     {\n"
              "       \"mode\":\"template\"    (string, optional) This must be set to \"template\", \"proposal\" (see BIP 23), or omitted\n"
@@ -8,7 +16,7 @@
              "       \"capabilities\":[     (array, optional) A list of strings\n"
              "           \"support\"          (string) client side supported feature, 'longpoll', 'coinbasetxn', 'coinbasevalue', 'proposal', 'serverlist', 'workid'\n"
              "           ,...\n"
-@@ -470,6 +471,7 @@
+@@ -470,6 +472,7 @@
              "      \"flags\" : \"xx\"                  (string) key name is to be ignored, and value included in scriptSig\n"
              "  },\n"
              "  \"coinbasevalue\" : n,              (numeric) maximum allowable input to coinbase transaction, including the generation award and transaction fees (in Satoshis)\n"
@@ -16,7 +24,7 @@
              "  \"coinbasetxn\" : { ... },          (json object) information for coinbase transaction\n"
              "  \"target\" : \"xxxx\",                (string) The hash target\n"
              "  \"mintime\" : xxx,                  (numeric) The minimum timestamp appropriate for next block time in seconds since epoch (Jan 1 1970 GMT)\n"
-@@ -504,12 +506,23 @@
+@@ -504,12 +507,27 @@
      LOCK(cs_main);
  
      std::string strMode = "template";
@@ -34,13 +42,17 @@
 +            coinbaseMessage = message.get_str();
 +            if (coinbaseMessage.size() > 80)
 +                throw JSONRPCError(RPC_INVALID_PARAMETER, "coinbase_message exceeds 80 UTF-8 bytes");
++            namespace utf = boost::locale::utf;
++            for (auto it = coinbaseMessage.begin(); it != coinbaseMessage.end();)
++                if (!utf::is_valid_codepoint(utf::utf_traits<char>::decode(it, coinbaseMessage.end())))
++                    throw JSONRPCError(RPC_INVALID_PARAMETER, "coinbase_message must be valid UTF-8");
 +            if (!coinbaseMessage.empty() && request.params.size() < 2)
 +                throw JSONRPCError(RPC_INVALID_PARAMETER, "coinbase_message requires reward_address");
 +        }
          const auto modeval = find_value(oparam, "mode");
          if (modeval.isStr())
              strMode = modeval.get_str();
-@@ -664,7 +677,9 @@
+@@ -664,7 +682,9 @@
          // Need to update only after we know CreateNewBlock succeeded
          pindexPrev = pindexPrevNew;
      }
@@ -51,7 +63,7 @@
      const Consensus::Params& consensusParams = Params().GetConsensus();
  
      // Update nTime
-@@ -681,6 +696,11 @@
+@@ -681,6 +701,11 @@
  
          CMutableTransaction coinbaseTx = *pblock->vtx[0];
          coinbaseTx.vout[0].scriptPubKey = GetScriptForDestination(rewardAddress.Get());
@@ -63,7 +75,7 @@
          pblock->vtx[0] = MakeTransactionRef(CTransaction(coinbaseTx));
  
          fRewardAddressSet = true;
-@@ -808,6 +828,7 @@
+@@ -808,6 +833,7 @@
      result.push_back(Pair("transactions", transactions));
      result.push_back(Pair("coinbaseaux", aux));
      result.push_back(Pair("coinbasevalue", (int64_t)pblock->vtx[0]->vout[0].nValue));
@@ -71,7 +83,7 @@
      result.push_back(Pair("longpollid", chainActive.Tip()->GetBlockHash().GetHex() + i64tostr(nTransactionsUpdatedLast)));
      result.push_back(Pair("target", hashTarget.GetHex()));
      result.push_back(Pair("mintime", (int64_t)pindexPrev->GetMedianTimePast()+1));
-@@ -861,7 +882,11 @@
+@@ -861,7 +887,11 @@
  
      if (pblock->IsProgPow()) {
          static std::string lastHeader{};
@@ -84,7 +96,7 @@
          {
              result.pushKV("pprpcheader", lastHeader);
              result.pushKV("pprpcepoch", ethash::get_epoch_number(pblock->nHeight));
-@@ -930,14 +955,16 @@
+@@ -930,14 +960,16 @@
          throw JSONRPCError(RPC_INVALID_PARAMS, "Invalid hex nonce");
      }
      
