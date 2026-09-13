@@ -6,6 +6,8 @@
 
 #include "utilstrencodings.h"
 
+#include <boost/locale/utf.hpp>
+
 #include <cstdlib>
 #include <cstring>
 #include <errno.h>
@@ -29,6 +31,15 @@ std::string SanitizeString(const std::string& str, int rule)
             strResult.push_back(str[i]);
     }
     return strResult;
+}
+
+bool IsValidUTF8(const std::string& str)
+{
+    namespace utf = boost::locale::utf;
+    for (auto it = str.begin(); it != str.end();)
+        if (!utf::is_valid_codepoint(utf::utf_traits<char>::decode(it, str.end())))
+            return false;
+    return true;
 }
 
 const signed char p_util_hexdigit[256] =
@@ -75,6 +86,21 @@ bool IsHexNumber(const std::string& str)
     }
     // Return false for empty string or "0x".
     return (str.size() > starting_location);
+}
+
+bool NormalizeHex256(const std::string& str, std::string* out, bool requireFullWidth)
+{
+    std::string hex = str;
+    if (hex.rfind("0x", 0) == 0)
+        hex.erase(0, 2);
+    if (hex.empty() || hex.size() > 64 || (requireFullWidth && hex.size() != 64))
+        return false;
+    for (const char c : hex)
+        if (HexDigit(c) < 0)
+            return false;
+    if (out)
+        *out = "0x" + std::string(64 - hex.size(), '0') + hex;
+    return true;
 }
 
 std::vector<unsigned char> ParseHex(const char* psz)
@@ -491,7 +517,7 @@ bool ParseInt64(const std::string& str, int64_t *out)
            n <= std::numeric_limits<int64_t>::max();
 }
 
-bool ParseUInt32(const std::string& str, uint32_t *out)
+bool ParseUInt32(const std::string& str, uint32_t *out, int base)
 {
     if (!ParsePrechecks(str))
         return false;
@@ -499,7 +525,7 @@ bool ParseUInt32(const std::string& str, uint32_t *out)
         return false;
     char *endp = nullptr;
     errno = 0; // strtoul will not set errno if valid
-    unsigned long int n = strtoul(str.c_str(), &endp, 10);
+    unsigned long int n = strtoul(str.c_str(), &endp, base);
     if(out) *out = (uint32_t)n;
     // Note that strtoul returns a *unsigned long int*, so even if it doesn't report an over/underflow
     // we still have to check that the returned value is within the range of an *uint32_t*. On 64-bit
@@ -665,4 +691,3 @@ bool ParseFixedPoint(const std::string &val, int decimals, int64_t *amount_out)
 
     return true;
 }
-

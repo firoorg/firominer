@@ -6,7 +6,7 @@ set(SOURCES
 )
 
 add_library(hwmon ${SOURCES})
-set(HWMON_LINK_LIBRARIES devcore)
+set(HWMON_LINK_LIBRARIES devcore Boost::filesystem)
 
 if (UNIX)
 	list(APPEND HWMON_LINK_LIBRARIES dl)

@@ -16,6 +16,7 @@
 */
 
 #include <cstdlib>
+#include <iterator>
 
 #include "CommonData.h"
 #include "Exceptions.h"
@@ -161,7 +162,7 @@ std::string dev::getScaledSize(double _value, double _divisor, int _precision, s
 {
     double _newvalue = _value;
     size_t i = 0;
-    while (_newvalue > _divisor && i <= (_numsizes - 1))
+    while (_newvalue > _divisor && i + 1 < _numsizes)
     {
         _newvalue /= _divisor;
         i++;
@@ -177,19 +178,19 @@ std::string dev::getScaledSize(double _value, double _divisor, int _precision, s
 std::string dev::getFormattedHashes(double _hr, ScaleSuffix _suffix, int _precision)
 {
     static string suffixes[] = {"h", "Kh", "Mh", "Gh"};
-    return dev::getScaledSize(_hr, 1000.0, _precision, suffixes, 4, _suffix);
+    return dev::getScaledSize(_hr, 1000.0, _precision, suffixes, std::size(suffixes), _suffix);
 }
 
 std::string dev::getFormattedMemory(double _mem, ScaleSuffix _suffix, int _precision)
 {
     static string suffixes[] = {"B", "KB", "MB", "GB"};
-    return dev::getScaledSize(_mem, 1024.0, _precision, suffixes, 4, _suffix);
+    return dev::getScaledSize(_mem, 1024.0, _precision, suffixes, std::size(suffixes), _suffix);
 }
 
 std::string dev::getFormattedElapsed(double _hr, ScaleSuffix _suffix, int _precision)
 {
     static string suffixes[] = {"ms", "sec"};
-    return dev::getScaledSize(_hr, 1000.0, _precision, suffixes, 4, _suffix);
+    return dev::getScaledSize(_hr, 1000.0, _precision, suffixes, std::size(suffixes), _suffix);
 }
 
 std::string dev::padLeft(std::string _value, size_t _length, char _fillChar) 

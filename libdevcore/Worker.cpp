@@ -35,7 +35,7 @@ void Worker::startWorking()
     if (m_work)
     {
         WorkerState ex = WorkerState::Stopped;
-        m_state.compare_exchange_weak(ex, WorkerState::Starting, std::memory_order_relaxed);
+        m_state.compare_exchange_strong(ex, WorkerState::Starting, std::memory_order_relaxed);
     }
     else
     {
@@ -46,7 +46,7 @@ void Worker::startWorking()
             while (m_state != WorkerState::Killing)
             {
                 WorkerState ex = WorkerState::Starting;
-                bool ok = m_state.compare_exchange_weak(
+                bool ok = m_state.compare_exchange_strong(
                     ex, WorkerState::Started, std::memory_order_relaxed);
                 //				cnote << "Trying to set Started: Thread was" << (unsigned)ex << "; "
                 //<< ok;
@@ -91,7 +91,7 @@ void Worker::triggerStopWorking()
     if (m_work)
     {
         WorkerState ex = WorkerState::Started;
-        m_state.compare_exchange_weak(ex, WorkerState::Stopping, std::memory_order_relaxed);
+        m_state.compare_exchange_strong(ex, WorkerState::Stopping, std::memory_order_relaxed);
     }
 }
 
@@ -101,7 +101,7 @@ void Worker::stopWorking()
     if (m_work)
     {
         WorkerState ex = WorkerState::Started;
-        m_state.compare_exchange_weak(ex, WorkerState::Stopping, std::memory_order_relaxed);
+        m_state.compare_exchange_strong(ex, WorkerState::Stopping, std::memory_order_relaxed);
 
         while (m_state != WorkerState::Stopped)
             this_thread::sleep_for(chrono::microseconds(20));

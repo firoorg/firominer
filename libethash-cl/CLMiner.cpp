@@ -11,9 +11,10 @@
 #include <libcrypto/ethash.hpp>
 #include <libcrypto/progpow.hpp>
 
-#include "CLMiner.h"
 #include <fstream>
 #include <iostream>
+#include <limits>
+#include <stdexcept>
 
 using namespace dev;
 using namespace eth;
@@ -205,6 +206,13 @@ static std::string ethCLErrorHelper(const char* msg, cl::Error const& clerr)
 
 namespace
 {
+unsigned checkedGlobalWorkSize(uint64_t size)
+{
+    if (size == 0 || size > std::numeric_limits<unsigned>::max())
+        throw std::invalid_argument("--cl-global-work produces an invalid OpenCL global work size");
+    return static_cast<unsigned>(size);
+}
+
 void addDefinition(std::string& _source, char const* _id, unsigned _value)
 {
     char buf[256];
@@ -258,13 +266,59 @@ CLMiner::CLMiner(unsigned _index, CLSettings _settings, DeviceDescriptor& _devic
 {
     m_deviceDescriptor = _device;
     m_settings.localWorkSize = ((m_settings.localWorkSize + 7) / 8) * 8;
-    m_settings.globalWorkSize = m_settings.localWorkSize * m_settings.globalWorkSizeMultiplier;
+    m_settings.globalWorkSize = checkedGlobalWorkSize(
+        uint64_t{m_settings.localWorkSize} * m_settings.globalWorkSizeMultiplier);
+    if (m_settings.experimentalInline)
+        cllog << "Experimental OpenCL inline mix kernel enabled";
 }
 
 CLMiner::~CLMiner()
 {
-    stopWorking();
+    triggerStopWorking();
     kick_miner();
+    stopWorking();
+    cleanup();
+}
+
+void CLMiner::cleanup() noexcept
+{
+    kick_miner();
+    if (m_compileThread && m_compileThread->joinable())
+        m_compileThread->join();
+    m_compileThread.reset();
+
+    try
+    {
+        if (m_queue())
+            m_queue.finish();
+    }
+    catch (...)
+    {}
+    try
+    {
+        if (m_abortqueue())
+            m_abortqueue.finish();
+    }
+    catch (...)
+    {}
+
+    m_searchKernel = cl::Kernel();
+    m_nextSearchKernel = cl::Kernel();
+    m_dagKernel = cl::Kernel();
+    m_program = cl::Program();
+    m_nextProgram = cl::Program();
+    delete m_dag;
+    m_dag = nullptr;
+    delete m_light;
+    m_light = nullptr;
+    m_header = cl::Buffer();
+    m_searchBuffer = cl::Buffer();
+    m_queue = cl::CommandQueue();
+    m_abortqueue = cl::CommandQueue();
+    m_context = cl::Context();
+    m_device = cl::Device();
+    m_kernelReady = false;
+    m_hasNextProgpowKernel = false;
 }
 
 // NOTE: The following struct must match the one defined in
@@ -290,20 +344,39 @@ void CLMiner::workLoop()
     static uint32_t zerox3[3] = {0, 0, 0};
 
     uint64_t startNonce = 0;
+    uint64_t currentNonce = 0;
+    uint64_t currentTarget = 0;
+    bool nonceRangeExhausted = false;
 
     // The work package currently processed by GPU.
     WorkPackage current;
     current.header = h256();
     uint64_t old_period_seed = -1;
+    int old_kernel_epoch = -1;
     int old_epoch = -1;
-
-    if (!initDevice())
-    {
-        return;
-    }
 
     try
     {
+        if (!initDevice())
+        {
+            cleanup();
+            return;
+        }
+
+        auto startCompile = [this](uint64_t period, std::shared_ptr<ethash::epoch_context> epochContext) {
+            m_kernelReady = false;
+            m_compileThread.reset(new std::thread([this, period, epochContext] {
+                try
+                {
+                    asyncCompile(period, epochContext);
+                }
+                catch (const std::exception& ex)
+                {
+                    cllog << "Failed to compile ProgPoW kernel : " << ex.what();
+                }
+            }));
+        };
+
         // Read results.
         SearchResults results;
 
@@ -312,21 +385,32 @@ void CLMiner::workLoop()
 
         while (!shouldStop())
         {
-            // no need to read the abort flag.
-            m_queue.enqueueReadBuffer(m_searchBuffer, CL_TRUE, offsetof(SearchResults, count),
-                2 * sizeof(results.count), (void*)&results.count);
+            // Read results and counters together; the abort queue may update the final word.
+            m_queue.enqueueReadBuffer(
+                m_searchBuffer, CL_TRUE, 0, offsetof(SearchResults, abort), &results);
+            results.count = std::min(results.count, static_cast<uint32_t>(c_maxSearchResults));
+            // clean the solution count, hash count, and abort flag
+            {
+                std::scoped_lock lock(m_abortMutex);
+                m_kickEnabled.store(false, std::memory_order_relaxed);
+                m_queue.enqueueWriteBuffer(
+                    m_searchBuffer, CL_TRUE, offsetof(SearchResults, count), sizeof(zerox3), zerox3);
+            }
+            updateHashRate(m_settings.localWorkSize, results.hashCount);
+
             if (results.count)
             {
-                m_queue.enqueueReadBuffer(
-                    m_searchBuffer, CL_TRUE, 0, results.count * sizeof(results.rslt[0]), (void*)&results);
-            }
-            // clean the solution count, hash count, and abort flag
-            m_queue.enqueueWriteBuffer(
-                m_searchBuffer, CL_FALSE, offsetof(SearchResults, count), sizeof(zerox3), zerox3);
-            m_kickEnabled.store(true, std::memory_order_relaxed);
+                for (uint32_t i = 0; i < results.count; i++)
+                {
+                    uint64_t nonce = currentNonce + results.rslt[i].gid;
+                    h256 mix;
+                    memcpy(mix.data(), (char*)results.rslt[i].mix, sizeof(results.rslt[i].mix));
 
-            // Wait for work or 3 seconds (whichever the first)
-            bool new_work_expected{true};
+                    Farm::f().submitProof(Solution{nonce, mix, current, std::chrono::steady_clock::now(), m_index});
+                    cllog << EthWhite << "Job: " << current.header.abridged() << " Sol: 0x" << toHex(nonce)
+                          << EthReset;
+                }
+            }
 
             const WorkPackage next = work();
             if (!next)
@@ -335,30 +419,37 @@ void CLMiner::workLoop()
                 m_new_work_signal.wait_for(l, std::chrono::milliseconds(50));
                 continue;
             }
+            if (!next.epochContext || !next.epoch || !next.block)
+                continue;
+            auto epochContext = next.epochContext;
+            m_epochContext = epochContext;
 
-            if (current.header != next.header)
+            const bool workChanged = current.workGeneration != next.workGeneration;
+            if (workChanged)
+                nonceRangeExhausted = false;
+            else if (nonceRangeExhausted)
+            {
+                std::unique_lock l(x_work);
+                m_new_work_signal.wait_for(l, std::chrono::milliseconds(50));
+                continue;
+            }
+            if (workChanged)
             {
                 uint64_t period_seed = next.block.value() / progpow::kPeriodLength;
-                if (m_nextProgpowPeriod == 0)
+                uint32_t epoch = next.epoch.value();
+                if (!m_hasNextProgpowKernel)
                 {
                     m_nextProgpowPeriod = period_seed;
+                    m_nextProgpowEpoch = epoch;
                     if (m_compileThread)
                     {
                         m_compileThread->join();
                     }
-                    m_compileThread.reset(new std::thread([&] {
-                        try
-                        {
-                            asyncCompile();
-                        }
-                        catch (const std::exception& ex)
-                        {
-                            cllog << "Failed to compile ProgPoW kernel : " << ex.what();
-                        }
-                    }));
+                    startCompile(period_seed, epochContext);
+                    m_hasNextProgpowKernel = true;
                 }
 
-                if (old_period_seed != period_seed)
+                if (old_period_seed != period_seed || old_kernel_epoch != static_cast<int>(epoch))
                 {
                     if (m_compileThread)
                     {
@@ -366,64 +457,49 @@ void CLMiner::workLoop()
                     }
 
                     // sanity check the next kernel
-                    if (period_seed != m_nextProgpowPeriod)
+                    if (!m_kernelReady || period_seed != m_nextProgpowPeriod || epoch != m_nextProgpowEpoch)
                     {
                         // This shouldn't happen!!! Try to recover
                         m_nextProgpowPeriod = period_seed;
-                        m_compileThread.reset(new std::thread([&] {
-                            try
-                            {
-                                asyncCompile();
-                            }
-                            catch (const std::exception& ex)
-                            {
-                                cllog << "Failed to compile ProgPoW kernel : " << ex.what();
-                            }
-                        }));
+                        m_nextProgpowEpoch = epoch;
+                        startCompile(period_seed, epochContext);
                         m_compileThread->join();
+                    }
+                    if (!m_kernelReady)
+                    {
+                        m_compileThread.reset();
+                        m_hasNextProgpowKernel = false;
+                        pause(MinerPauseEnum::PauseDueToInitEpochError, next);
+                        continue;
                     }
 
                     m_program = m_nextProgram;
                     m_searchKernel = m_nextSearchKernel;
                     old_period_seed = period_seed;
+                    old_kernel_epoch = epoch;
                     m_nextProgpowPeriod = period_seed + 1;
+                    m_nextProgpowEpoch = epoch;
                     cllog << "Loaded period " << period_seed << " progpow kernel";
-                    m_compileThread.reset(new std::thread([&] {
-                        try
-                        {
-                            asyncCompile();
-                        }
-                        catch (const std::exception& ex)
-                        {
-                            cllog << "Failed to compile ProgPoW kernel : " << ex.what();
-                        }
-                    }));
+                    startCompile(period_seed + 1, epochContext);
                     continue;
                 }
                 if (next.epoch.has_value() && old_epoch != static_cast<int>(next.epoch.value()))
                 {
-                    if (!initEpoch())
-                        break;  // This will simply exit the thread
+                    if (!initEpoch(next))
+                        continue;
                     old_epoch = static_cast<int>(next.epoch.value());
                     continue;
                 }
 
                 // Upper 64 bits of the boundary.
                 const uint64_t target = (uint64_t)(u64)((u256)next.get_boundary() >> 192);
-                assert(target > 0);
 
-                // If upper 64 bits of target are 0xffffffffffffffff then any nonce would
-                // be considered valid by GPU. Skip job.
-                if (target == UINT64_MAX)
-                {
-                    cllog << "Difficulty too low for GPU. Skipping job";
-                    continue;
-                }
+                currentTarget = target;
 
                 startNonce = next.startNonce;
 
                 // Update header constant buffer.
-                m_queue.enqueueWriteBuffer(m_header, CL_FALSE, 0, 32, next.header.data());
+                m_queue.enqueueWriteBuffer(m_header, CL_TRUE, 0, 32, next.header.data());
 
                 m_searchKernel.setArg(0, m_searchBuffer);  // Supply output buffer to kernel.
                 m_searchKernel.setArg(1, m_header);        // Supply header buffer to kernel.
@@ -440,52 +516,68 @@ void CLMiner::workLoop()
 #endif
             }
 
+            const uint64_t remaining = next.nonceRange ? next.nonceRange - (startNonce - next.startNonce) : 0;
+            const uint32_t launchWorkSize = gpuBatchSize(
+                m_settings.globalWorkSize, m_settings.localWorkSize, currentTarget, remaining);
+            if (!launchWorkSize)
+            {
+                cllog << "Nonce range exhausted (smaller than an OpenCL work group), waiting for new work";
+                current = next;
+                nonceRangeExhausted = true;
+                continue;
+            }
+
             // Run the kernel.
             m_searchKernel.setArg(3, startNonce);
-            m_queue.enqueueNDRangeKernel(
-                m_searchKernel, cl::NullRange, m_settings.globalWorkSize, m_settings.localWorkSize);
-
-            if (results.count)
             {
-                // Report results while the kernel is running.
-                for (uint32_t i = 0; i < results.count; i++)
-                {
-                    uint64_t nonce = current.startNonce + results.rslt[i].gid;
-                    h256 mix;
-                    memcpy(mix.data(), (char*)results.rslt[i].mix, sizeof(results.rslt[i].mix));
-
-                    Farm::f().submitProof(Solution{nonce, mix, current, std::chrono::steady_clock::now(), m_index});
-
-                    cllog << EthWhite << "Job: " << current.header.abridged() << " Sol: 0x" << toHex(nonce) << EthReset;
-                }
+                std::scoped_lock lock(m_abortMutex);
+                const WorkPackage latest = work();
+                if (shouldStop())
+                    break;
+                if (!latest || latest.workGeneration != next.workGeneration)
+                    continue;
+                m_kickEnabled.store(true, std::memory_order_relaxed);
+                m_queue.enqueueNDRangeKernel(
+                    m_searchKernel, cl::NullRange, launchWorkSize, m_settings.localWorkSize);
             }
 
             current = next;  // kernel now processing newest work
-            current.startNonce = startNonce;
+            currentNonce = startNonce;
             // Increase start nonce for following kernel execution.
-            startNonce += m_settings.globalWorkSize;
-            // Report hash count
-            updateHashRate(m_settings.localWorkSize, results.hashCount);
+            startNonce += launchWorkSize;
+            nonceRangeExhausted = next.nonceRange && startNonce - next.startNonce >= next.nonceRange;
+            if (nonceRangeExhausted)
+                cllog << "Nonce range exhausted, waiting for new work";
         }
 
-        m_queue.finish();
-        m_abortqueue.finish();
     }
     catch (cl::Error const& _e)
     {
-        std::string _what = ethCLErrorHelper("OpenCL Error", _e);
-        throw std::runtime_error(_what);
+        cleanup();
+        throw std::runtime_error(ethCLErrorHelper("OpenCL Error", _e));
     }
+    catch (...)
+    {
+        cleanup();
+        throw;
+    }
+    cleanup();
 }
 
-void CLMiner::kick_miner()
+void CLMiner::kick_miner() noexcept
 {
     // Memory for abort Cannot be static because crashes on macOS.
-    bool f = true;
-    if (m_kickEnabled.compare_exchange_weak(f, false, std::memory_order_relaxed))
+    std::scoped_lock lock(m_abortMutex);
+    if (m_kickEnabled.exchange(false, std::memory_order_relaxed))
     {
         static const uint32_t one = 1;
-        m_abortqueue.enqueueWriteBuffer(m_searchBuffer, CL_TRUE, offsetof(SearchResults, abort), sizeof(one), &one);
+        try
+        {
+            m_abortqueue.enqueueWriteBuffer(
+                m_searchBuffer, CL_TRUE, offsetof(SearchResults, abort), sizeof(one), &one);
+        }
+        catch (...)
+        {}
     }
     m_new_work_signal.notify_one();
 }
@@ -686,7 +778,7 @@ bool CLMiner::initDevice()
         {
             cllog << "OpenCL " << m_deviceDescriptor.clPlatformVersion
                   << " not supported. Minimum required version is 1.2";
-            throw new std::runtime_error("OpenCL 1.2 required");
+            throw std::runtime_error("OpenCL 1.2 required");
         }
     }
 
@@ -701,29 +793,36 @@ bool CLMiner::initDevice()
     s << " Memory : " << dev::getFormattedMemory((double)m_deviceDescriptor.totalMemory);
     cllog << s.str();
 
-    if ((m_deviceDescriptor.clPlatformType == ClPlatformTypeEnum::Amd) && (m_deviceDescriptor.clMaxComputeUnits != 36))
+    if ((m_deviceDescriptor.clPlatformType == ClPlatformTypeEnum::Amd) &&
+        (m_deviceDescriptor.clMaxComputeUnits != 36))
     {
-        m_settings.globalWorkSize = (m_settings.globalWorkSize * m_deviceDescriptor.clMaxComputeUnits) / 36;
+        uint64_t adjustedWorkSize =
+            (uint64_t{m_settings.globalWorkSize} * m_deviceDescriptor.clMaxComputeUnits) / 36;
         // make sure that global work size is evenly divisible by the local workgroup size
-        if (m_settings.globalWorkSize % m_settings.localWorkSize != 0)
-            m_settings.globalWorkSize =
-                ((m_settings.globalWorkSize / m_settings.localWorkSize) + 1) * m_settings.localWorkSize;
+        if (adjustedWorkSize % m_settings.localWorkSize != 0)
+            adjustedWorkSize =
+                ((adjustedWorkSize / m_settings.localWorkSize) + 1) * m_settings.localWorkSize;
+        m_settings.globalWorkSize = checkedGlobalWorkSize(adjustedWorkSize);
         cnote << "Adjusting CL work multiplier for " << m_deviceDescriptor.clMaxComputeUnits
               << " CUs. Adjusted work multiplier: " << m_settings.globalWorkSize / m_settings.localWorkSize;
     }
 
+#ifndef __clang__
+    if (!m_deviceDescriptor.clNvCompute.empty())
+    {
+        m_computeCapability = m_deviceDescriptor.clNvComputeMajor * 10 + m_deviceDescriptor.clNvComputeMinor;
+        int maxregs = m_computeCapability >= 35 ? 72 : 63;
+        sprintf(m_options, "-cl-nv-maxrregcount=%d", maxregs);
+    }
+#endif
 
     return true;
 }
 
-bool CLMiner::initEpoch_internal()
+bool CLMiner::initEpoch_internal(WorkPackage const& _work)
 {
     auto startInit = std::chrono::steady_clock::now();
     size_t RequiredMemory = (m_epochContext->full_dataset_size + m_epochContext->light_cache_size);
-
-    // Release the pause flag if any
-    resume(MinerPauseEnum::PauseDueToInsufficientMemory);
-    resume(MinerPauseEnum::PauseDueToInitEpochError);
 
     // Check whether the current device has sufficient memory every time we recreate the dag
     if (m_deviceDescriptor.totalMemory < RequiredMemory)
@@ -731,44 +830,29 @@ bool CLMiner::initEpoch_internal()
         cllog << "Epoch " << m_epochContext->epoch_number << " requires "
               << dev::getFormattedMemory((double)RequiredMemory) << " memory. Only "
               << dev::getFormattedMemory((double)m_deviceDescriptor.totalMemory) << " available on device.";
-        pause(MinerPauseEnum::PauseDueToInsufficientMemory);
-        return true;  // This will prevent to exit the thread and
-                      // Eventually resume mining when changing coin or epoch (NiceHash)
+        pause(MinerPauseEnum::PauseDueToInsufficientMemory, _work);
+        return false;
     }
 
     cllog << "Generating DAG + Light : " << dev::getFormattedMemory((double)RequiredMemory);
 
     try
     {
-        char options[256] = {0};
-#ifndef __clang__
-
-        // Nvidia
-        if (!m_deviceDescriptor.clNvCompute.empty())
-        {
-            m_computeCapability = m_deviceDescriptor.clNvComputeMajor * 10 + m_deviceDescriptor.clNvComputeMinor;
-            int maxregs = m_computeCapability >= 35 ? 72 : 63;
-            sprintf(m_options, "-cl-nv-maxrregcount=%d", maxregs);
-        }
-
-#endif
-
         m_dagItems = m_epochContext->full_dataset_num_items;
-        std::string device_name = m_deviceDescriptor.clName;
 
         // create buffer for dag
         try
         {
             cllog << "Creating light cache buffer, size: "
                   << dev::getFormattedMemory((double)m_epochContext->light_cache_size);
-            if (m_light)
-                delete m_light;
+            delete m_light;
+            m_light = nullptr;
             m_light = new cl::Buffer(m_context, CL_MEM_READ_ONLY, m_epochContext->light_cache_size);
             cllog << "Creating DAG buffer, size: " << dev::getFormattedMemory((double)m_epochContext->full_dataset_size)
                   << ", free: " << dev::getFormattedMemory((double)(m_deviceDescriptor.totalMemory - RequiredMemory));
-            if (m_dag)
-                delete m_dag;
-            m_dag = new cl::Buffer(m_context, CL_MEM_READ_ONLY, m_epochContext->full_dataset_size);
+            delete m_dag;
+            m_dag = nullptr;
+            m_dag = new cl::Buffer(m_context, CL_MEM_READ_WRITE, m_epochContext->full_dataset_size);
             cllog << "Loading kernels";
 
             m_dagKernel = cl::Kernel(m_program, "ethash_calculate_dag_item");
@@ -780,8 +864,8 @@ bool CLMiner::initEpoch_internal()
         catch (cl::Error const& err)
         {
             cwarn << ethCLErrorHelper("Creating DAG buffer failed", err);
-            pause(MinerPauseEnum::PauseDueToInitEpochError);
-            return true;
+            pause(MinerPauseEnum::PauseDueToInitEpochError, _work);
+            return false;
         }
         // GPU DAG buffer to kernel
         m_searchKernel.setArg(2, *m_dag);
@@ -798,7 +882,6 @@ bool CLMiner::initEpoch_internal()
         {
             m_dagKernel.setArg(0, start);
             m_queue.enqueueNDRangeKernel(m_dagKernel, cl::NullRange, chunk, m_settings.localWorkSize);
-            m_queue.finish();
         }
         if (start < workItems)
         {
@@ -807,8 +890,8 @@ bool CLMiner::initEpoch_internal()
             m_dagKernel.setArg(0, start);
             m_queue.enqueueNDRangeKernel(
                 m_dagKernel, cl::NullRange, groupsLeft * m_settings.localWorkSize, m_settings.localWorkSize);
-            m_queue.finish();
         }
+        m_queue.finish();
 
         auto dagTime =
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startInit);
@@ -818,34 +901,36 @@ bool CLMiner::initEpoch_internal()
     catch (cl::Error const& err)
     {
         cllog << ethCLErrorHelper("OpenCL init failed", err);
-        pause(MinerPauseEnum::PauseDueToInitEpochError);
+        pause(MinerPauseEnum::PauseDueToInitEpochError, _work);
         return false;
     }
     return true;
 }
 
-void CLMiner::asyncCompile()
+void CLMiner::asyncCompile(uint64_t period, std::shared_ptr<ethash::epoch_context> epochContext)
 {
     auto saveName = getThreadName();
     setThreadName(name().c_str());
     if (!dropThreadPriority())
         cllog << "Unable to lower compiler priority.";
 
-    compileKernel(m_nextProgpowPeriod, m_nextProgram, m_nextSearchKernel);
+    m_kernelReady = compileKernel(period, epochContext, m_nextProgram, m_nextSearchKernel);
 
     setThreadName(saveName.c_str());
 }
 
-void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kernel& searchKernel)
+bool CLMiner::compileKernel(uint64_t period_seed,
+    std::shared_ptr<ethash::epoch_context> const& epochContext, cl::Program& program, cl::Kernel& searchKernel)
 {
     std::string code = progpow::getKern(period_seed, progpow::kernel_type::OpenCL);
     code += std::string(CLMiner_kernel);
 
     addDefinition(code, "GROUP_SIZE", m_settings.localWorkSize);
+    addDefinition(code, "FIROPOW_CL_INLINE_MIX", m_settings.experimentalInline);
     addDefinition(code, "ACCESSES", 64);
-    addDefinition(code, "LIGHT_WORDS", m_epochContext->light_cache_num_items);
-    addDefinition(code, "PROGPOW_DAG_BYTES", m_epochContext->full_dataset_size);
-    addDefinition(code, "PROGPOW_DAG_ELEMENTS", m_epochContext->full_dataset_num_items / 2);
+    addDefinition(code, "LIGHT_WORDS", epochContext->light_cache_num_items);
+    addDefinition(code, "DAG_NODES", epochContext->full_dataset_num_items * 2);
+    addDefinition(code, "PROGPOW_DAG_ELEMENTS", epochContext->full_dataset_num_items / 2);
 
     addDefinition(code, "MAX_OUTPUTS", c_maxSearchResults);
     int platform = 0;
@@ -872,7 +957,10 @@ void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kern
 #ifdef DEV_BUILD
     std::string tmpDir;
 #ifdef _WIN32
-    tmpDir = getenv("TEMP");
+    if (const char* temp = getenv("TEMP"))
+        tmpDir = temp;
+    else
+        tmpDir = ".";
 #else
     tmpDir = "/tmp";
 #endif
@@ -899,8 +987,7 @@ void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kern
     {
         cwarn << "OpenCL kernel build log:\n" << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_device);
         cwarn << "OpenCL kernel build error (" << buildErr.err() << "):\n" << buildErr.what();
-        pause(MinerPauseEnum::PauseDueToInitEpochError);
-        return;
+        return false;
     }
     searchKernel = cl::Kernel(program, "ethash_search");
 
@@ -908,4 +995,5 @@ void CLMiner::compileKernel(uint64_t period_seed, cl::Program& program, cl::Kern
     searchKernel.setArg(5, 0);
 
     cllog << "Pre-compiled period " << period_seed << " OpenCL ProgPow kernel";
+    return true;
 }

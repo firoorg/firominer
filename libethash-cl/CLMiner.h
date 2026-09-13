@@ -51,15 +51,17 @@ public:
 protected:
     bool initDevice() override;
 
-    bool initEpoch_internal() override;
+    bool initEpoch_internal(WorkPackage const& _work) override;
 
-    void kick_miner() override;
+    void kick_miner() noexcept override;
 
 private:
     
     void workLoop() override;
-    void compileKernel(uint64_t prog_seed, cl::Program& program, cl::Kernel& searchKernel);
-    void asyncCompile();
+    bool compileKernel(uint64_t prog_seed, std::shared_ptr<ethash::epoch_context> const& epochContext,
+        cl::Program& program, cl::Kernel& searchKernel);
+    void asyncCompile(uint64_t period, std::shared_ptr<ethash::epoch_context> epochContext);
+    void cleanup() noexcept;
 
     cl::Context m_context;
     cl::CommandQueue m_queue;
@@ -75,6 +77,10 @@ private:
     cl::Buffer* m_light = nullptr;
 
     CLSettings m_settings;
+    std::mutex m_abortMutex;
+    bool m_hasNextProgpowKernel = false;
+    bool m_kernelReady = false;
+    uint32_t m_nextProgpowEpoch = 0;
 
     unsigned m_dagItems = 0;
 

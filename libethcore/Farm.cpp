@@ -192,21 +192,38 @@ void Farm::setWork(WorkPackage const& _newWp)
     // Set work to each miner giving it's own starting nonce
     Guard l(x_minerWork);
 
+    if (m_miners.empty())
+        return;
+
     // Discard if we don't have an epoch
     if (!_newWp.epoch.has_value())
     {
         return;
     }
 
-    if (!m_currentEc || m_currentEc->epoch_number != _newWp.epoch.value())
+    bool const epochChanged = !m_currentEc || m_currentEc->epoch_number != _newWp.epoch.value();
+    if (epochChanged)
     {
         m_currentEc.reset();
-        m_currentEc = ethash::get_epoch_context(_newWp.epoch.value(), false);
-        for (auto const& miner : m_miners)
-            miner->setEpoch(m_currentEc);
+        try
+        {
+            m_currentEc = ethash::get_epoch_context(_newWp.epoch.value(), false);
+        }
+        catch (std::exception const& ex)
+        {
+            cwarn << "Unable to allocate epoch " << _newWp.epoch.value() << " light cache: " << ex.what();
+            m_currentWp = {};
+            for (auto const& miner : m_miners)
+            {
+                miner->setWork({}, false);
+                miner->pause(MinerPauseEnum::PauseDueToInsufficientMemory);
+            }
+            return;
+        }
     }
 
     m_currentWp = _newWp;
+    m_currentWp.epochContext = m_currentEc;
 
     // Check if we need to shuffle per work (ergodicity == 2)
     if (m_Settings.ergodicity == 2 && m_currentWp.exSizeBytes == 0)
@@ -217,18 +234,37 @@ void Farm::setWork(WorkPackage const& _newWp)
     {
         // Equally divide the residual segment among miners
         _startNonce = m_currentWp.startNonce;
-        m_nonce_segment_with = (unsigned int)log2(pow(2, 64 - (m_currentWp.exSizeBytes * 4)) / m_miners.size());
+        if (m_currentWp.exSizeBytes >= 16)
+        {
+            cwarn << "Invalid extranonce width";
+            return;
+        }
+        const unsigned suffixBits = 64 - m_currentWp.exSizeBytes * 4;
+        const uint64_t availableNonces = uint64_t{1} << suffixBits;
+        const uint64_t noncesPerMiner = availableNonces / m_miners.size();
+        if (!noncesPerMiner)
+        {
+            cwarn << "Extranonce leaves no nonce range for each miner";
+            return;
+        }
+        m_nonce_segment_with = 0;
+        while (m_nonce_segment_with < suffixBits &&
+               (uint64_t{1} << (m_nonce_segment_with + 1)) <= noncesPerMiner)
+            ++m_nonce_segment_with;
+        m_currentWp.nonceRange = uint64_t{1} << m_nonce_segment_with;
     }
     else
     {
         // Get the randomly selected nonce
         _startNonce = m_nonce_scrambler;
+        m_nonce_segment_with = m_configured_nonce_segment_width;
+        m_currentWp.nonceRange = 0;
     }
 
     for (unsigned int i = 0; i < m_miners.size(); i++)
     {
         m_currentWp.startNonce = _startNonce + ((uint64_t)i << m_nonce_segment_with);
-        m_miners.at(i)->setWork(m_currentWp);
+        m_miners.at(i)->setWork(m_currentWp, epochChanged);
     }
 }
 
@@ -279,7 +315,7 @@ bool Farm::start()
         }
 
         // Initialize DAG Load mode
-        Miner::setDagLoadInfo(m_Settings.dagLoadMode, (unsigned int)m_miners.size());
+        Miner::setDagLoadInfo(m_Settings.dagLoadMode);
 
         m_isMining.store(true, std::memory_order_relaxed);
     }
@@ -473,6 +509,13 @@ void Farm::submitProof(Solution const& _s)
 
 void Farm::submitProofAsync(Solution const& _s)
 {
+    if (!nonceInRange(_s.work, _s.nonce))
+    {
+        accountSolution(_s.midx, SolutionAccountingEnum::Failed);
+        cwarn << "Miner " << _s.midx << " returned a nonce outside its assigned Stratum range";
+        return;
+    }
+
     if (!m_Settings.noEval)
     {
         bool validSolution{false};
@@ -497,13 +540,7 @@ void Farm::submitProofAsync(Solution const& _s)
 
         if (_s.work.algo == "progpow")
         {
-            auto period{_s.work.block.value() / progpow::kPeriodLength};
-
-            ethash::hash256 header_256{ethash::from_bytes(_s.work.header.data())};
-            ethash::hash256 mix_256{ethash::from_bytes(_s.mixHash.data())};
-            ethash::hash256 boundary_256{ethash::from_bytes(_s.work.get_boundary().data())};
-
-            auto result = progpow::verify_full(_s.work.block.value(), header_256, mix_256, _s.nonce, boundary_256);
+            auto result = verifyProgpow(_s);
             switch (result)
             {
             case ethash::VerificationResult::kInvalidNonce:

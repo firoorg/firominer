@@ -39,7 +39,7 @@ public:
 
 protected:
     bool initDevice() override;
-    bool initEpoch_internal() override;
+    bool initEpoch_internal(WorkPackage const& _work) override;
     void kick_miner() override;
 
 private:

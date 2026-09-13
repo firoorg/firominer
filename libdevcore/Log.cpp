@@ -60,7 +60,13 @@ LogOutputStreamBase::LogOutputStreamBase(char const* _id)
         {
             time_t rawTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
             char buf[24];
-            if (strftime(buf, 24, "%X", localtime(&rawTime)) == 0)
+            tm localTime{};
+#ifdef _WIN32
+            const bool timeValid = localtime_s(&localTime, &rawTime) == 0;
+#else
+            const bool timeValid = localtime_r(&rawTime, &localTime) != nullptr;
+#endif
+            if (!timeValid || strftime(buf, 24, "%X", &localTime) == 0)
                 buf[0] = '\0';  // empty if case strftime fails
             m_sstr << _id << " " EthViolet << buf << " " EthBlue << std::left << std::setw(9)
                    << getThreadName() << " " EthReset;
@@ -105,26 +111,29 @@ void dev::simpleDebugOut(std::string const& _s)
 {
     try
     {
+        std::string output;
+        output.reserve(_s.size() + 1);
+        if (g_logNoColor)
+        {
+            bool skip = false;
+            for (auto it : _s)
+            {
+                if (!skip && it == '\x1b')
+                    skip = true;
+                else if (skip && it == 'm')
+                    skip = false;
+                else if (!skip)
+                    output += it;
+            }
+        }
+        else
+            output = _s;
+        output += '\n';
+
+        static std::mutex outputMutex;
+        std::lock_guard<std::mutex> lock(outputMutex);
         std::ostream& os = g_logStdout ? std::cout : std::clog;
-        if (!g_logNoColor)
-        {
-            os << _s + '\n';
-            os.flush();
-            return;
-        }
-        bool skip = false;
-        std::stringstream ss;
-        for (auto it : _s)
-        {
-            if (!skip && it == '\x1b')
-                skip = true;
-            else if (skip && it == 'm')
-                skip = false;
-            else if (!skip)
-                ss << it;
-        }
-        ss << '\n';
-        os << ss.str();
+        os << output;
         os.flush();
     }
     catch (...)

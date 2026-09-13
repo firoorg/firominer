@@ -1,6 +1,8 @@
 #include <chrono>
+#include <future>
 
 #include "PoolManager.h"
+#include "stratum/utilstrencodings.h"
 
 using namespace std;
 using namespace dev;
@@ -14,6 +16,14 @@ PoolManager::PoolManager(PoolSettings _settings)
     m_failovertimer(g_io_service),
     m_submithrtimer(g_io_service)
 {
+    if (m_Settings.coinbaseMessage.size() > 80)
+        throw std::invalid_argument("Coinbase message exceeds 80 UTF-8 bytes");
+    if (!IsValidUTF8(m_Settings.coinbaseMessage))
+        throw std::invalid_argument("Coinbase message must be valid UTF-8");
+    if (!m_Settings.coinbaseMessage.empty())
+        for (auto const& connection : m_Settings.connections)
+            if (connection && connection->Host() != "exit" && connection->Family() != ProtocolFamily::GETWORK)
+                throw std::invalid_argument("Coinbase messages require solo Getwork; pools control their coinbase");
     m_this = this;
 
     m_currentWp.header = h256();
@@ -69,6 +79,8 @@ void PoolManager::setClientHandlers()
             // Reset current WorkPackage
             m_currentWp.job.clear();
             m_currentWp.header = h256();
+            m_currentSeedValidated = false;
+            m_epochMismatchWarned = false;
 
             // Shuffle if needed
             if (Farm::f().get_ergodicity() == 1U)
@@ -129,7 +141,7 @@ void PoolManager::setClientHandlers()
                 cnote << "Shutting down miners...";
                 Farm::f().stop();
             }
-            m_running.store(false, std::memory_order_relaxed);
+            m_running.store(false, std::memory_order_release);
         }
         else
         {
@@ -151,10 +163,30 @@ void PoolManager::setClientHandlers()
             return;
         }
 
-        if (!wp.epoch.has_value())
+        const auto advertisedEpoch = wp.epoch;
+        const auto advertisedSeed = ethash::from_bytes(wp.seed.data());
+        const auto epoch = ethash::calculate_epoch_from_block_num(*wp.block, m_Settings.network);
+        if (advertisedEpoch && *advertisedEpoch != epoch &&
+            p_client->getConnection()->Family() == ProtocolFamily::GETWORK)
         {
-            wp.epoch.emplace(static_cast<uint32_t>(wp.block.value() / ethash::kEpoch_length));
+            cwarn << "Getwork daemon epoch " << *advertisedEpoch << " disagrees with "
+                  << m_Settings.network << " epoch " << epoch << ". Refusing work; set "
+                     "--firopow-network to the daemon's network before reconnecting.";
+            p_client->getConnection()->MarkUnrecoverable();
+            p_client->disconnect();
+            return;
         }
+        if (!m_epochMismatchWarned &&
+            ((advertisedEpoch && *advertisedEpoch != epoch) ||
+                (!advertisedEpoch &&
+                    (!m_currentSeedValidated || !m_currentWp ||
+                        m_currentWp.epoch != epoch || m_currentWp.seed != wp.seed) &&
+                    !ethash::is_equal(advertisedSeed, ethash::calculate_seed_from_epoch(epoch)))))
+        {
+            cwarn << "Ignoring non-consensus pool epoch; using " << m_Settings.network << " epoch " << epoch;
+            m_epochMismatchWarned = true;
+        }
+        wp.epoch = epoch;
 
         bool newEpoch{false};  // Whether or not the epoch has changed
         bool newDiff{false};   // Whether or not difficulty has changed
@@ -172,6 +204,7 @@ void PoolManager::setClientHandlers()
 
         // Save package
         m_currentWp = wp;
+        m_currentSeedValidated = !advertisedEpoch && !m_epochMismatchWarned;
 
         // Increment epoch changes
         if (newEpoch)
@@ -210,19 +243,62 @@ void PoolManager::setClientHandlers()
 
 void PoolManager::stop()
 {
+    std::unique_lock<std::mutex> lifecycleLock(m_lifecycleMutex);
     if (m_running.load(std::memory_order_relaxed))
     {
         m_async_pending.store(true, std::memory_order_relaxed);
         m_stopping.store(true, std::memory_order_relaxed);
 
-        if (p_client && p_client->isConnected())
+        if (p_client)
         {
-            p_client->disconnect();
-            // Wait for async operations to complete
-            while (m_running.load(std::memory_order_relaxed))
+            // Client callbacks and socket operations run on the I/O thread. Keep it
+            // alive until both disconnection and client destruction have completed.
+            boost::asio::io_service::work keepAlive(g_io_service);
+            std::exception_ptr disconnectError;
+            g_io_service.post(m_io_strand.wrap([this, &disconnectError]() {
+                try
+                {
+                    if (p_client->isConnected() || p_client->isPendingState())
+                        p_client->disconnect();
+                    else
+                        m_running.store(false, std::memory_order_release);
+                }
+                catch (...)
+                {
+                    disconnectError = std::current_exception();
+                    m_running.store(false, std::memory_order_release);
+                }
+            }));
+
+            // Status readers on the I/O thread also take this mutex.
+            lifecycleLock.unlock();
+            while (m_running.load(std::memory_order_acquire))
                 this_thread::sleep_for(chrono::milliseconds(500));
 
-            p_client = nullptr;
+            auto released = std::make_shared<std::promise<void>>();
+            auto completed = released->get_future();
+            g_io_service.post(m_io_strand.wrap([this, released]() {
+                try
+                {
+                    {
+                        std::lock_guard<std::mutex> lifecycleLock(m_lifecycleMutex);
+                        boost::system::error_code ignored;
+                        m_failovertimer.cancel(ignored);
+                        m_submithrtimer.cancel(ignored);
+                        if (Farm::f().isMining())
+                            Farm::f().stop();
+                        p_client.reset();
+                    }
+                    released->set_value();
+                }
+                catch (...)
+                {
+                    released->set_exception(std::current_exception());
+                }
+            }));
+            completed.get();
+            if (disconnectError)
+                std::rethrow_exception(disconnectError);
         }
         else
         {
@@ -235,17 +311,27 @@ void PoolManager::stop()
                 cnote << "Shutting down miners...";
                 Farm::f().stop();
             }
+
+            p_client = nullptr;
+            m_running.store(false, std::memory_order_relaxed);
         }
     }
 }
 
 void PoolManager::addConnection(std::string _connstring)
 {
-    m_Settings.connections.push_back(std::shared_ptr<URI>(new URI(_connstring)));
+    addConnection(std::make_shared<URI>(_connstring));
 }
 
 void PoolManager::addConnection(std::shared_ptr<URI> _uri)
 {
+    if (!_uri)
+        throw std::invalid_argument("Connection must not be null");
+    if (!m_Settings.coinbaseMessage.empty() && _uri->Host() != "exit" &&
+        _uri->Family() != ProtocolFamily::GETWORK)
+        throw std::invalid_argument("Coinbase messages require solo Getwork; pools control their coinbase");
+    if (_uri->Family() == ProtocolFamily::GETWORK && m_Settings.rewardAddress.empty())
+        throw std::invalid_argument("A reward address is required for Firo Getwork connections");
     m_Settings.connections.push_back(_uri);
 }
 
@@ -279,7 +365,7 @@ void PoolManager::setActiveConnectionCommon(unsigned int idx)
 {
     // Are there any outstanding operations ?
     bool ex = false;
-    if (!m_async_pending.compare_exchange_weak(ex, true, std::memory_order_relaxed))
+    if (!m_async_pending.compare_exchange_strong(ex, true, std::memory_order_relaxed))
         throw std::runtime_error("Outstanding operations. Retry ...");
 
     if (idx != m_activeConnectionIdx)
@@ -287,7 +373,10 @@ void PoolManager::setActiveConnectionCommon(unsigned int idx)
         m_connectionSwitches.fetch_add(1, std::memory_order_relaxed);
         m_activeConnectionIdx = idx;
         m_connectionAttempt = 0;
-        p_client->disconnect();
+        if (p_client)
+            p_client->disconnect();
+        else
+            m_async_pending.store(false, std::memory_order_relaxed);
     }
     else
     {
@@ -311,15 +400,13 @@ void PoolManager::setActiveConnection(unsigned int idx)
 
 void PoolManager::setActiveConnection(std::string& _connstring)
 {
-    bool found = false;
     for (size_t idx = 0; idx < m_Settings.connections.size(); idx++)
         if (boost::iequals(m_Settings.connections[idx]->str(), _connstring))
         {
             setActiveConnectionCommon(idx);
-            break;
+            return;
         }
-    if (!found)
-        throw std::runtime_error("Not found.");
+    throw std::runtime_error("Not found.");
 }
 
 std::shared_ptr<URI> PoolManager::getActiveConnection()
@@ -359,6 +446,10 @@ void PoolManager::start()
 
 void PoolManager::rotateConnect()
 {
+    std::lock_guard<std::mutex> lifecycleLock(m_lifecycleMutex);
+    if (!m_running.load(std::memory_order_relaxed) || m_stopping.load(std::memory_order_relaxed))
+        return;
+
     if (p_client && p_client->isConnected())
         return;
 
@@ -407,13 +498,15 @@ void PoolManager::rotateConnect()
 
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::GETWORK)
             p_client = std::unique_ptr<PoolClient>(
-                new EthGetworkClient(m_Settings.noWorkTimeout, m_Settings.getWorkPollInterval, m_Settings.rewardAddress));
+                new EthGetworkClient(m_Settings.noWorkTimeout, m_Settings.getWorkPollInterval,
+                    m_Settings.rewardAddress, m_Settings.coinbaseMessage));
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::STRATUM)
             p_client = std::unique_ptr<PoolClient>(
                 new EthStratumClient(m_Settings.noWorkTimeout, m_Settings.noResponseTimeout));
         if (m_Settings.connections.at(m_activeConnectionIdx)->Family() == ProtocolFamily::SIMULATION)
             p_client =
-                std::unique_ptr<PoolClient>(new SimulateClient(m_Settings.benchmarkBlock, m_Settings.benchmarkDiff));
+                std::unique_ptr<PoolClient>(new SimulateClient(
+                    m_Settings.benchmarkBlock, m_Settings.benchmarkDiff, m_Settings.network));
 
         if (p_client)
             setClientHandlers();
@@ -498,7 +591,7 @@ void PoolManager::submithrtimer_elapsed(const boost::system::error_code& ec)
 
 int PoolManager::getCurrentEpoch()
 {
-    return m_currentWp.epoch.value();
+    return m_currentWp ? static_cast<int>(m_currentWp.epoch.value_or(0)) : 0;
 }
 
 double PoolManager::getCurrentDifficulty()
