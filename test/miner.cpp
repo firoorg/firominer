@@ -57,6 +57,14 @@ int main()
 {
     using namespace dev::eth;
 
+    TelemetryType telemetry;
+    telemetry.farm.hashrate = 2e12f;
+    if (telemetry.str().find("2000.00 Gh") == std::string::npos)
+    {
+        std::cerr << "telemetry exceeded its largest hashrate suffix\n";
+        return 1;
+    }
+
     // Batch sizes must remain usable at devnet/regtest difficulty, and every
     // stream's launch must fit wholly inside its assigned nonce segment.
     for (uint32_t group : {32u, 64u, 128u, 256u, 512u})

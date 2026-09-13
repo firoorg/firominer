@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <bitset>
 #include <condition_variable>
+#include <iterator>
 #include <list>
 #include <mutex>
 #include <numeric>
@@ -277,8 +278,8 @@ struct TelemetryType
         */
         static std::string suffixes[] = {"h", "Kh", "Mh", "Gh"};
         float hr = farm.hashrate;
-        int magnitude = 0;
-        while (hr > 1000.0f && magnitude <= 3)
+        size_t magnitude = 0;
+        while (hr > 1000.0f && magnitude + 1 < std::size(suffixes))
         {
             hr /= 1000.0f;
             magnitude++;

@@ -469,6 +469,17 @@ struct ProtocolTest
 
 int main()
 {
+    if (dev::getFormattedHashes(1000) != "1000.00 h" ||
+        dev::getFormattedHashes(1500) != "1.50 Kh" ||
+        dev::getFormattedHashes(2e12) != "2000.00 Gh" ||
+        dev::getFormattedHashes(2e12, dev::ScaleSuffix::DontAdd) != "2000.00" ||
+        dev::getFormattedMemory(2.0 * 1024 * 1024 * 1024 * 1024) != "2048.00 GB" ||
+        dev::getFormattedElapsed(2e6) != "2000.00 sec")
+    {
+        std::cerr << "scaled formatting exceeded its available suffixes\n";
+        return 1;
+    }
+
     try
     {
         ProtocolTest::run();
