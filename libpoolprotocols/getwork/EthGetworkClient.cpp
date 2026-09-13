@@ -26,7 +26,7 @@ EthGetworkClient::EthGetworkClient(int worktimeout, unsigned farmRecheckPeriod, 
     m_callbackState(std::make_shared<CallbackState>(this)),
     m_txQueue(64),
     m_io_strand(g_io_service),
-    m_socket(g_io_service),
+    m_socket(std::make_shared<tcp::socket>(g_io_service)),
     m_resolver(g_io_service),
     m_endpoints(),
     m_coinbaseMessage(coinbaseMessage),
@@ -57,6 +57,8 @@ EthGetworkClient::~EthGetworkClient()
 {
     std::lock_guard<std::recursive_mutex> lock(m_callbackState->mutex);
     m_callbackState->client = nullptr;
+    boost::system::error_code ignored;
+    m_socket->close(ignored);
     m_txQueue.consume_all([](std::string* request) { delete request; });
     // Do not stop io service.
     // It's global
@@ -138,7 +140,7 @@ void EthGetworkClient::disconnect()
     cancel_request_timer();
     m_resolver.cancel();
     boost::system::error_code ignored;
-    m_socket.close(ignored);
+    m_socket->close(ignored);
 
     m_txQueue.consume_all([](std::string* l) { delete l; });
     m_pendingRequest.clear();
@@ -158,13 +160,14 @@ void EthGetworkClient::begin_connect()
         // Eventually endpoints get discarded on connection errors
         m_endpoint = m_endpoints.front();
         boost::system::error_code ignored;
-        m_socket.close(ignored);
+        m_socket->close(ignored);
         auto const generation = m_operationGeneration.fetch_add(1, std::memory_order_relaxed) + 1;
         arm_request_timer();
         auto const callbackState = m_callbackState;
+        auto const socket = m_socket;
         m_socketOperationPending = true;
-        m_socket.async_connect(m_endpoint,
-            m_io_strand.wrap([callbackState, generation](const boost::system::error_code& ec) {
+        socket->async_connect(m_endpoint,
+            m_io_strand.wrap([callbackState, generation, socket](const boost::system::error_code& ec) {
                 std::lock_guard<std::recursive_mutex> lock(callbackState->mutex);
                 auto* client = callbackState->client;
                 if (client)
@@ -190,7 +193,7 @@ void EthGetworkClient::begin_connect()
 
 void EthGetworkClient::handle_connect(const boost::system::error_code& ec)
 {
-    if (!ec && m_socket.is_open())
+    if (!ec && m_socket->is_open())
     {
         // If in "connecting" phase raise the proper event
         if (m_connecting.load(std::memory_order_relaxed))
@@ -243,6 +246,7 @@ void EthGetworkClient::handle_connect(const boost::system::error_code& ec)
         m_pending_tstamp = std::chrono::steady_clock::now();
 
         auto const attempt = std::make_shared<HttpAttempt>();
+        attempt->socket = m_socket;
         std::ostringstream os;
         string _path = (m_conn->Path().empty() ? "/" : m_conn->Path());
         os << "POST " << _path << " HTTP/1.0\r\n";
@@ -262,7 +266,7 @@ void EthGetworkClient::handle_connect(const boost::system::error_code& ec)
         auto const generation = m_operationGeneration.load(std::memory_order_relaxed);
         auto const callbackState = m_callbackState;
         m_socketOperationPending = true;
-        async_write(m_socket, boost::asio::buffer(attempt->request),
+        async_write(*attempt->socket, boost::asio::buffer(attempt->request),
             m_io_strand.wrap([callbackState, generation, attempt](const boost::system::error_code& writeEc,
                                  std::size_t) {
                 std::lock_guard<std::recursive_mutex> lock(callbackState->mutex);
@@ -309,7 +313,7 @@ void EthGetworkClient::handle_write(
         auto const generation = m_operationGeneration.load(std::memory_order_relaxed);
         auto const callbackState = m_callbackState;
         m_socketOperationPending = true;
-        boost::beast::http::async_read(m_socket, attempt->response, attempt->parser,
+        boost::beast::http::async_read(*attempt->socket, attempt->response, attempt->parser,
             m_io_strand.wrap([callbackState, generation, attempt](const boost::system::error_code& readEc,
                                  std::size_t bytesTransferred) {
                 std::lock_guard<std::recursive_mutex> lock(callbackState->mutex);
@@ -345,8 +349,8 @@ void EthGetworkClient::handle_read(const boost::system::error_code& ec, std::siz
     if (!ec)
     {
         // Close socket
-        if (m_socket.is_open())
-            m_socket.close();
+        if (m_socket->is_open())
+            m_socket->close();
 
         auto response = attempt->parser.release();
         auto const http_status_code = response.result_int();
@@ -470,7 +474,7 @@ void EthGetworkClient::retry_endpoint()
 
     cancel_request_timer();
     boost::system::error_code ignored;
-    m_socket.close(ignored);
+    m_socket->close(ignored);
     if (!m_endpoints.empty())
         m_endpoints.pop();
 

@@ -45,9 +45,10 @@ private:
         EthGetworkClient* client;
     };
 
-    // Beast and Asio require operation storage to live through completion.
+    // Composed operations retain both the socket and storage through completion.
     struct HttpAttempt
     {
+        std::shared_ptr<boost::asio::ip::tcp::socket> socket;
         std::string request;
         boost::beast::flat_buffer response;
         boost::beast::http::response_parser<boost::beast::http::string_body> parser;
@@ -85,7 +86,7 @@ private:
 
     boost::asio::io_service::strand m_io_strand;
 
-    boost::asio::ip::tcp::socket m_socket;
+    std::shared_ptr<boost::asio::ip::tcp::socket> m_socket;
     boost::asio::ip::tcp::resolver m_resolver;
     std::queue<boost::asio::ip::basic_endpoint<boost::asio::ip::tcp>> m_endpoints;
 

@@ -127,6 +127,65 @@ struct ProtocolTest
         require(manager.m_epochMismatchWarned, "advertised epoch vouched for an unchecked seed");
     }
 
+    static void getworkSocketLifetime()
+    {
+        using boost::asio::ip::tcp;
+        g_io_service.reset();
+        tcp::acceptor server(g_io_service,
+            tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
+        tcp::socket peer(g_io_service);
+        boost::beast::flat_buffer requestBuffer;
+        boost::beast::http::request_parser<boost::beast::http::string_body> request;
+        bool requestReceived = false;
+        server.async_accept(peer, [&](boost::system::error_code const& ec) {
+            require(!ec, "Getwork lifetime peer failed to accept");
+            boost::beast::http::async_read(peer, requestBuffer, request,
+                [&](boost::system::error_code const& readEc, size_t) {
+                    require(!readEc, "Getwork lifetime peer failed to read the request");
+                    requestReceived = true;
+                });
+        });
+
+        auto client = std::make_unique<EthGetworkClient>(60, 1000, "reward");
+        client->setConnection(std::make_shared<dev::URI>("getwork://127.0.0.1:" +
+            std::to_string(server.local_endpoint().port())));
+        unsigned callbacks = 0;
+        client->onConnected([&] { ++callbacks; });
+        client->onDisconnected([&] { ++callbacks; });
+        client->onWorkReceived([&](dev::eth::WorkPackage&) { ++callbacks; });
+        client->connect();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!requestReceived && std::chrono::steady_clock::now() < deadline)
+        {
+            g_io_service.poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        require(requestReceived && json(request.get().body())["method"] == "getblocktemplate",
+            "Getwork lifetime test did not receive a template request");
+        // The peer leaves the HTTP response pending while the client is destroyed.
+        g_io_service.poll();
+        require(client->m_socketOperationPending, "Getwork HTTP operation was not pending");
+
+        std::weak_ptr<tcp::socket> socket = client->m_socket;
+        const auto callbacksBeforeDestruction = callbacks;
+        client.reset();
+        {
+            auto retained = socket.lock();
+            require(retained && !retained->is_open(),
+                "Getwork did not retain its closed socket through cancellation");
+        }
+        const auto drainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!socket.expired() && std::chrono::steady_clock::now() < drainDeadline)
+        {
+            g_io_service.poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        require(socket.expired(), "Getwork retained its socket after cancellation completed");
+        require(callbacks == callbacksBeforeDestruction,
+            "Getwork dispatched a client callback after destruction");
+        g_io_service.reset();
+    }
+
     static void managerShutdown()
     {
         dev::eth::PoolManager manager({});
@@ -396,6 +455,7 @@ int main()
     try
     {
         ProtocolTest::run();
+        ProtocolTest::getworkSocketLifetime();
     }
     catch (std::exception const& ex)
     {
