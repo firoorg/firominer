@@ -138,7 +138,7 @@ GitHub Actions runs core tests normally and under AddressSanitizer/UndefinedBeha
 
 Packages include runtime libraries, documentation, source/build identification, and checksums. They require a compatible GPU driver; the CUDA package requires an NVIDIA driver even when selecting another backend. Linux packages target Ubuntu 22.04 or newer compatible x86-64 systems, and Windows packages target Windows 10/11 x64. See [Testing PR artifacts](docs/TESTING.md) for setup and a functional test guide.
 
-Downloads appear in the associated workflow run's artifacts for pull requests and pushes to `main`. These are unsigned development packages. A tag matching `v` plus `PROJECT_VERSION` (for example, `v1.2.4`) publishes the same verified packages as a GitHub release. CI has no physical GPUs, so device execution, accepted pool shares, and hashrate still require hardware testing.
+Downloads appear in the associated workflow run's artifacts for pull requests and pushes to `main`. These are unsigned development packages. A tag matching `v` plus `PROJECT_VERSION` (for example, `v1.2.0`) publishes the same verified packages as a GitHub release. CI has no physical GPUs, so device execution, accepted pool shares, and hashrate still require hardware testing.
 
 After cloning this repository into `firominer`, it can be built with commands like:
 

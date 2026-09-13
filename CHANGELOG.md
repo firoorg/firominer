@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 1.2.0
+
+### Added
+
+- Desktop launcher for solo and pool mining, with live logs and OpenCL device detection.
+- `--firopow-network` support for mainnet, testnet, devnet, and regtest epoch schedules.
+- Optional UTF-8 solo coinbase messages, with a companion Firo daemon patch.
+- Opt-in `--cl-experimental-inline` OpenCL kernel variant.
+- Checksum-verified Linux and Windows CUDA/OpenCL release packages.
+
+### Changed
+
+- Improved CUDA and OpenCL work scheduling, nonce-range handling, low-difficulty behavior, and device recovery.
+- Hardened Stratum and Getwork parsing, timeouts, reconnection, and asynchronous shutdown; solo Getwork now requires a reward address.
+- Protected API status access when a password is configured and redacted pool credentials from the unauthenticated HTTP view.
+- Made `--cl-global-work` control the OpenCL work multiplier instead of being ignored.
+- Expanded FiroPoW, miner-state, protocol, API, GUI, sanitizer, and packaging tests.
+
+### Fixed
+
+- Fixed mismatched FiroPoW epochs and invalid solo Getwork jobs.
+- Fixed overlapping OpenCL scratch storage and generated-kernel paths containing spaces.
+- Fixed Getwork socket lifetime, pool shutdown ordering, malformed coinbase UTF-8, and out-of-bounds unit formatting.
+- Fixed current Linux and Windows toolchain compatibility and Windows CUDA runtime packaging.
+
 ## 0.16.1rc0
 
 ### Fixed
