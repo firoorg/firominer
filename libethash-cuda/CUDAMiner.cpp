@@ -662,7 +662,7 @@ bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
             0,                                                 // shared mem
             stream,                                            // stream
             args, 0));                                         // arguments
-        next_nonce = wrapNonce(w, next_nonce + launch_batch_size);
+        next_nonce += launch_batch_size;
         if (w.nonceRange)
             scheduled_hashes += launch_batch_size;
     }
@@ -737,7 +737,7 @@ bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
                     0,                                                 // shared mem
                     stream,                                            // stream
                     args, 0));                                         // arguments
-                next_nonce = wrapNonce(w, next_nonce + launch_batch_size);
+                next_nonce += launch_batch_size;
                 if (w.nonceRange)
                     scheduled_hashes += launch_batch_size;
             }

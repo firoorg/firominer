@@ -92,9 +92,9 @@ int main()
                             std::cerr << "GPU launch straddled the nonce range\n";
                             return 1;
                         }
-                        nonce = wrapNonce(bounded, nonce + batch);
+                        nonce += batch;
                     }
-                    if (nonce != bounded.startNonce)
+                    if (nonce - bounded.startNonce != range || nonceInRange(bounded, nonce))
                     {
                         std::cerr << "GPU launch sequence did not cover the nonce range\n";
                         return 1;
@@ -139,10 +139,9 @@ int main()
     work.header = dev::h256{1u};
     work.startNonce = UINT64_MAX - 0xffff;
     work.nonceRange = 0x10000;
-    if (!nonceInRange(work, work.startNonce + 0xffff) || nonceInRange(work, 0) ||
-        wrapNonce(work, 0) != work.startNonce)
+    if (!nonceInRange(work, work.startNonce + 0xffff) || nonceInRange(work, 0))
     {
-        std::cerr << "assigned nonce range wrapping failed\n";
+        std::cerr << "assigned nonce range bounds check failed\n";
         return 1;
     }
     work.startNonce = 0;

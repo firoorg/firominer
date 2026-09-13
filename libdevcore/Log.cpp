@@ -111,28 +111,29 @@ void dev::simpleDebugOut(std::string const& _s)
 {
     try
     {
+        std::string output;
+        output.reserve(_s.size() + 1);
+        if (g_logNoColor)
+        {
+            bool skip = false;
+            for (auto it : _s)
+            {
+                if (!skip && it == '\x1b')
+                    skip = true;
+                else if (skip && it == 'm')
+                    skip = false;
+                else if (!skip)
+                    output += it;
+            }
+        }
+        else
+            output = _s;
+        output += '\n';
+
         static std::mutex outputMutex;
         std::lock_guard<std::mutex> lock(outputMutex);
         std::ostream& os = g_logStdout ? std::cout : std::clog;
-        if (!g_logNoColor)
-        {
-            os << _s + '\n';
-            os.flush();
-            return;
-        }
-        bool skip = false;
-        std::stringstream ss;
-        for (auto it : _s)
-        {
-            if (!skip && it == '\x1b')
-                skip = true;
-            else if (skip && it == 'm')
-                skip = false;
-            else if (!skip)
-                ss << it;
-        }
-        ss << '\n';
-        os << ss.str();
+        os << output;
         os.flush();
     }
     catch (...)

@@ -557,7 +557,7 @@ void EthGetworkClient::processResponse(Json::Value& JRes)
             }
             else
             {
-                Json::Value JPrm = JRes.get("result", Json::Value::null);
+                auto const& JPrm = JRes["result"];
 
                 // Stock daemons ignore unknown template fields. Require acknowledgement
                 // from the companion daemon patch before mining a tagged coinbase.

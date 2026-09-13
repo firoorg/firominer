@@ -84,6 +84,49 @@ struct ProtocolTest
             "getwork daemon/network mismatch was silently mined with a different epoch");
     }
 
+    static void seedValidation()
+    {
+        dev::eth::PoolManager manager({});
+        auto client = std::make_unique<EthStratumClient>(60, 1);
+        client->setConnection(std::make_shared<dev::URI>("stratum://127.0.0.1:1"));
+        auto* stratum = client.get();
+        manager.p_client = std::move(client);
+        manager.setClientHandlers();
+        auto receive = [&](dev::eth::WorkPackage work) { stratum->m_onWorkReceived(work); };
+        auto reconnect = [&]() { stratum->m_onConnected(); };
+
+        dev::eth::WorkPackage work;
+        work.header = dev::h256{1u};
+        work.boundary = dev::h256{1u};
+        work.block = 1300;
+        const auto seed = ethash::calculate_seed_from_epoch(1);
+        work.seed = dev::h256{seed.bytes, dev::h256::ConstructFromPointer};
+        receive(work);
+        receive(work);
+        require(!manager.m_epochMismatchWarned, "repeated valid seed was rejected");
+
+        work.seed = dev::h256{};
+        receive(work);
+        require(manager.m_epochMismatchWarned, "changed seed bypassed validation");
+
+        reconnect();
+        work.seed = dev::h256{seed.bytes, dev::h256::ConstructFromPointer};
+        receive(work);
+        work.block = 2600;
+        receive(work);
+        require(manager.m_epochMismatchWarned, "changed epoch reused the previous seed validation");
+
+        reconnect();
+        work.block = 1300;
+        work.seed = dev::h256{};
+        work.epoch = 1;
+        receive(work);
+        require(!manager.m_epochMismatchWarned, "advertised epoch unexpectedly required a seed");
+        work.epoch.reset();
+        receive(work);
+        require(manager.m_epochMismatchWarned, "advertised epoch vouched for an unchecked seed");
+    }
+
     static void run()
     {
         auto response = json(R"({"id":1,"error":null,"result":{
@@ -441,6 +484,7 @@ int main()
     try
     {
         ProtocolTest::networkMismatch();
+        ProtocolTest::seedValidation();
     }
     catch (std::exception const& ex)
     {

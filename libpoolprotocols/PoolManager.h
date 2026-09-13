@@ -90,6 +90,7 @@ private:
     unsigned m_activeConnectionIdx = 0;
 
     WorkPackage m_currentWp;
+    bool m_currentSeedValidated = false;  // Advertised epochs do not validate the seed.
 
     boost::asio::io_service::strand m_io_strand;
     boost::asio::deadline_timer m_failovertimer;

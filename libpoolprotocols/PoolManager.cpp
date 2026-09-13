@@ -75,6 +75,7 @@ void PoolManager::setClientHandlers()
             // Reset current WorkPackage
             m_currentWp.job.clear();
             m_currentWp.header = h256();
+            m_currentSeedValidated = false;
             m_epochMismatchWarned = false;
 
             // Shuffle if needed
@@ -174,6 +175,8 @@ void PoolManager::setClientHandlers()
         if (!m_epochMismatchWarned &&
             ((advertisedEpoch && *advertisedEpoch != epoch) ||
                 (!advertisedEpoch &&
+                    (!m_currentSeedValidated || !m_currentWp ||
+                        m_currentWp.epoch != epoch || m_currentWp.seed != wp.seed) &&
                     !ethash::is_equal(advertisedSeed, ethash::calculate_seed_from_epoch(epoch)))))
         {
             cwarn << "Ignoring non-consensus pool epoch; using " << m_Settings.network << " epoch " << epoch;
@@ -197,6 +200,7 @@ void PoolManager::setClientHandlers()
 
         // Save package
         m_currentWp = wp;
+        m_currentSeedValidated = !advertisedEpoch && !m_epochMismatchWarned;
 
         // Increment epoch changes
         if (newEpoch)

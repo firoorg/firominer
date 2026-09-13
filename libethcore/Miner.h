@@ -354,13 +354,6 @@ inline bool nonceInRange(WorkPackage const& work, uint64_t nonce) noexcept
     return !work.nonceRange || nonce - work.startNonce < work.nonceRange;
 }
 
-inline uint64_t wrapNonce(WorkPackage const& work, uint64_t nonce) noexcept
-{
-    if (!work.nonceRange)
-        return nonce;
-    return work.startNonce + (nonce - work.startNonce) % work.nonceRange;
-}
-
 inline uint32_t gpuBatchSize(uint32_t requested, uint32_t groupSize, uint64_t target,
     uint64_t nonceRange = 0) noexcept
 {
