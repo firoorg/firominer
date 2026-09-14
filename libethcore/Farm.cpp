@@ -401,7 +401,7 @@ void Farm::restart()
  */
 void Farm::restart_async()
 {
-    g_io_service.post(m_io_strand.wrap(boost::bind(&Farm::restart, this)));
+    boost::asio::post(g_io_service, m_io_strand.wrap(boost::bind(&Farm::restart, this)));
 }
 
 /**
@@ -504,7 +504,7 @@ void Farm::setTStartTStop(unsigned tstart, unsigned tstop)
 
 void Farm::submitProof(Solution const& _s)
 {
-    g_io_service.post(m_io_strand.wrap(boost::bind(&Farm::submitProofAsync, this, _s)));
+    boost::asio::post(g_io_service, m_io_strand.wrap(boost::bind(&Farm::submitProofAsync, this, _s)));
 }
 
 void Farm::submitProofAsync(Solution const& _s)
@@ -734,8 +734,30 @@ bool Farm::spawn_file_in_bin_dir(const char* filename, const std::vector<std::st
         if ((sb.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) == 0)
             return false;
 #endif
-        /* spawn it (no wait,...) - fire and forget! */
-        boost::process::spawn(fn, args);
+        // Keep only the detached handle while reaping the child asynchronously.
+#if defined(_WIN32)
+        wchar_t systemDirectory[MAX_PATH];
+        const auto length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
+        if (!length || length >= MAX_PATH || fn.find('%') != std::string::npos)
+            return false;
+        const auto cmd = boost::filesystem::path(systemDirectory) / L"cmd.exe";
+        std::wstring command = L"cmd.exe /d /s /v:off /c \"\"" +
+                               boost::filesystem::path(fn).wstring() + L"\"";
+        for (auto const& arg : args)
+        {
+            // Batch arguments are quoted literally; reject expansion and quote syntax.
+            if (arg.find_first_of("\"%\r\n") != std::string::npos)
+                return false;
+            command += L" \"" + boost::filesystem::path(arg).wstring() + L"\"";
+        }
+        command += L"\"";
+        boost::process::process child(g_io_service, cmd, command.c_str());
+#else
+        boost::process::process child(g_io_service, fn, args);
+#endif
+        auto state = std::make_shared<std::pair<boost::process::process_handle,
+            boost::process::native_exit_code_type>>(child.detach(), 0);
+        state->first.async_wait(state->second, [state](const boost::system::error_code&) {});
         return true;
     }
     catch (...)

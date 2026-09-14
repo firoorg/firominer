@@ -143,6 +143,7 @@ jobs:
             "Platform: Linux x86-64, Ubuntu 22.04, CUDA toolkit 12.9.2" \
             "CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             > stage/BUILD-INFO.txt
+          cat stage/share/firominer/dependencies.txt >> stage/BUILD-INFO.txt
           (cd stage && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 
       - name: Package and verify
@@ -164,7 +165,8 @@ jobs:
           if grep 'not found' dependencies.txt | grep -v 'libcuda.so.1'; then exit 1; fi
           if [ '${{ matrix.cuda }}' = OFF ]; then
             if grep -E 'libcuda|libnvrtc' dependencies.txt; then exit 1; fi
-            ./bin/firominer --version
+            ./bin/firominer --version | tee version.txt
+            grep -F 'Boost 1_92; JsonCpp 1.9.7; CLI11 2.6.2; OpenSSL 3.5.8' version.txt
             ./bin/firominer --help > help.txt
             grep -F -- '--cpu' help.txt
             ./bin/firominer --help-ext api | grep -F -- '--api-bind'
@@ -190,7 +192,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     env:
-      # Boost 1.76 predates VS 2022, but the runner includes its v142 toolset.
+      # Keep dependency builds on the same v142 toolset as the CUDA build.
       VS160COMNTOOLS: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\'
 
     steps:
@@ -282,6 +284,7 @@ jobs:
               'Platform: Windows x86-64, v142 toolset, CUDA toolkit 12.9.2'
               "CI: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
             ) | Set-Content "$stage/BUILD-INFO.txt" -Encoding utf8
+            Get-Content "$stage/share/firominer/dependencies.txt" | Add-Content "$stage/BUILD-INFO.txt" -Encoding utf8
             Push-Location $stage
             Get-ChildItem -File -Recurse | Where-Object Name -ne SHA256SUMS | Sort-Object FullName | ForEach-Object {
               $relative = (Resolve-Path -Relative $_.FullName).Replace('\', '/')
@@ -311,7 +314,11 @@ jobs:
           # 41 accented characters are 82 UTF-8 bytes; catch Windows argv code-page loss.
           python -c "import subprocess; p = subprocess.run([r'$binary', '--list-devices', '--coinbase-message=' + chr(233)*41], capture_output=True, text=True, encoding='utf-8'); assert p.returncode != 0 and '80 UTF-8 bytes' in p.stdout+p.stderr"
           $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
-          & $binary --version
+          $version = & $binary --version | Out-String
+          Write-Output $version
+          if (!$version.Contains('Boost 1_92; JsonCpp 1.9.7; CLI11 2.6.2; OpenSSL 3.5.8')) {
+            throw 'Packaged dependency versions do not match the release pins'
+          }
           $help = & $binary --help | Out-String
           if (!$help.Contains('--cpu')) { throw 'CPU diagnostics missing from help' }
           $apiHelp = & $binary --help-ext api | Out-String

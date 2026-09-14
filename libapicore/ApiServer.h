@@ -24,7 +24,7 @@ class ApiConnection : public std::enable_shared_from_this<ApiConnection>
 {
 public:
 
-    ApiConnection(boost::asio::io_service::strand& _strand, int id, bool readonly, string password);
+    ApiConnection(boost::asio::io_context::strand& _strand, int id, bool readonly, string password);
 
     ~ApiConnection() = default;
 
@@ -64,7 +64,7 @@ private:
     int m_sessionId;
 
     tcp::socket m_socket;
-    boost::asio::io_service::strand m_io_strand;
+    boost::asio::io_context::strand m_io_strand;
     std::mutex m_mutex;
     boost::asio::streambuf m_recvBuffer;
     std::deque<std::pair<std::string, bool>> m_sendQueue;
@@ -111,7 +111,7 @@ private:
     string m_address;
     uint16_t m_portnumber;
     tcp::acceptor m_acceptor;
-    boost::asio::io_service::strand m_io_strand;
+    boost::asio::io_context::strand m_io_strand;
     std::vector<std::shared_ptr<ApiConnection>> m_sessions;
     std::shared_ptr<Lifetime> m_lifetime;
 };

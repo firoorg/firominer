@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/asio/deadline_timer.hpp>
 #include <iostream>
 #include <mutex>
 
@@ -96,7 +97,7 @@ private:
     WorkPackage m_currentWp;
     bool m_currentSeedValidated = false;  // Advertised epochs do not validate the seed.
 
-    boost::asio::io_service::strand m_io_strand;
+    boost::asio::io_context::strand m_io_strand;
     boost::asio::deadline_timer m_failovertimer;
     boost::asio::deadline_timer m_submithrtimer;
 

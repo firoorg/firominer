@@ -6,6 +6,7 @@
 #pragma once
 
 #include <fstream>
+#include <map>
 
 #include <libdevcore/Worker.h>
 #include <libethcore/Miner.h>

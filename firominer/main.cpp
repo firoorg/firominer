@@ -15,7 +15,11 @@
     along with firominer.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <boost/asio/deadline_timer.hpp>
 #include <CLI/CLI.hpp>
+#include <boost/version.hpp>
+#include <json/version.h>
+#include <openssl/crypto.h>
 
 #include <firominer/buildinfo.h>
 #include <algorithm>
@@ -59,7 +63,7 @@ std::atomic<int> g_signal = {0};
 static_assert(std::atomic<int>::is_always_lock_free, "signal flag must be lock-free");
 bool g_exitOnError = false;  // Whether or not firominer should exit on mining threads errors
 
-boost::asio::io_service g_io_service;  // The IO service itself
+boost::asio::io_context g_io_service;  // The IO service itself
 
 struct MiningChannel : public LogChannel
 {
@@ -153,7 +157,7 @@ public:
         {
             // Validate Ip address
             boost::system::error_code ec;
-            outaddr = boost::asio::ip::address::from_string(matches[1], ec).to_string();
+            outaddr = boost::asio::ip::make_address(matches[1], ec).to_string();
             if (ec)
                 throw std::invalid_argument("Invalid Ip Address");
 
@@ -190,8 +194,8 @@ public:
         app.set_help_flag();
         app.add_flag("-h,--help", bhelp, "Show help");
 
-        app.add_set("-H,--help-ext", shelpExt,
-            {
+        app.add_option("-H,--help-ext", shelpExt, "")
+            ->capture_default_str()->check(CLI::IsMember({
                 "con", "test",
 #if ETH_ETHASHCL
                     "cl",
@@ -206,47 +210,55 @@ public:
                     "api",
 #endif
                     "misc", "env"
-            },
-            "", true);
+            }));
 
         bool version = false;
 
-        app.add_option("--ergodicity", m_FarmSettings.ergodicity, "", true)->check(CLI::Range(0, 2));
+        app.add_option("--ergodicity", m_FarmSettings.ergodicity, "")
+            ->capture_default_str()->check(CLI::Range(0, 2));
 
         app.add_flag("-V,--version", version, "Show program version");
 
-        app.add_option("-v,--verbosity", g_logOptions, "", true)->check(CLI::Range(LOG_NEXT - 1));
+        app.add_option("-v,--verbosity", g_logOptions, "")
+            ->capture_default_str()->check(CLI::Range(LOG_NEXT - 1));
 
-        app.add_option("--farm-recheck", m_PoolSettings.getWorkPollInterval, "", true)->check(CLI::Range(1, 99999));
+        app.add_option("--farm-recheck", m_PoolSettings.getWorkPollInterval, "")
+            ->capture_default_str()->check(CLI::Range(1, 99999));
 
-        app.add_option("--farm-retries", m_PoolSettings.connectionMaxRetries, "", true)->check(CLI::Range(0, 99999));
+        app.add_option("--farm-retries", m_PoolSettings.connectionMaxRetries, "")
+            ->capture_default_str()->check(CLI::Range(0, 99999));
 
-        app.add_option("--work-timeout", m_PoolSettings.noWorkTimeout, "", true)
+        app.add_option("--work-timeout", m_PoolSettings.noWorkTimeout, "")
+            ->capture_default_str()
             ->check(CLI::Range(180, 1000000));
 
-        app.add_option("--response-timeout", m_PoolSettings.noResponseTimeout, "", true)
+        app.add_option("--response-timeout", m_PoolSettings.noResponseTimeout, "")
+            ->capture_default_str()
             ->check(CLI::Range(2, 999));
 
         app.add_flag("-R,--report-hashrate,--report-hr", m_PoolSettings.reportHashrate, "");
 
-        app.add_option("--display-interval", m_cliDisplayInterval, "", true)
+        app.add_option("--display-interval", m_cliDisplayInterval, "")
+            ->capture_default_str()
             ->check(CLI::Range(1, 1800));
 
-        app.add_option("--HWMON", m_FarmSettings.hwMon, "", true)->check(CLI::Range(0, 2));
+        app.add_option("--HWMON", m_FarmSettings.hwMon, "")
+            ->capture_default_str()->check(CLI::Range(0, 2));
 
         app.add_flag("--exit", g_exitOnError, "");
 
         vector<string> pools;
         app.add_option("-P,--pool", pools, "");
 
-        app.add_set("--firopow-network", m_PoolSettings.network,
-            {"mainnet", "testnet", "devnet", "regtest"}, "", true);
+        app.add_option("--firopow-network", m_PoolSettings.network, "")
+            ->capture_default_str()->check(CLI::IsMember({"mainnet", "testnet", "devnet", "regtest"}));
 
         string rewardAddress;
         app.add_option("-r,--reward-address", m_PoolSettings.rewardAddress, "");
         app.add_option("--coinbase-message", m_PoolSettings.coinbaseMessage, "");
 
-        app.add_option("--failover-timeout", m_PoolSettings.poolFailoverTimeout, "", true)
+        app.add_option("--failover-timeout", m_PoolSettings.poolFailoverTimeout, "")
+            ->capture_default_str()
             ->check(CLI::Range(0, 999));
 
         app.add_flag("--nocolor", g_logNoColor, "");
@@ -257,7 +269,8 @@ public:
 
 #if API_CORE
 
-        app.add_option("--api-bind", m_api_bind, "", true)
+        app.add_option("--api-bind", m_api_bind, "")
+            ->capture_default_str()
             ->check([this](const string& bind_arg) -> string {
                 try
                 {
@@ -272,7 +285,8 @@ public:
                 return string("");
             });
 
-        app.add_option("--api-port", m_api_port, "", true)->check(CLI::Range(-65535, 65535));
+        app.add_option("--api-port", m_api_port, "")
+            ->capture_default_str()->check(CLI::Range(-65535, 65535));
 
         app.add_option("--api-password", m_api_password, "");
 
@@ -288,9 +302,11 @@ public:
 
         app.add_option("--opencl-device,--opencl-devices,--cl-devices", m_CLSettings.devices, "");
 
-        app.add_option("--cl-global-work", m_CLSettings.globalWorkSizeMultiplier, "", true);
+        app.add_option("--cl-global-work", m_CLSettings.globalWorkSizeMultiplier, "")
+            ->capture_default_str();
 
-        app.add_set("--cl-local-work", m_CLSettings.localWorkSize, {64, 128, 256}, "", true);
+        app.add_option("--cl-local-work", m_CLSettings.localWorkSize, "")
+            ->capture_default_str()->check(CLI::IsMember({64, 128, 256}));
 
         app.add_flag("--cl-experimental-inline,!--cl-no-inline", m_CLSettings.inlineMix, "");
         app.add_flag("--cl-subgroup", m_CLSettings.subgroup, "");
@@ -301,20 +317,22 @@ public:
 
         app.add_option("--cuda-devices,--cu-devices", m_CUSettings.devices, "");
 
-        app.add_option("--cuda-grid-size,--cu-grid-size", m_CUSettings.gridSize, "", true)
+        app.add_option("--cuda-grid-size,--cu-grid-size", m_CUSettings.gridSize, "")
+            ->capture_default_str()
             ->check(CLI::Range(1, 131072));
 
-        app.add_set("--cuda-block-size,--cu-block-size", m_CUSettings.blockSize,
-            {32, 64, 128, 256, 512}, "", true);
+        app.add_option("--cuda-block-size,--cu-block-size", m_CUSettings.blockSize, "")
+            ->capture_default_str()->check(CLI::IsMember({32, 64, 128, 256, 512}));
 
-        app.add_set(
-            "--cuda-parallel-hash,--cu-parallel-hash", m_CUSettings.parallelHash, {1, 2, 4, 8}, "", true);
+        app.add_option("--cuda-parallel-hash,--cu-parallel-hash", m_CUSettings.parallelHash, "")
+            ->capture_default_str()->check(CLI::IsMember({1, 2, 4, 8}));
 
         string sched = "sync";
-        app.add_set(
-            "--cuda-schedule,--cu-schedule", sched, {"auto", "spin", "yield", "sync"}, "", true);
+        app.add_option("--cuda-schedule,--cu-schedule", sched, "")
+            ->capture_default_str()->check(CLI::IsMember({"auto", "spin", "yield", "sync"}));
 
-        app.add_option("--cuda-streams,--cu-streams", m_CUSettings.streams, "", true)
+        app.add_option("--cuda-streams,--cu-streams", m_CUSettings.streams, "")
+            ->capture_default_str()
             ->check(CLI::Range(1, 99));
 
 #endif
@@ -327,7 +345,8 @@ public:
 
         app.add_flag("--noeval", m_FarmSettings.noEval, "");
 
-        app.add_option("-L,--dag-load-mode", m_FarmSettings.dagLoadMode, "", true)->check(CLI::Range(1));
+        app.add_option("-L,--dag-load-mode", m_FarmSettings.dagLoadMode, "")
+            ->capture_default_str()->check(CLI::Range(1));
 
         bool cl_miner = false;
         app.add_flag("-G,--opencl", cl_miner, "");
@@ -339,13 +358,16 @@ public:
 #if ETH_ETHASHCPU
         app.add_flag("--cpu", cpu_miner, "");
 #endif
-        auto sim_opt = app.add_option("-Z,--simulation,-M,--benchmark", m_PoolSettings.benchmarkBlock, "", true);
+        auto sim_opt = app.add_option("-Z,--simulation,-M,--benchmark", m_PoolSettings.benchmarkBlock, "")
+            ->capture_default_str();
 
         app.add_option("--diff", m_PoolSettings.benchmarkDiff, "")
             ->check(CLI::Range(0.00000001, 10000.0));
 
-        app.add_option("--tstop", m_FarmSettings.tempStop, "", true)->check(CLI::Range(30, 100));
-        app.add_option("--tstart", m_FarmSettings.tempStart, "", true)->check(CLI::Range(30, 100));
+        app.add_option("--tstop", m_FarmSettings.tempStop, "")
+            ->capture_default_str()->check(CLI::Range(30, 100));
+        app.add_option("--tstart", m_FarmSettings.tempStart, "")
+            ->capture_default_str()->check(CLI::Range(30, 100));
 
         // add reward address option 
 
@@ -364,6 +386,10 @@ public:
         }
         else if (version)
         {
+            cout << "Dependencies: Boost " << BOOST_LIB_VERSION
+                 << "; JsonCpp " << JSONCPP_VERSION_STRING
+                 << "; CLI11 " << CLI11_VERSION
+                 << "; " << OpenSSL_version(OPENSSL_VERSION) << endl;
             return false;
         }
 
@@ -1258,7 +1284,7 @@ private:
     // Global boost's io_service
     std::thread m_io_thread;                        // The IO service thread
     boost::asio::deadline_timer m_cliDisplayTimer;  // The timer which ticks display lines
-    boost::asio::io_service::strand m_io_strand;    // A strand to serialize posts in
+    boost::asio::io_context::strand m_io_strand;    // A strand to serialize posts in
                                                     // multithreaded environment
 
     // Physical Mining Devices descriptor

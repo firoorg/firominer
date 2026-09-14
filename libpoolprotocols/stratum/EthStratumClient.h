@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/asio/deadline_timer.hpp>
 #include <deque>
 #include <functional>
 #include <iostream>
@@ -140,7 +141,8 @@ private:
     bool oldest_response_plea(std::chrono::steady_clock::time_point& oldest);
     void clear_response_pleas();
     void resolve_handler(
-        const boost::system::error_code& ec, boost::asio::ip::tcp::resolver::iterator i);
+        const boost::system::error_code& ec,
+        const boost::asio::ip::tcp::resolver::results_type& results);
     void start_connect();
     void connect_handler(const boost::system::error_code& ec);
     void handshake_handler(const boost::system::error_code& ec);
@@ -177,8 +179,8 @@ private:
     WorkPackage m_current;
     std::chrono::time_point<std::chrono::steady_clock> m_current_timestamp;
 
-    boost::asio::io_service& m_io_service;  // The IO service reference passed in the constructor
-    boost::asio::io_service::strand m_io_strand;
+    boost::asio::io_context& m_io_service;  // The IO service reference passed in the constructor
+    boost::asio::io_context::strand m_io_strand;
     std::shared_ptr<SocketState> m_socketState;
     boost::asio::ip::tcp::socket* m_socket;
     std::string m_message;  // The internal message string buffer
