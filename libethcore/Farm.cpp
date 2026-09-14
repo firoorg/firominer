@@ -755,8 +755,10 @@ bool Farm::spawn_file_in_bin_dir(const char* filename, const std::vector<std::st
 #else
         boost::process::process child(g_io_service, fn, args);
 #endif
+        // The POSIX wait uses the running status to decide whether to reap the child.
+        const auto exitCode = child.native_exit_code();
         auto state = std::make_shared<std::pair<boost::process::process_handle,
-            boost::process::native_exit_code_type>>(child.detach(), 0);
+            boost::process::native_exit_code_type>>(child.detach(), exitCode);
         state->first.async_wait(state->second, [state](const boost::system::error_code&) {});
         return true;
     }
