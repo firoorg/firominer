@@ -547,7 +547,13 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUmodule&
         std::string op_arch = "--gpu-architecture=compute_" + to_string(compileArch);
         std::string op_dag = "-DPROGPOW_DAG_ELEMENTS=" + to_string(dag_elms);
 
-        const char* opts[] = {op_arch.c_str(), op_dag.c_str(), "-lineinfo"};
+        const char* opts[] = {
+            op_arch.c_str(),
+            op_dag.c_str(),
+#ifdef DEV_BUILD
+            "-lineinfo",
+#endif
+        };
         nvrtcResult compileResult = nvrtcCompileProgram(prog,  // prog
             sizeof(opts) / sizeof(opts[0]),                    // numOptions
             opts);                                             // options
@@ -583,12 +589,14 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUmodule&
             cudalog << "JIT err: \n" << jitErr.data();
         }
         else
-#endif
         {
             CUjit_option jitOpt[] = {CU_JIT_GENERATE_LINE_INFO};
             void* jitOptVal[] = {(void*)(1)};
             CU_SAFE_CALL(cuModuleLoadDataEx(&newModule, ptx.data(), 1, jitOpt, jitOptVal));
         }
+#else
+        CU_SAFE_CALL(cuModuleLoadData(&newModule, ptx.data()));
+#endif
         // Find the mangled name
         const char* mangledName;
         NVRTC_SAFE_CALL(nvrtcGetLoweredName(prog, name, &mangledName));
