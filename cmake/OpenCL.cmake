@@ -23,6 +23,15 @@ set(OPENCL_ICD_LOADER_BUILD_TESTING OFF)
 set(OPENCL_HEADERS_BUILD_TESTING OFF)
 FetchContent_MakeAvailable(firominer_opencl_headers firominer_opencl_loader)
 
+# The upstream Windows sources rely on declarations omitted by these miner flags.
+if(MSVC)
+    get_directory_property(opencl_definitions DIRECTORY ${firominer_opencl_loader_SOURCE_DIR}
+        COMPILE_DEFINITIONS)
+    list(REMOVE_ITEM opencl_definitions WIN32_LEAN_AND_MEAN VC_EXTRALEAN)
+    set_property(DIRECTORY ${firominer_opencl_loader_SOURCE_DIR}
+        PROPERTY COMPILE_DEFINITIONS ${opencl_definitions})
+endif()
+
 # Build linked dependencies, but do not package their SDK headers and libraries.
 set_property(DIRECTORY ${firominer_opencl_headers_SOURCE_DIR}
     PROPERTY EXCLUDE_FROM_ALL TRUE)
