@@ -29,12 +29,11 @@ set(SOURCES
 	${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel.h
 )
 
-if(APPLE)
-	# On macOS use system OpenCL library.
+if(APPLE OR NOT HUNTER_ENABLED)
+	# Use the system library on macOS and for unmanaged dependency builds.
 	find_package(OpenCL REQUIRED)
 else()
-	hunter_add_package(OpenCL)
-	find_package(OpenCL CONFIG REQUIRED)
+	include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenCL.cmake)
 endif()
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
@@ -42,5 +41,12 @@ include_directories(..)
 
 add_library(ethash-cl ${SOURCES})
 target_link_libraries(ethash-cl PUBLIC ethcore crypto)
-target_link_libraries(ethash-cl PRIVATE OpenCL::OpenCL)
+target_link_libraries(ethash-cl PUBLIC OpenCL::OpenCL)
 target_link_libraries(ethash-cl PRIVATE Boost::filesystem Threads::Threads)
+
+if(WIN32 AND BUILD_TESTING)
+	add_executable(opencl-platform-discovery-test ../test/opencl-platform-discovery.cpp)
+	target_link_libraries(opencl-platform-discovery-test PRIVATE OpenCL::OpenCL)
+	add_test(NAME opencl-platform-discovery COMMAND opencl-platform-discovery-test)
+	set_tests_properties(opencl-platform-discovery PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+endif()

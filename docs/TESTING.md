@@ -12,6 +12,12 @@ fails if the toolchain cannot provide it. Windows releases already use `/O2`,
 mining kernels are optimized separately by the OpenCL driver or CUDA runtime
 compiler; host build flags alone do not establish a mining speedup.
 
+Managed OpenCL builds require CMake 3.16+ and pin the Khronos loader and headers
+to `v2026.05.29`. The loader remains statically linked and must be rebuilt to
+receive future driver-discovery fixes. On Windows, the `opencl-platform-discovery`
+CTest compares its platforms with the system loader; it skips when system OpenCL
+is unavailable. macOS and `HUNTER_ENABLED=OFF` builds use system OpenCL.
+
 ## Choose and unpack a package
 
 | Package | Intended machine | Included backends |

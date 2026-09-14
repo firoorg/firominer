@@ -9,7 +9,7 @@ add_library(ethcore ${SOURCES})
 target_link_libraries(ethcore PUBLIC devcore crypto PRIVATE hwmon Boost::filesystem)
 
 if(ETHASHCL)
-	target_link_libraries(ethcore PRIVATE ethash-cl)
+	target_link_libraries(ethcore PUBLIC ethash-cl)
 endif()
 if(ETHASHCUDA)
 	target_link_libraries(ethcore PUBLIC ethash-cuda)
