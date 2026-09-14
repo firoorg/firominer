@@ -22,6 +22,19 @@ find_package(CUDA REQUIRED)
 
 set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};--ptxas-options=-v;-lineinfo;-use_fast_math)
 
+if(MSVC)
+	# FindCUDA forwards compiler flags but does not handle CMP0091's runtime setting.
+	set(cuda_msvc_runtime "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+	if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+		set(cuda_msvc_runtime "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+	endif()
+	list(APPEND CUDA_NVCC_FLAGS
+		"$<$<STREQUAL:${cuda_msvc_runtime},MultiThreaded>:-Xcompiler=/MT>"
+		"$<$<STREQUAL:${cuda_msvc_runtime},MultiThreadedDebug>:-Xcompiler=/MTd>"
+		"$<$<STREQUAL:${cuda_msvc_runtime},MultiThreadedDLL>:-Xcompiler=/MD>"
+		"$<$<STREQUAL:${cuda_msvc_runtime},MultiThreadedDebugDLL>:-Xcompiler=/MDd>")
+endif()
+
 # Retain legacy GPU targets without nvcc's target deprecation notice.
 if(NOT CUDA_VERSION VERSION_LESS 8.0)
 	list(APPEND CUDA_NVCC_FLAGS "-Wno-deprecated-gpu-targets")
