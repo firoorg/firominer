@@ -1,6 +1,13 @@
+if(NOT HUNTER_ENABLED)
+    find_package(OpenCL REQUIRED)
+    find_package(OpenCLHeaders CONFIG REQUIRED)
+    find_package(OpenCLHeadersCpp CONFIG REQUIRED)
+    return()
+endif()
+
 # Hunter's OpenCL 2.1-p3 loader predates Windows adapter-based ICD discovery.
 if(CMAKE_VERSION VERSION_LESS 3.16)
-    message(FATAL_ERROR "Building the OpenCL loader requires CMake 3.16 or newer")
+    message(FATAL_ERROR "Managed OpenCL dependencies require CMake 3.16 or newer")
 endif()
 if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
@@ -11,6 +18,34 @@ FetchContent_Declare(firominer_opencl_headers
     URL https://github.com/KhronosGroup/OpenCL-Headers/archive/refs/tags/v2026.05.29.tar.gz
     URL_HASH SHA256=d9e6c48357de5002da11ce45de600e0c3ffe6ab4f628a3b9fe2b38603161658a
 )
+FetchContent_Declare(firominer_opencl_clhpp
+    URL https://github.com/KhronosGroup/OpenCL-CLHPP/archive/refs/tags/v2026.05.29.tar.gz
+    URL_HASH SHA256=fafb4fd202d113992c009d46e6358e70076167e62a5baeb377fe813033a2655e
+)
+
+function(firominer_add_opencl_headers)
+    # Keep CLHPP's generic example/documentation options local to this dependency.
+    set(BUILD_DOCS OFF)
+    set(BUILD_EXAMPLES OFF)
+    set(OPENCL_HEADERS_BUILD_TESTING OFF)
+    set(OPENCL_CLHPP_BUILD_TESTING OFF)
+    FetchContent_MakeAvailable(firominer_opencl_headers firominer_opencl_clhpp)
+    set_property(DIRECTORY ${firominer_opencl_headers_SOURCE_DIR}
+        PROPERTY EXCLUDE_FROM_ALL TRUE)
+    set_property(DIRECTORY ${firominer_opencl_clhpp_SOURCE_DIR}
+        PROPERTY EXCLUDE_FROM_ALL TRUE)
+    install(FILES ${firominer_opencl_headers_SOURCE_DIR}/LICENSE
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/firominer/licenses RENAME OpenCL-Headers-LICENSE)
+    install(FILES ${firominer_opencl_clhpp_SOURCE_DIR}/LICENSE.txt
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/firominer/licenses RENAME OpenCL-CLHPP-LICENSE)
+endfunction()
+firominer_add_opencl_headers()
+
+if(APPLE)
+    find_package(OpenCL REQUIRED)
+    return()
+endif()
+
 FetchContent_Declare(firominer_opencl_loader
     URL https://github.com/KhronosGroup/OpenCL-ICD-Loader/archive/refs/tags/v2026.05.29.tar.gz
     URL_HASH SHA256=48fd0c5181db7cd046f4f731d5955694892e10998d49d09ee0d997e7e04fd939
@@ -20,8 +55,7 @@ FetchContent_Declare(firominer_opencl_loader
 set(OPENCL_ICD_LOADER_BUILD_SHARED_LIBS OFF)
 set(ENABLE_OPENCL_LAYERS OFF)
 set(OPENCL_ICD_LOADER_BUILD_TESTING OFF)
-set(OPENCL_HEADERS_BUILD_TESTING OFF)
-FetchContent_MakeAvailable(firominer_opencl_headers firominer_opencl_loader)
+FetchContent_MakeAvailable(firominer_opencl_loader)
 
 # The upstream Windows sources rely on declarations omitted by these miner flags.
 if(MSVC)
@@ -33,12 +67,8 @@ if(MSVC)
 endif()
 
 # Build linked dependencies, but do not package their SDK headers and libraries.
-set_property(DIRECTORY ${firominer_opencl_headers_SOURCE_DIR}
-    PROPERTY EXCLUDE_FROM_ALL TRUE)
 set_property(DIRECTORY ${firominer_opencl_loader_SOURCE_DIR}
     PROPERTY EXCLUDE_FROM_ALL TRUE)
 
-install(FILES ${firominer_opencl_headers_SOURCE_DIR}/LICENSE
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/firominer/licenses RENAME OpenCL-Headers-LICENSE)
 install(FILES ${firominer_opencl_loader_SOURCE_DIR}/LICENSE
     DESTINATION ${CMAKE_INSTALL_DATADIR}/firominer/licenses RENAME OpenCL-ICD-Loader-LICENSE)
