@@ -26,7 +26,7 @@ HunterGate(
 
 
 project(firominer)
-set(PROJECT_VERSION 1.2.0)
+set(PROJECT_VERSION 1.3.0)
 
 include(CTest)
 find_package(Threads REQUIRED)

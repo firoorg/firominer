@@ -429,7 +429,7 @@ jobs:
             firominer-windows-x86_64-opencl.zip
             SHA256SUMS-windows.txt
           )
-          options=(--verify-tag --generate-notes --title "Firominer $GITHUB_REF_NAME")
+          options=(--verify-tag --notes-file ../RELEASE_NOTES.md --title "Firominer $GITHUB_REF_NAME")
           assets+=(SHA256SUMS.txt)
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             options+=(--prerelease)
