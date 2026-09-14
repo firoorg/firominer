@@ -54,22 +54,29 @@ void SimulateClient::submitSolution(const Solution& solution)
 {
     // This is a fake submission only evaluated locally
     solution_arrived.store(true);
-    std::chrono::steady_clock::time_point submit_start = std::chrono::steady_clock::now();
-    ethash::VerificationResult result;
-    if (solution.work.algo == "ethash")
-    {
-        result = ethash::verify_full(solution.work.block.value(), ethash::from_bytes(solution.work.header.data()),
-            ethash::from_bytes(solution.mixHash.data()), solution.nonce,
-            ethash::from_bytes(solution.work.get_boundary().data()));
-    }
-    else if (solution.work.algo == "progpow")
-    {
-        result = verifyProgpow(solution);
-    }
+    bool accepted = true;
+    std::chrono::milliseconds response_delay_ms{0};
 
-    bool accepted = (result == ethash::VerificationResult::kOk);
-    std::chrono::milliseconds response_delay_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - submit_start);
+    // Farm has already evaluated the solution unless host evaluation is disabled.
+    if (Farm::f().getNoEval())
+    {
+        const auto submit_start = std::chrono::steady_clock::now();
+        ethash::VerificationResult result{ethash::VerificationResult::kInvalidNonce};
+        if (solution.work.algo == "ethash")
+        {
+            result = ethash::verify_full(solution.work.block.value(), ethash::from_bytes(solution.work.header.data()),
+                ethash::from_bytes(solution.mixHash.data()), solution.nonce,
+                ethash::from_bytes(solution.work.get_boundary().data()));
+        }
+        else if (solution.work.algo == "progpow")
+        {
+            result = verifyProgpow(solution);
+        }
+
+        accepted = (result == ethash::VerificationResult::kOk);
+        response_delay_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - submit_start);
+    }
 
     if (accepted)
     {
