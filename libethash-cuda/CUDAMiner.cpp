@@ -214,10 +214,15 @@ bool CUDAMiner::initEpoch_internal(WorkPackage const& _work)
         ethash_generate_dag(m_device_dag, m_epochContext->full_dataset_size, m_device_light,
             m_epochContext->light_cache_num_items, m_settings.gridSize, m_settings.blockSize, m_streams[0]);
 
+        auto* light = m_device_light;
+        m_device_light = nullptr;
+        m_allocated_memory_light_cache = 0;
+        CUDA_SAFE_CALL(cudaFree(reinterpret_cast<void*>(light)));
+
         cudalog << "Generated DAG + Light in "
                 << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startInit)
                        .count()
-                << " ms. " << dev::getFormattedMemory((double)(m_deviceDescriptor.totalMemory - RequiredMemory))
+                << " ms. " << dev::getFormattedMemory((double)(m_deviceDescriptor.totalMemory - m_allocated_memory_dag))
                 << " left.";
 
         retVar = true;
@@ -542,7 +547,13 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUmodule&
         std::string op_arch = "--gpu-architecture=compute_" + to_string(compileArch);
         std::string op_dag = "-DPROGPOW_DAG_ELEMENTS=" + to_string(dag_elms);
 
-        const char* opts[] = {op_arch.c_str(), op_dag.c_str(), "-lineinfo"};
+        const char* opts[] = {
+            op_arch.c_str(),
+            op_dag.c_str(),
+#ifdef DEV_BUILD
+            "-lineinfo",
+#endif
+        };
         nvrtcResult compileResult = nvrtcCompileProgram(prog,  // prog
             sizeof(opts) / sizeof(opts[0]),                    // numOptions
             opts);                                             // options
@@ -578,12 +589,14 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUmodule&
             cudalog << "JIT err: \n" << jitErr.data();
         }
         else
-#endif
         {
             CUjit_option jitOpt[] = {CU_JIT_GENERATE_LINE_INFO};
             void* jitOptVal[] = {(void*)(1)};
             CU_SAFE_CALL(cuModuleLoadDataEx(&newModule, ptx.data(), 1, jitOpt, jitOptVal));
         }
+#else
+        CU_SAFE_CALL(cuModuleLoadData(&newModule, ptx.data()));
+#endif
         // Find the mangled name
         const char* mangledName;
         NVRTC_SAFE_CALL(nvrtcGetLoweredName(prog, name, &mangledName));

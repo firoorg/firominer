@@ -105,6 +105,19 @@ bool Miner::pauseTest(MinerPauseEnum what)
     return m_pauseFlags.test(what);
 }
 
+void Miner::updateTemperaturePause(
+    bool _temperatureRead, unsigned _tempC, unsigned _tempStart, unsigned _tempStop)
+{
+    if (!_temperatureRead || !_tempStop)
+        return;
+
+    bool paused = pauseTest(PauseDueToOverHeating);
+    if (!paused && _tempC >= _tempStop)
+        pause(PauseDueToOverHeating);
+    if (paused && _tempC <= _tempStart)
+        resume(PauseDueToOverHeating);
+}
+
 std::string Miner::pausedString()
 {
     std::scoped_lock l(x_pause);

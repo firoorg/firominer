@@ -253,6 +253,27 @@ int main()
         return 1;
     }
 
+    TestMiner thermal{2, false};
+    thermal.pause(PauseDueToOverHeating);
+    thermal.updateTemperaturePause(false, 0, 40, 80);
+    if (!thermal.pauseTest(PauseDueToOverHeating))
+    {
+        std::cerr << "failed temperature read resumed an overheated miner\n";
+        return 1;
+    }
+    thermal.updateTemperaturePause(true, 40, 40, 80);
+    if (thermal.paused())
+    {
+        std::cerr << "valid cool temperature did not resume an overheated miner\n";
+        return 1;
+    }
+    thermal.updateTemperaturePause(true, 80, 40, 80);
+    if (!thermal.pauseTest(PauseDueToOverHeating))
+    {
+        std::cerr << "valid hot temperature did not pause a miner\n";
+        return 1;
+    }
+
     Solution solution{};
     solution.nonce = 1;
     solution.work.block = 189800;

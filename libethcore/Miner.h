@@ -482,6 +482,12 @@ public:
     bool pauseTest(MinerPauseEnum what);
 
     /**
+     * @brief Updates the overheating pause state from a temperature sample
+     */
+    void updateTemperaturePause(
+        bool _temperatureRead, unsigned _tempC, unsigned _tempStart, unsigned _tempStop);
+
+    /**
      * @brief Returns the human readable reason for this miner being paused
      */
     std::string pausedString();

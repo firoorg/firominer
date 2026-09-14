@@ -188,7 +188,7 @@ prerequisites, then run these commands from the repository root:
 
 ```sh
 sudo apt-get update
-sudo apt-get install build-essential ca-certificates cmake git ninja-build perl python3 mesa-common-dev libglu1-mesa-dev freeglut3-dev
+sudo apt-get install build-essential ca-certificates cmake git ninja-build perl python3
 git submodule update --init --recursive
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DETHASHCL=ON -DETHASHCUDA=OFF -DAPICORE=ON -DBUILD_TESTING=ON
 cmake --build build --parallel 2
