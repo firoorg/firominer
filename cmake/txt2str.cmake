@@ -9,9 +9,18 @@ include(CMakeParseArguments)
 
 set(oneValueArgs SOURCE_FILE VARIABLE_NAME HEADER_FILE)
 
-# reads source file contents as hex string
+# Preserve the existing leading and trailing newlines.
 file(READ "${TXT2STR_SOURCE_FILE}" asciiString)
+set(asciiString "\n\n${asciiString}\n\n")
 
-# wrte the wrapped string declaration
+# MSVC limits each string literal to 16,380 characters before concatenation.
+string(LENGTH "${asciiString}" totalLength)
+set(offset 0)
 file(WRITE "${TXT2STR_HEADER_FILE}"
-"static const char* ${TXT2STR_VARIABLE_NAME} = R\"delim(\n\n${asciiString}\n\n)delim\";\n")
+    "static const char* ${TXT2STR_VARIABLE_NAME} =\n")
+while(offset LESS totalLength)
+    string(SUBSTRING "${asciiString}" ${offset} 8000 chunk)
+    file(APPEND "${TXT2STR_HEADER_FILE}" "R\"delim(${chunk})delim\"\n")
+    math(EXPR offset "${offset} + 8000")
+endwhile()
+file(APPEND "${TXT2STR_HEADER_FILE}" ";\n")
