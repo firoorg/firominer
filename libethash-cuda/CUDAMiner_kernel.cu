@@ -230,16 +230,16 @@ progpow_search(
         for (int i = 0; i < PROGPOW_REGS; i++)
             fnv1a(digest_lane, mix[i]);
 
-        // Reduce all lanes to a single 256-bit digest
+        // Only lanes 0-7 are gathered. They fold lanes 8-15 after their own values,
+        // preserving the required low-lane then high-lane FNV order.
+        const uint32_t digest_partner = SHFL(digest_lane, lane_id ^ 8, PROGPOW_LANES);
+        digest_lane = (FNV_OFFSET_BASIS ^ digest_lane) * FNV_PRIME;
+        fnv1a(digest_lane, digest_partner);
+
         hash32_t digest_temp;
         #pragma unroll
         for (int i = 0; i < 8; i++)
-            digest_temp.uint32s[i] = FNV_OFFSET_BASIS;
-
-        for (int i = 0; i < PROGPOW_LANES; i += 8)
-            #pragma unroll
-            for (int j = 0; j < 8; j++)
-                fnv1a(digest_temp.uint32s[j], SHFL(digest_lane, i + j, PROGPOW_LANES));
+            digest_temp.uint32s[i] = SHFL(digest_lane, i, PROGPOW_LANES);
 
         if (h == lane_id)
             digest = digest_temp;
