@@ -901,6 +901,9 @@ bool CLMiner::initEpoch_internal(WorkPackage const& _work)
         }
         m_queue.finish();
 
+        delete m_light;
+        m_light = nullptr;
+
         auto dagTime =
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startInit);
         cllog << dev::getFormattedMemory((double)m_epochContext->full_dataset_size) << " of DAG data generated in "

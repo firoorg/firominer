@@ -214,10 +214,15 @@ bool CUDAMiner::initEpoch_internal(WorkPackage const& _work)
         ethash_generate_dag(m_device_dag, m_epochContext->full_dataset_size, m_device_light,
             m_epochContext->light_cache_num_items, m_settings.gridSize, m_settings.blockSize, m_streams[0]);
 
+        auto* light = m_device_light;
+        m_device_light = nullptr;
+        m_allocated_memory_light_cache = 0;
+        CUDA_SAFE_CALL(cudaFree(reinterpret_cast<void*>(light)));
+
         cudalog << "Generated DAG + Light in "
                 << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startInit)
                        .count()
-                << " ms. " << dev::getFormattedMemory((double)(m_deviceDescriptor.totalMemory - RequiredMemory))
+                << " ms. " << dev::getFormattedMemory((double)(m_deviceDescriptor.totalMemory - m_allocated_memory_dag))
                 << " left.";
 
         retVar = true;
