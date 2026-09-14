@@ -4,7 +4,7 @@ jobs:
     docker:
       - image: nvidia/cuda:11-devel-ubuntu20.04
     steps:
-      - run: apt-get update && apt-get install -qy git cmake mesa-common-dev libidn11-dev python3-requests python3-git
+      - run: apt-get update && apt-get install -qy git cmake libidn11-dev python3-requests python3-git
 
       - checkout
       - run: git submodule update --init --recursive

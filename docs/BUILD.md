@@ -5,7 +5,6 @@
 * [Requirements](#requirements)
     * [Common](#common)
     * [Linux](#linux)
-        * [OpenCL support on Linux](#opencl-support-on-linux)
     * [macOS](#macos)
     * [Windows](#windows)
 * [CMake configuration options](#cmake-configuration-options)
@@ -32,15 +31,6 @@ This project uses [CMake] and [Hunter] package manager.
 
 ```shell
 sudo apt install libdbus-1-dev
-```
-
-#### OpenCL support on Linux
-
-If you're planning to use [OpenCL on Linux](https://github.com/ruslo/hunter/wiki/pkg.opencl#pitfalls)
-you have to install the OpenGL libraries. E.g. on Ubuntu run:
-
-```shell
-sudo apt-get install mesa-common-dev libglu1-mesa-dev freeglut3-dev
 ```
 
 ### macOS
