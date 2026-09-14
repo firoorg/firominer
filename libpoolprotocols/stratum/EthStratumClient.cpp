@@ -835,10 +835,10 @@ bool EthStratumClient::processExtranonce(
     return false;
 }
 
-void EthStratumClient::processResponse(Json::Value& responseObject)
+bool EthStratumClient::processResponse(Json::Value& responseObject)
 {
     if (!m_conn)
-        return;
+        return false;
 
     // Store jsonrpc version to test against
     int _rpcVer = responseObject.isMember("jsonrpc") ? 2 : 1;
@@ -881,7 +881,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                  "specifications ";
         cwarn << "Disconnecting...";
         boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-        return;
+        return false;
     }
 
 
@@ -932,7 +932,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 }
 
                 boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                return;
+                return false;
             }
 
             /*
@@ -985,7 +985,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     }
                     // Disconnect
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                    return;
+                    return false;
                 }
 
                 break;
@@ -1036,7 +1036,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     }
                     // Disconnect
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                    return;
+                    return false;
                 }
 
                 break;
@@ -1076,7 +1076,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     }
                     // Disconnect
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                    return;
+                    return false;
                 }
 
                 break;
@@ -1113,7 +1113,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                             // Disconnect from stratum if it fails to set the extra nonce
                             boost::asio::post(m_io_service,
                                 m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                            return;
+                            return false;
                         }
                     }
                 }
@@ -1134,7 +1134,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     }
                     // Disconnect
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                    return;
+                    return false;
                 }
 
                 break;
@@ -1173,7 +1173,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     cwarn << "Got invalid or missing session id. Disconnecting ... ";
                     m_conn->MarkUnrecoverable();
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                    return;
+                    return false;
                 }
 
                 m_session->sessionId = jResult.asString();
@@ -1211,7 +1211,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                       << " not authorized : " << _errReason;
                 m_conn->MarkUnrecoverable();
                 boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                return;
+                return false;
             }
             else
             {
@@ -1230,7 +1230,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                       << " not authorized : " << _errReason;
                 m_conn->MarkUnrecoverable();
                 boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                return;
+                return false;
             }
             m_authpending.store(false, memory_order_relaxed);
             m_session->authorized.store(true, memory_order_relaxed);
@@ -1358,7 +1358,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 }
 
                 boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                return;
+                return false;
             }
 
             if (!_isSuccess)
@@ -1369,7 +1369,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     cnote << "Subscription failed : "
                           << (_errReason.empty() ? "Unspecified error" : _errReason);
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                    return;
+                    return false;
                 }
                 else if (isSubscribed() && !isAuthorized())
                 {
@@ -1377,7 +1377,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     cnote << "Worker not authorized : "
                           << (_errReason.empty() ? "Unspecified error" : _errReason);
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                    return;
+                    return false;
                 }
             };
         }
@@ -1385,7 +1385,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
         else
         {
             cnote << "Got response for unknown message id [" << _id << "] Discarding...";
-            return;
+            return true;
         }
     }
 
@@ -1409,7 +1409,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
         if (requiresSession && !m_session)
         {
             cwarn << "Got " << _method << " before session setup. Discarding ...";
-            return;
+            return true;
         }
 
         Json::Value jReq;
@@ -1423,7 +1423,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             // or if a job for this transmission has already
             // been processed
             if (!isSubscribed())
-                return;
+                return true;
 
             /*
             Workaround for Nanopool wrong implementation
@@ -1447,14 +1447,14 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             if (!jPrm.isArray() || jPrm.size() < requiredParams)
             {
                 cwarn << "Got invalid mining.notify message. Discarding ...";
-                return;
+                return true;
             }
 
             const Json::Value& jobValue = jPrm[Json::Value::ArrayIndex(0)];
             if (!jobValue.isString() || jobValue.asString().empty())
             {
                 cwarn << "Invalid job id in mining.notify. Discarding ...";
-                return;
+                return true;
             }
 
             WorkPackage next = m_current;
@@ -1468,7 +1468,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 if (!jPrm[1].isString() || !jPrm[2].isString() || !jPrm[3].isString())
                 {
                     cwarn << "Invalid mining.notify work. Discarding ...";
-                    return;
+                    return true;
                 }
                 string sSeedHash = jPrm[1].asString();
                 string sHeaderHash = jPrm[2].asString();
@@ -1482,7 +1482,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     !parseUint32(sBlockHeight, false, blockHeight) || blockHeight > 0x9660180)
                 {
                     cwarn << "Invalid mining.notify work. Discarding ...";
-                    return;
+                    return true;
                 }
 
                 next.seed = seedHash;
@@ -1505,7 +1505,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     !jPrm[bitsIndex].isString())
                 {
                     cwarn << "Invalid mining.notify work. Discarding ...";
-                    return;
+                    return true;
                 }
 
                 const string sHeaderHash = jPrm[headerIndex].asString();
@@ -1515,14 +1515,14 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 if (!jBlockHeight.isUInt() || jBlockHeight.asUInt() > 0x9660180)
                 {
                     cwarn << "Invalid block height in mining.notify. Discarding ...";
-                    return;
+                    return true;
                 }
                 uint64_t iBlockHeight = jBlockHeight.asUInt();
                 uint32_t nBlockTargetBits;
                 if (!parseUint32(jPrm[bitsIndex].asString(), true, nBlockTargetBits))
                 {
                     cwarn << "Invalid block target in mining.notify. Discarding ...";
-                    return;
+                    return true;
                 }
 
                 bool targetNegative = false;
@@ -1532,7 +1532,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 if (!hashTarget || targetNegative || targetOverflow)
                 {
                     cwarn << "Invalid compact block target in mining.notify. Discarding ...";
-                    return;
+                    return true;
                 }
                 std::string sBlockTarget = hashTarget.GetHex();
 
@@ -1544,7 +1544,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     !parseHash256(sHeaderHash, true, false, headerHash))
                 {
                     cwarn << "Invalid hash in mining.notify. Discarding ...";
-                    return;
+                    return true;
                 }
 
                 next.seed = seedHash;
@@ -1577,14 +1577,14 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             if (!m_session || !m_session->firstMiningSet)
             {
                 cwarn << "Got mining.notify before mining.set message. Discarding ...";
-                return;
+                return true;
             }
 
             if (!responseObject.isMember("params") || !responseObject["params"].isArray() ||
                 responseObject["params"].empty() || responseObject["params"].size() != 4)
             {
                 cwarn << "Got invalid mining.notify message. Discarding ...";
-                return;
+                return true;
             }
 
             jPrm = responseObject["params"];
@@ -1593,7 +1593,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 (jPrm[3].asString() != "0" && jPrm[3].asString() != "1"))
             {
                 cwarn << "Invalid mining.notify work. Discarding ...";
-                return;
+                return true;
             }
 
             uint32_t blockHeight;
@@ -1603,7 +1603,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 !parseHash256(jPrm[2].asString(), false, false, headerHash))
             {
                 cwarn << "Invalid mining.notify work. Discarding ...";
-                return;
+                return true;
             }
 
             WorkPackage next = m_current;
@@ -1628,13 +1628,13 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             if (!jPrm.isArray() || jPrm.empty() || !jPrm[0].isNumeric())
             {
                 cwarn << "Invalid mining.set_difficulty message. Discarding ...";
-                return;
+                return true;
             }
             double nextWorkDifficulty = jPrm[0].asDouble();
             if (!std::isfinite(nextWorkDifficulty) || nextWorkDifficulty <= 0)
             {
                 cwarn << "Invalid mining difficulty. Discarding ...";
-                return;
+                return true;
             }
             m_session->nextWorkBoundary =
                 h256(dev::getTargetFromDiff(max(nextWorkDifficulty, 0.0001)));
@@ -1649,6 +1649,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 {
                     cwarn << "Disconnecting ...";
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
+                    return false;
                 }
             }
         }
@@ -1669,7 +1670,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 responseObject["params"].empty())
             {
                 cwarn << "Got invalid mining.set message. Discarding ...";
-                return;
+                return true;
             }
             jPrm = responseObject["params"];
             if (!m_session->firstMiningSet &&
@@ -1677,7 +1678,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     !jPrm.isMember("algo") || !jPrm.isMember("extranonce")))
             {
                 cwarn << "Initial mining.set is missing required state. Discarding ...";
-                return;
+                return true;
             }
 
             uint32_t timeout = m_session->timeout;
@@ -1691,28 +1692,28 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                     !parseUint32(jPrm["timeout"].asString(), true, timeout)))
             {
                 cwarn << "Invalid timeout in mining.set. Discarding ...";
-                return;
+                return true;
             }
             if (jPrm.isMember("epoch") &&
                 (!jPrm["epoch"].isString() ||
                     !parseUint32(jPrm["epoch"].asString(), true, epoch)))
             {
                 cwarn << "Invalid epoch in mining.set. Discarding ...";
-                return;
+                return true;
             }
             if (jPrm.isMember("target") &&
                 (!jPrm["target"].isString() ||
                     !parseHash256(jPrm["target"].asString(), false, false, target)))
             {
                 cwarn << "Invalid target in mining.set. Discarding ...";
-                return;
+                return true;
             }
             if (jPrm.isMember("algo"))
             {
                 if (!jPrm["algo"].isString() || jPrm["algo"].asString().empty())
                 {
                     cwarn << "Invalid algorithm in mining.set. Discarding ...";
-                    return;
+                    return true;
                 }
                 algo = jPrm["algo"].asString();
             }
@@ -1720,21 +1721,21 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             {
                 cwarn << "Unsupported mining algorithm " << algo << ". Disconnecting ...";
                 boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                return;
+                return false;
             }
             if (jPrm.isMember("extranonce"))
             {
                 if (!jPrm["extranonce"].isString())
                 {
                     cwarn << "Invalid extranonce in mining.set. Discarding ...";
-                    return;
+                    return true;
                 }
                 enonce = jPrm["extranonce"].asString();
                 if (!processExtranonce(enonce, 6, true))
                 {
                     cwarn << "Disconnecting ...";
                     boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
-                    return;
+                    return false;
                 }
             }
 
@@ -1752,7 +1753,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
                 !parseHash256(jPrm[0].asString(), false, false, shareTarget))
             {
                 cwarn << "Invalid mining.set_target message. Discarding ...";
-                return;
+                return true;
             }
             m_session->nextWorkBoundary = shareTarget;
             cnote << "New target set to: " << shareTarget;
@@ -1761,6 +1762,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
         {
             cnote << m_conn->Host() << " requested connection close. Disconnecting ...";
             boost::asio::post(m_io_service, m_io_strand.wrap(guarded(&EthStratumClient::disconnectInternal)));
+            return false;
         }
         else if (_method == "client.get_version")
         {
@@ -1786,7 +1788,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             * Being this an unknown *notification* the issuer does not expect replies back
             * hence we don't need to notify.
             */
-            return;
+            return true;
 
             //// Respond back to issuer
             //if (_rpcVer == 2)
@@ -1798,6 +1800,7 @@ void EthStratumClient::processResponse(Json::Value& responseObject)
             //send(jReq);
         }
     }
+    return true;
 }
 
 void EthStratumClient::submitHashrate(uint64_t const& rate, string const& id)
@@ -1999,7 +2002,11 @@ void EthStratumClient::onRecvSocketDataCompleted(
                         if (!jRdr.parse(line, jMsg))
                             throw std::invalid_argument(jRdr.getFormattedErrorMessages());
                         // Run in sync so no 2 different async reads may overlap.
-                        processResponse(jMsg);
+                        if (!processResponse(jMsg))
+                        {
+                            m_message.clear();
+                            return;
+                        }
                     }
                     catch (const std::exception& ex)
                     {

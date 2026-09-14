@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include <boost/asio.hpp>
 
@@ -489,6 +490,39 @@ struct ProtocolTest
                 require(client.m_newjobprocessed && client.m_current.header == dev::h256(header),
                     "eth-proxy result notification failed");
             }
+        }
+        for (auto const& [prefix, rejected] : {
+                 std::pair{R"({"jsonrpc":"1.0","id":42,"result":true})", true},
+                 std::pair{R"({"id":3,"result":false,"error":"not authorized"})", true},
+                 std::pair{R"({"method":"mining.notify","params":["bad"]})", false}})
+        {
+            EthStratumClient client(60, 1);
+            auto uri = std::make_shared<dev::URI>("stratum://127.0.0.1:1");
+            client.setConnection(uri);
+            uri->SetStratumMode(0, true);
+            client.init_socket();
+            client.startSession();
+            client.m_connected.store(true);
+            client.m_session->subscribed.store(true);
+            unsigned jobs = 0, disconnected = 0;
+            client.onWorkReceived([&](dev::eth::WorkPackage&) { ++jobs; });
+            client.onDisconnected([&] { ++disconnected; });
+
+            // Deliver both lines in one read, before the queued disconnect can run.
+            std::string batch = std::string(prefix) + "\n" +
+                Json::writeString(client.m_jSwBuilder, notify) + "\n";
+            std::ostream received(&client.m_socketState->recvBuffer);
+            received << batch;
+            client.onRecvSocketDataCompleted({}, batch.size());
+            require(jobs == unsigned(!rejected) && client.m_newjobprocessed == !rejected &&
+                        client.m_message.empty(),
+                "Stratum mishandled buffered work after rejecting a message");
+            if (!rejected)
+                client.disconnect();
+            g_io_service.restart();
+            g_io_service.run();
+            require(disconnected == 1 && !client.isConnected() && !client.isPendingState(),
+                "Stratum protocol rejection did not finish its queued disconnect");
         }
         {
             EthStratumClient client(60, 1);

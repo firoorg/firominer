@@ -148,7 +148,8 @@ private:
     void handshake_handler(const boost::system::error_code& ec);
     void workloop_timer_elapsed(const boost::system::error_code& ec);
 
-    void processResponse(Json::Value& responseObject);
+    // False means a disconnect was requested; stop processing this socket's input.
+    bool processResponse(Json::Value& responseObject);
     std::string processError(Json::Value& erroresponseObject);
     bool processExtranonce(
         std::string const& enonce, unsigned maxBytes = 4, bool allowEmpty = false);
