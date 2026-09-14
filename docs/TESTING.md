@@ -5,6 +5,13 @@ release. They are unsigned development builds. Check `BUILD-INFO.txt` for the
 source commit, build configuration, and CI run. GPU execution and pool acceptance
 still need testing on real hardware; passing CI alone does not establish either.
 
+Linux release CI uses `-O3` and C/C++ link-time optimization, enabled with
+`-DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE=ON` (CMake 3.9+). Configuration
+fails if the toolchain cannot provide it. Windows releases already use `/O2`,
+`/GL` and `/LTCG`. Packaged builds retain a generic x86-64 CPU baseline. GPU
+mining kernels are optimized separately by the OpenCL driver or CUDA runtime
+compiler; host build flags alone do not establish a mining speedup.
+
 ## Choose and unpack a package
 
 | Package | Intended machine | Included backends |

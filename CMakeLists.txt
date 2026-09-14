@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.5)
 
+# Set before helper functions capture the policy used to create their targets.
+if(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE)
+	cmake_policy(SET CMP0069 NEW)
+endif()
+
 include(cmake/cable/bootstrap.cmake)
 
 include(CableBuildInfo)
@@ -84,6 +89,11 @@ message("-----------------------------------------------------------------------
 message("")
 
 include(EthCompilerSettings)
+if(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE)
+	include(CheckIPOSupported)
+	check_ipo_supported(LANGUAGES C CXX)
+	message(STATUS "Release IPO/LTO enabled for C and C++")
+endif()
 if(UNIX AND NOT APPLE)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
 endif()

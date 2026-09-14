@@ -102,6 +102,7 @@ jobs:
         run: >-
           /usr/bin/cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE=ON
           -DBUILD_TESTING=${{ matrix.tests }}
           -DAPICORE=ON
           -DETHASHCL=ON
@@ -138,6 +139,7 @@ jobs:
             "Source: https://github.com/$GITHUB_REPOSITORY/tree/$(git rev-parse HEAD)" \
             "Source commit: ${{ github.event.pull_request.head.sha || github.sha }}" \
             "Build: Release; CUDA=${{ matrix.cuda }}; OpenCL=ON; CPU=ON; API=ON; DBUS=OFF" \
+            "Host optimization: -O3; C/C++ IPO/LTO; generic x86-64" \
             "Platform: Linux x86-64, Ubuntu 22.04, CUDA toolkit 11.8" \
             "CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             > stage/BUILD-INFO.txt
