@@ -6,9 +6,6 @@ if(NOT HUNTER_ENABLED)
 endif()
 
 # Hunter's OpenCL 2.1-p3 loader predates Windows adapter-based ICD discovery.
-if(CMAKE_VERSION VERSION_LESS 3.16)
-    message(FATAL_ERROR "Managed OpenCL dependencies require CMake 3.16 or newer")
-endif()
 if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()

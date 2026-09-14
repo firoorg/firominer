@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.18)
 
 # Set before helper functions capture the policy used to create their targets.
 if(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE)
@@ -18,9 +18,6 @@ cable_set_build_type(DEFAULT Release CONFIGURATION_TYPES Release Debug RelWithDe
 set(HUNTER_CONFIGURATION_TYPES Release CACHE STRING "Build type of Hunter packages")
 set(HUNTER_JOBS_NUMBER 6 CACHE STRING "Number of parallel builds used by Hunter")
 set(HUNTER_USE_CACHE_SERVERS NO)
-if(HUNTER_ENABLED AND CMAKE_VERSION VERSION_LESS 3.16)
-	message(FATAL_ERROR "Building managed dependencies requires CMake 3.16 or newer")
-endif()
 HunterGate(
   URL "https://github.com/cpp-pm/hunter/archive/v0.26.9.tar.gz"
   SHA1 "a962c9f0cfd6f8fc62ea25943d89debfa61d4d4a"
