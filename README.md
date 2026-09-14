@@ -105,6 +105,13 @@ Select devices with `--cl-devices 0 1` or `--cu-devices 0 1`. Only options for
 backends compiled into the executable are available. Use `--help-ext cl` or
 `--help-ext cu` for their work-size settings.
 
+AMD and NVIDIA OpenCL GPUs are also recognized on other platforms, such as Mesa
+Rusticl, by their device vendor ID. These runtimes use the generic kernel path
+without hardware monitoring; detection does not establish mining correctness on
+every GPU/driver combination. If PCI information is unavailable, devices receive
+distinct `CL:platform:device` IDs. In that case, select `-G` or `-U` explicitly on
+NVIDIA systems because automatic matching between backends is unavailable.
+
 To exercise a GPU locally without a pool connection:
 
 ```sh

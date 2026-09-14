@@ -6,6 +6,7 @@
 #include <boost/dll.hpp>
 
 #include "CLMiner.h"
+#include "CLDevice.h"
 #include "CLMiner_kernel.h"
 #include <libethcore/Farm.h>
 #include <libcrypto/ethash.hpp>
@@ -599,12 +600,6 @@ void CLMiner::enumDevices(std::map<std::string, DeviceDescriptor>& _DevicesColle
             platformType = ClPlatformTypeEnum::Clover;
         else if (platformName == "NVIDIA CUDA")
             platformType = ClPlatformTypeEnum::Nvidia;
-        else
-        {
-            std::cerr << "Unrecognized platform " << platformName << std::endl;
-            continue;
-        }
-
 
         std::string platformVersion = platforms.at(pIdx).getInfo<CL_PLATFORM_VERSION>();
         unsigned int platformVersionMajor = std::stoi(platformVersion.substr(7, 1));
@@ -616,39 +611,28 @@ void CLMiner::enumDevices(std::map<std::string, DeviceDescriptor>& _DevicesColle
         {
             DeviceTypeEnum clDeviceType = DeviceTypeEnum::Unknown;
             cl_device_type detectedType = device.getInfo<CL_DEVICE_TYPE>();
-            if (detectedType == CL_DEVICE_TYPE_GPU)
+            if (detectedType & CL_DEVICE_TYPE_GPU)
                 clDeviceType = DeviceTypeEnum::Gpu;
             else if (detectedType == CL_DEVICE_TYPE_CPU)
                 clDeviceType = DeviceTypeEnum::Cpu;
             else if (detectedType == CL_DEVICE_TYPE_ACCELERATOR)
                 clDeviceType = DeviceTypeEnum::Accelerator;
 
+            const auto vendor = device.getInfo<CL_DEVICE_VENDOR_ID>();
+            // Other AMD/NVIDIA runtimes use the generic kernel, without vendor intrinsics.
+            if (platformType == ClPlatformTypeEnum::Unknown &&
+                !isSupportedOpenCLGpu(detectedType, vendor))
+            {
+                ++dIdx;
+                continue;
+            }
+
             std::string uniqueId;
             DeviceDescriptor deviceDescriptor;
 
-            if (clDeviceType == DeviceTypeEnum::Gpu && platformType == ClPlatformTypeEnum::Nvidia)
+            if (clDeviceType == DeviceTypeEnum::Gpu)
             {
-                cl_int bus_id, slot_id;
-                if (clGetDeviceInfo(device.get(), 0x4008, sizeof(bus_id), &bus_id, NULL) == CL_SUCCESS &&
-                    clGetDeviceInfo(device.get(), 0x4009, sizeof(slot_id), &slot_id, NULL) == CL_SUCCESS)
-                {
-                    std::ostringstream s;
-                    s << std::setfill('0') << std::setw(2) << std::hex << bus_id << ":" << std::setw(2)
-                      << (unsigned int)(slot_id >> 3) << "." << (unsigned int)(slot_id & 0x7);
-                    uniqueId = s.str();
-                }
-            }
-            else if (clDeviceType == DeviceTypeEnum::Gpu &&
-                     (platformType == ClPlatformTypeEnum::Amd || platformType == ClPlatformTypeEnum::Clover))
-            {
-                cl_char t[24];
-                if (clGetDeviceInfo(device.get(), 0x4037, sizeof(t), &t, NULL) == CL_SUCCESS)
-                {
-                    std::ostringstream s;
-                    s << std::setfill('0') << std::setw(2) << std::hex << (unsigned int)(t[21]) << ":" << std::setw(2)
-                      << (unsigned int)(t[22]) << "." << (unsigned int)(t[23]);
-                    uniqueId = s.str();
-                }
+                uniqueId = openclDeviceId(device.get(), vendor, pIdx, dIdx);
             }
             else if (clDeviceType == DeviceTypeEnum::Cpu)
             {
@@ -663,8 +647,18 @@ void CLMiner::enumDevices(std::map<std::string, DeviceDescriptor>& _DevicesColle
                 continue;
             }
 
-            if (_DevicesCollection.find(uniqueId) != _DevicesCollection.end())
-                deviceDescriptor = _DevicesCollection[uniqueId];
+            const auto existing = _DevicesCollection.find(uniqueId);
+            if (existing != _DevicesCollection.end())
+            {
+                // Do not replace a native runtime with a generic one for the same GPU.
+                if (platformType == ClPlatformTypeEnum::Unknown && existing->second.clDetected &&
+                    existing->second.clPlatformType != ClPlatformTypeEnum::Unknown)
+                {
+                    ++dIdx;
+                    continue;
+                }
+                deviceDescriptor = existing->second;
+            }
             else
                 deviceDescriptor = DeviceDescriptor();
 
@@ -761,7 +755,8 @@ bool CLMiner::initDevice()
         m_hwmoninfo.devicePciId = m_deviceDescriptor.uniqueId;
         m_hwmoninfo.deviceIndex = -1;  // Will be later on mapped by nvml (see Farm() constructor)
     }
-    else if (m_deviceDescriptor.clPlatformType == ClPlatformTypeEnum::Clover)
+    else if (m_deviceDescriptor.clPlatformType == ClPlatformTypeEnum::Clover ||
+             m_deviceDescriptor.clPlatformType == ClPlatformTypeEnum::Unknown)
     {
         m_hwmoninfo.deviceType = HwMonitorInfoType::UNKNOWN;
         m_hwmoninfo.devicePciId = m_deviceDescriptor.uniqueId;
