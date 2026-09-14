@@ -213,11 +213,10 @@ int wrap_amdsysfs_get_tempC(wrap_amdsysfs_handle* sysfsh, int index, unsigned in
         dbuf, 120, "/sys/class/drm/card%d/device/hwmon/hwmon%d/temp1_input", gpuindex, hwmonindex);
 
     unsigned int temp = 0;
-    getFileContentValue(dbuf, temp);
+    if (!getFileContentValue(dbuf, temp))
+        return -1;
 
-    if (temp > 0)
-        *tempC = temp / 1000;
-
+    *tempC = temp / 1000;
     return 0;
 }
 
