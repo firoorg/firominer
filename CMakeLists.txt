@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 # Set before helper functions capture the policy used to create their targets.
 if(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE)

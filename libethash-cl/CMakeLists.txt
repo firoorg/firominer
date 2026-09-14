@@ -32,13 +32,6 @@ set(SOURCES
 if(APPLE OR NOT HUNTER_ENABLED)
 	# Use the system library on macOS and for unmanaged dependency builds.
 	find_package(OpenCL REQUIRED)
-	if(NOT TARGET OpenCL::OpenCL)
-		# FindOpenCL only provides variables before CMake 3.7.
-		add_library(OpenCL::OpenCL INTERFACE IMPORTED)
-		set_target_properties(OpenCL::OpenCL PROPERTIES
-			INTERFACE_INCLUDE_DIRECTORIES "${OpenCL_INCLUDE_DIRS}"
-			INTERFACE_LINK_LIBRARIES "${OpenCL_LIBRARIES}")
-	endif()
 else()
 	include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenCL.cmake)
 endif()
