@@ -23,7 +23,7 @@ This project uses [CMake] and [Hunter] package manager.
 1. [CMake] >= 3.5
 2. [Git](https://git-scm.com/downloads)
 3. [Perl](https://www.perl.org/get.html), needed to build OpenSSL
-4. [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) >= 9.0 (optional, install if you want NVidia CUDA support)
+4. [CUDA Toolkit 12.9 Update 2](https://developer.nvidia.com/cuda-12-9-2-download-archive) (required when `ETHASHCUDA` is enabled, as it is by default; pass `-DETHASHCUDA=OFF` to build without NVIDIA CUDA support)
 
 ### Linux
 
@@ -49,7 +49,7 @@ sudo apt-get install mesa-common-dev libglu1-mesa-dev freeglut3-dev
 
 ### Windows
 
-1. [Visual Studio 2017](https://www.visualstudio.com/downloads/); Community Edition works fine. **Make sure you install MSVC 2015 toolkit (v140).**
+1. [Visual Studio 2019](https://visualstudio.microsoft.com/downloads/) with the MSVC v142 x64 toolset
 
 ## Instructions
 
@@ -72,12 +72,11 @@ sudo apt-get install mesa-common-dev libglu1-mesa-dev freeglut3-dev
     cmake ..
     ```
 
-    **Note:** On Windows, it's possible to have issues with VS 2017 default compilers, due to CUDA expecting a specific toolset version; in that case, use the VS 2017 installer to get the VS 2015 compilers and pass the `-T v140` option:
+    On Windows, use the Visual Studio 2019 generator and v142 toolset supported
+    by CUDA 12.9:
 
     ```shell
-    cmake .. -G "Visual Studio 15 2017 Win64"
-    # or this if you have build errors in the CUDA step
-    cmake .. -G "Visual Studio 15 2017 Win64" -T v140
+    cmake .. -G "Visual Studio 16 2019" -A x64 -T v142
     ```
 
 4. Build the project using [CMake Build Tool Mode]. This is a portable variant of `make`.
@@ -111,7 +110,7 @@ Complete sample Windows batch file - **adapt it to your system**. Assumes that:
 setlocal
 
 rem add MSVC in PATH
-call "%ProgramFiles(x86)%\Microsoft Visual Studio\2017\Community\Common7\Tools\VsMSBuildCmd.bat"
+call "%ProgramFiles(x86)%\Microsoft Visual Studio\2019\Community\Common7\Tools\VsMSBuildCmd.bat"
 
 rem add Perl in PATH; it's needed for OpenSSL build
 set "PERL_PATH=C:\Perl\perl\bin"
@@ -122,9 +121,8 @@ cd "%~dp0\firominer\"
 
 if not exist "build\" mkdir "build\"
 
-rem For CUDA 9.x pass also `-T v140`
-cmake -G "Visual Studio 15 2017 Win64" -H. -Bbuild -DETHASHCL=ON -DETHASHCUDA=ON -DAPICORE=ON ..
-cmake --build . --config Release --target package
+cmake -G "Visual Studio 16 2019" -A x64 -T v142 -H. -Bbuild -DETHASHCL=ON -DETHASHCUDA=ON -DAPICORE=ON
+cmake --build build --config Release --target package
 
 endlocal
 pause

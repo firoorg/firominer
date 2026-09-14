@@ -16,14 +16,17 @@ compiler; host build flags alone do not establish a mining speedup.
 
 | Package | Intended machine | Included backends |
 | --- | --- | --- |
-| Linux / Windows `cuda11.8-opencl` | NVIDIA driver installed | CUDA, OpenCL, CPU diagnostics, API |
+| Linux / Windows `cuda12.9-opencl` | NVIDIA 575.57.08+ (Linux) or 576.57+ (Windows); legacy GPU limits below | CUDA, OpenCL, CPU diagnostics, API |
 | Linux / Windows `opencl` | OpenCL vendor driver installed | OpenCL, CPU diagnostics, API |
 
 Linux packages target x86-64 Ubuntu 22.04 or compatible newer systems. Windows
 packages target Windows 10/11 x64 and bundle the Visual C++ runtime libraries.
 Install the GPU vendor's driver with CUDA/OpenCL support as
-appropriate. The CUDA package requires an NVIDIA driver even when selecting
-OpenCL or CPU. Use the OpenCL package on machines without that driver.
+appropriate. The CUDA package supports Maxwell or newer NVIDIA GPUs. Maxwell,
+Pascal, and Volta require an R575 or R580 driver; later driver branches no
+longer support them. The package requires the listed driver floor even when
+selecting OpenCL or CPU because its runtime-compiled PTX needs CUDA 12.9 driver
+support. Use the OpenCL package on machines without that driver.
 
 CUDA runtime/compiler libraries are bundled, so a full CUDA Toolkit installation
 is unnecessary. GPU drivers are not bundled. Keep the extracted directory intact;

@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - Enabled OpenCL helper inlining by default, with automatic legacy retry on compilation failure, `--cl-no-inline`, and a launcher checkbox for legacy compiler compatibility.
+- Updated release builds and bundled CUDA runtime/compiler libraries to CUDA 12.9 Update 2.
 
 ## 1.2.0
 
