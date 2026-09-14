@@ -427,7 +427,6 @@ jobs:
             firominer-linux-x86_64-opencl.tar.gz.sha256
             firominer-windows-x86_64-cuda12.9-opencl.zip
             firominer-windows-x86_64-opencl.zip
-            SHA256SUMS-windows.txt
           )
           options=(--verify-tag --notes-file ../RELEASE_NOTES.md --title "Firominer $GITHUB_REF_NAME")
           assets+=(SHA256SUMS.txt)
