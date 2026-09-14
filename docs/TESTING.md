@@ -70,33 +70,6 @@ Test individual devices with `--cl-devices 0` or `--cu-devices 0`, then several
 with `--cl-devices 0 1` or `--cu-devices 0 1`. Finally test the default selection on
 mixed hardware. Keep host verification enabled (omit `--noeval`).
 
-## Desktop launcher
-
-Run `python3 test/gui.py` for headless launcher checks (Python 3.9+); CTest
-includes these when Python is found. Launch `python3 gui/firominer_gui.py` for
-manual desktop checks, or the installed launcher in `bin/` (`.pyw` on Windows).
-Tk 8.6+ is required for the window, but not for the headless checks. Run
-`python3 test/gui.py --ui` in a desktop session to also check native layout,
-mode switching and required fields with a mocked miner.
-
-Verify Pool/Solo changes the required fields, passwords are masked, missing or
-invalid connection details block Start, and Stop/closing the window ends the
-child miner. Check both a missing executable and a miner that exits with an
-error. Confirm logs stay responsive while mining and settings cannot change
-during a run.
-
-Run the OpenCL scan on a machine with no supported OpenCL device and with a
-supported card. The legacy kernel checkbox must stay disabled in the first case
-and become available in the second. Leave it unchecked for normal backend
-selection and default OpenCL inlining. Checking it must select OpenCL and produce
-the miner's `Legacy OpenCL mix kernel enabled` log message.
-
-For coinbase messages, use an isolated Firo test node with the companion patch
-in `patches/` (installed under `share/firominer/patches/`). Follow its verification
-instructions, including distinct messages at the same tip and a UTF-8 message.
-Confirm the stock daemon is rejected when a message is requested, normal work
-still succeeds when it is blank, and pool mode does not send a message.
-
 ## OpenCL inlining and legacy compatibility
 
 OpenCL mining uses forced helper inlining and direct private mix storage by
@@ -171,6 +144,13 @@ including after a new job, period change, and epoch transition. Exercise normal
 disconnect/reconnect and a second `-P` failover connection on test infrastructure.
 Compare local, API, and pool hashrates after each has had time to average. Record
 stale and rejected shares separately and investigate invalid proofs.
+
+For `--coinbase-message`, use an isolated Firo test node with the companion patch
+in `patches/` (installed under `share/firominer/patches/`). Follow its verification
+instructions, including distinct messages at the same tip and a UTF-8 message.
+Confirm the stock daemon is rejected when a message is requested, normal work
+still succeeds when it is blank, and nonempty messages are rejected for Stratum
+connections.
 
 ## API and CPU diagnostics
 

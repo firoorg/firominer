@@ -13,7 +13,6 @@
 * Mainnet, testnet, devnet and regtest epoch schedules
 * Optional HTTP monitoring and TCP JSON-RPC control API
 * Development CPU backend, selected explicitly with `--cpu` when compiled in
-* Desktop launcher for solo and pool mining, with live logs and OpenCL device detection
 * Custom solo coinbase messages with the companion Firo daemon patch
 
 
@@ -21,7 +20,6 @@
 
 * [Install](#install)
 * [Usage](#usage)
-    * [Desktop GUI](#desktop-gui)
     * [Examples connecting to pools](#examples-connecting-to-pools)
     * [Device selection and local testing](#device-selection-and-local-testing)
     * [Solo mining and network selection](#solo-mining-and-network-selection)
@@ -52,17 +50,17 @@ GPUs. Maxwell, Pascal, and Volta require an R575 or R580 driver; later driver
 branches no longer support them. The package needs the CUDA 12.9 driver floor
 because FiroPoW kernels are compiled to PTX at runtime.
 
-Both variants include the API and Python desktop launcher. Keep the extracted
+Both variants include the command-line miner and API. Keep the extracted
 directory intact: the executable in `bin/` needs its companion libraries.
 Current packages bundle the CUDA runtime/compiler libraries where applicable
 and the Visual C++ runtime on Windows. A full CUDA Toolkit is needed to build
-the CUDA backend, but not to run these packages. GPU drivers and Python/Tk
-are installed separately. See [Testing PR artifacts](docs/TESTING.md) for
+the CUDA backend, but not to run these packages. GPU drivers are installed
+separately. See [Testing PR artifacts](docs/TESTING.md) for
 checksum verification and platform requirements.
 
 ## Usage
 
-Use the desktop launcher below, or launch **firominer** from a terminal.
+Launch **firominer** from a terminal.
 The commands below assume `firominer` is on your `PATH`. From an extracted
 package, use `./bin/firominer` on Linux or `.\bin\firominer.exe` in Windows
 PowerShell. For command line help, run:
@@ -71,40 +69,6 @@ PowerShell. For command line help, run:
 firominer --help
 firominer --help-ext con
 ```
-
-### Desktop GUI
-
-The launcher requires Python 3.9 or newer with Tk 8.6 or newer. Windows and macOS Python
-installers from python.org include Tk; on Ubuntu/Debian install `python3-tk`.
-Apple's old system Python/Tk is not supported; use a current Python installer on macOS.
-Run from the source checkout:
-
-```sh
-python3 gui/firominer_gui.py
-```
-
-Installed packages include `bin/firominer-gui.py` on Linux/macOS
-(`python3 bin/firominer-gui.py`) or `bin/firominer-gui.pyw` on Windows
-(double-click it, or run `py bin/firominer-gui.pyw`). Select the miner executable
-if it is not found automatically.
-
-Choose **Pool** or **Solo**, enter the endpoint and login details, and select
-the network. Solo mining also needs your block reward address. Start and Stop
-control the miner, and the log shows its connection, device and share status.
-Windows 10 version 1903 or newer is needed for Unicode coinbase messages
-([Windows UTF-8 support](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page)).
-Credentials are kept only for the current session. The launcher passes them to
-the miner on its command line, as the CLI does.
-
-OpenCL helper inlining is enabled by default. The OpenCL scan enables the
-**Use legacy OpenCL kernel** checkbox when the selected miner detects a usable
-OpenCL GPU/accelerator. Check it to select OpenCL mining with the older compiler
-workaround (`--cl-no-inline`); otherwise the launcher uses the normal GPU backend.
-See [hardware verification](docs/TESTING.md#opencl-inlining-and-legacy-compatibility).
-
-The optional coinbase message is available for solo mining with a patched node;
-see the next section. Pools construct their own coinbase and cannot accept a
-worker-supplied message through this miner's Stratum protocol.
 
 ### Examples connecting to pools
 
@@ -179,6 +143,11 @@ normal behavior with unmodified nodes. With a message set, the miner requires
 the node to acknowledge it before accepting work; an unmodified node is rejected.
 The patch is also included in installed packages under `share/firominer/patches/`.
 
+Windows 10 version 1903 or newer is needed for Unicode coinbase messages
+([Windows UTF-8 support](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page)).
+Pools construct their own coinbase and cannot accept a worker-supplied message
+through this miner's Stratum protocol.
+
 `--work-timeout` reconnects Stratum sessions that receive no new job for 600 seconds by default. Values from 180 to 1000000 seconds are accepted. Getwork requests have a 30-second response deadline and a 16 MiB response body limit.
 
 ### Monitoring and device recovery
@@ -209,8 +178,8 @@ Downloads appear in the associated workflow run's artifacts for pull requests an
 The project uses C++17, CMake and Hunter to build its dependencies. Initialize
 submodules before configuring. The examples below use CMake 3.20 or newer within
 the 3.x series and build
-OpenCL, the API and tests; CUDA is optional. Python 3.9+ enables the launcher
-tests, and Clang enables offline OpenCL kernel compilation tests.
+OpenCL, the API and tests; CUDA is optional. Python 3.9+ enables the OpenCL
+kernel embedding test, and Clang enables offline OpenCL kernel compilation tests.
 
 #### Linux
 
@@ -267,7 +236,7 @@ environment to match. See the Windows configure steps in
 
 For core tests without GPU SDKs, configure with `-DETHASHCL=OFF`,
 `-DETHASHCUDA=OFF` and `-DETHASHCPU=ON`. Tests check reference hashes, miner state,
-protocol parsing and, when enabled, the API and launcher. They do not replace
+protocol parsing and, when enabled, the API. They do not replace
 GPU execution tests. The code contains macOS support, but the current CI
 workflow does not build or package macOS.
 
