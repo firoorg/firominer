@@ -410,6 +410,8 @@ jobs:
           sha256sum --check firominer-linux-x86_64-opencl.tar.gz.sha256
           sed -i 's/\r$//' SHA256SUMS-windows.txt
           sha256sum --check SHA256SUMS-windows.txt
+          cat firominer-linux-*.tar.gz.sha256 SHA256SUMS-windows.txt > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
 
       - name: Publish release
         shell: bash
@@ -428,6 +430,7 @@ jobs:
             SHA256SUMS-windows.txt
           )
           options=(--verify-tag --generate-notes --title "Firominer $GITHUB_REF_NAME")
+          assets+=(SHA256SUMS.txt)
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             options+=(--prerelease)
           fi
