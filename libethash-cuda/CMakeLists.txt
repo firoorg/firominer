@@ -22,6 +22,11 @@ find_package(CUDA REQUIRED)
 
 set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};--ptxas-options=-v;-lineinfo;-use_fast_math)
 
+# Retain legacy GPU targets without nvcc's target deprecation notice.
+if(NOT CUDA_VERSION VERSION_LESS 8.0)
+	list(APPEND CUDA_NVCC_FLAGS "-Wno-deprecated-gpu-targets")
+endif()
+
 if (NOT MSVC)
 	list(APPEND CUDA_NVCC_FLAGS "--disable-warnings")
 endif()

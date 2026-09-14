@@ -3,7 +3,7 @@
 #include <queue>
 
 #include <boost/asio/ip/address.hpp>
-#include <boost/bind.hpp>
+#include <boost/bind/bind.hpp>
 
 #include <libethcore/Miner.h>
 #include <libpoolprotocols/PoolURI.h>
