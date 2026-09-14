@@ -1003,6 +1003,12 @@ bool CLMiner::compileKernel(uint64_t period_seed,
             m_useSubgroups = false;
             return compileKernel(period_seed, epochContext, program, searchKernel);
         }
+        if (m_settings.inlineMix)
+        {
+            cwarn << "Disabling OpenCL helper inlining and retrying the legacy mix kernel";
+            m_settings.inlineMix = false;
+            return compileKernel(period_seed, epochContext, program, searchKernel);
+        }
         return false;
     }
     searchKernel = cl::Kernel(program, "ethash_search");

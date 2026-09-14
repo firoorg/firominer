@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- Enabled OpenCL helper inlining by default, with `--cl-no-inline` and a launcher checkbox for legacy compiler compatibility.
+- Enabled OpenCL helper inlining by default, with automatic legacy retry on compilation failure, `--cl-no-inline`, and a launcher checkbox for legacy compiler compatibility.
 
 ## 1.2.0
 

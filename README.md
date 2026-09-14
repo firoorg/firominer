@@ -338,7 +338,8 @@ Start with the defaults, then compare accepted shares and sustained hashrate
 on your hardware. Use `--help-ext cl` and `--help-ext cu` for supported options.
 `--cl-global-work` is a direct multiplier; it need not be a power of two.
 OpenCL helper inlining is enabled by default. Use `--cl-no-inline` for the legacy
-compiler workaround if the default kernel fails compilation or produces invalid results.
+compiler workaround if the default kernel produces invalid results. Compilation
+failures automatically retry the legacy kernel with a warning.
 `--cl-subgroup` optionally replaces DAG-offset workgroup barriers with subgroup
 broadcasts on detected AMD GPUs with `cl_khr_subgroups` and an OpenCL C 2.0
 compiler. It defaults to off. Other vendors and unsupported lane layouts use

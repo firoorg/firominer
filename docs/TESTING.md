@@ -96,8 +96,12 @@ compiler that supports `always_inline`. It introduces no new GPU instruction
 requirement, but older drivers still need hardware verification. Use
 `--cl-no-inline` to select the legacy workaround. The existing
 `--cl-experimental-inline` flag remains accepted and explicitly enables inlining.
-If both flags are supplied, the last one takes precedence. A build failure uses
-normal device error handling, without silently switching kernel variants.
+If both flags are supplied, the last one takes precedence for the initial build.
+If compilation fails, the miner logs a warning and retries with the legacy
+workaround, retaining it for subsequent periods on that miner. When subgroups
+are requested, their portable fallback is tried first. If the legacy build also
+fails, normal device error handling applies. This cannot detect a compiler that
+accepts the kernel but produces incorrect results; keep host verification enabled.
 
 Run the same workload with and without `--cl-no-inline`, keeping the device, driver,
 clocks, local/global work sizes and other options fixed. Leave host verification
