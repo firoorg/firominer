@@ -13,10 +13,12 @@ if(MSVC)
 	target_sources(${EXECUTABLE} PRIVATE firominer.rc firominer.manifest)
 endif()
 
-hunter_add_package(CLI11)
-find_package(CLI11 CONFIG REQUIRED)
-
 target_link_libraries(firominer PRIVATE ethcore poolprotocols devcore firominer-buildinfo CLI11::CLI11 Boost::filesystem Boost::system)
+if(BUILD_TESTING AND FIROMINER_PYTHON3 AND FIROMINER_PYTHON_VERSION_CHECK EQUAL 0)
+	add_test(NAME cli-compatibility COMMAND ${FIROMINER_PYTHON3}
+		${CMAKE_CURRENT_SOURCE_DIR}/../test/cli.py $<TARGET_FILE:firominer>)
+	set_tests_properties(cli-compatibility PROPERTIES TIMEOUT 30)
+endif()
 
 if(ETHDBUS)
 	find_package(PkgConfig)

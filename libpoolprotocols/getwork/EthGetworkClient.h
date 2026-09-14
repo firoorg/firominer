@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/asio/deadline_timer.hpp>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -57,7 +58,8 @@ private:
     unsigned m_farmRecheckPeriod = 500;  // In milliseconds
 
     void begin_connect();
-    void handle_resolve(const boost::system::error_code& ec, boost::asio::ip::tcp::resolver::iterator i);
+    void handle_resolve(const boost::system::error_code& ec,
+        const boost::asio::ip::tcp::resolver::results_type& results);
     void handle_connect(const boost::system::error_code& ec);
     void handle_write(const boost::system::error_code& ec, const std::shared_ptr<HttpAttempt>& attempt);
     void handle_read(const boost::system::error_code& ec, std::size_t bytes_transferred,
@@ -84,7 +86,7 @@ private:
     bool m_retryAfterCancel = false;
     boost::lockfree::queue<std::string*> m_txQueue;
 
-    boost::asio::io_service::strand m_io_strand;
+    boost::asio::io_context::strand m_io_strand;
 
     std::shared_ptr<boost::asio::ip::tcp::socket> m_socket;
     boost::asio::ip::tcp::resolver m_resolver;

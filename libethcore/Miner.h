@@ -44,7 +44,7 @@
 #define DAG_LOAD_MODE_SEQUENTIAL 1
 
 
-extern boost::asio::io_service g_io_service;
+extern boost::asio::io_context g_io_service;
 
 namespace dev::eth
 {

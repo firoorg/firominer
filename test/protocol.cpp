@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <future>
 #include <iostream>
 #include <limits>
@@ -8,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include <boost/asio.hpp>
 
@@ -17,7 +19,7 @@
 #include <libpoolprotocols/stratum/EthStratumClient.h>
 #include <libpoolprotocols/stratum/utilstrencodings.h>
 
-boost::asio::io_service g_io_service;
+boost::asio::io_context g_io_service;
 bool g_exitOnError = false;
 
 // Exercise the production JSON parsers directly without sockets or public test APIs.
@@ -36,6 +38,117 @@ struct ProtocolTest
     {
         if (!condition)
             throw std::runtime_error(message);
+    }
+
+    static void tlsHandshake(int version, char const* host, bool trust, bool closeEarly = false)
+    {
+        using boost::asio::ip::tcp;
+        namespace ssl = boost::asio::ssl;
+        g_io_service.restart();
+        const std::string fixtures = FIROMINER_TLS_FIXTURES;
+        ssl::context context(ssl::context::tls_server);
+        require(SSL_CTX_set_min_proto_version(context.native_handle(), version) == 1 &&
+                    SSL_CTX_set_max_proto_version(context.native_handle(), version) == 1,
+            "Unable to select TLS fixture protocol");
+        context.use_certificate_chain_file(fixtures + "/server.pem");
+        context.use_private_key_file(fixtures + "/server.key", ssl::context::pem);
+        tcp::acceptor server(g_io_service,
+            tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
+        ssl::stream<tcp::socket> peer(g_io_service, context);
+        boost::asio::streambuf request;
+        boost::asio::steady_timer deadline(g_io_service, std::chrono::seconds(5));
+        bool subscribed = false;
+        bool disconnected = false;
+        bool timedOut = false;
+        auto uri = std::make_shared<dev::URI>(std::string("stratum2+tls://") + host + ":" +
+            std::to_string(server.local_endpoint().port()));
+        EthStratumClient client(60, 1);
+        client.setConnection(uri);
+        client.init_socket();
+        require(!std::getenv("SSL_NOVERIFY"), "TLS tests require certificate verification");
+        if (trust)
+        {
+            // Add the test CA without modifying the machine's certificate store.
+            auto* clientContext = SSL_get_SSL_CTX(client.m_socketState->secure->native_handle());
+            require(SSL_CTX_load_verify_locations(clientContext,
+                        (fixtures + "/ca.pem").c_str(), nullptr) == 1,
+                "Unable to load TLS fixture CA");
+        }
+        client.onDisconnected([&] {
+            disconnected = true;
+            boost::system::error_code ignored;
+            peer.next_layer().close(ignored);
+            server.close(ignored);
+            deadline.cancel();
+        });
+        server.async_accept(peer.next_layer(), [&](boost::system::error_code const& ec) {
+            require(!ec, "TLS fixture failed to accept");
+            if (closeEarly)
+            {
+                peer.next_layer().close();
+                return;
+            }
+            peer.async_handshake(ssl::stream_base::server,
+                [&](boost::system::error_code const& handshakeError) {
+                    if (handshakeError)
+                        return;
+                    require(SSL_version(peer.native_handle()) == version,
+                        "TLS fixture negotiated the wrong version");
+                    boost::asio::async_read_until(peer, request, '\n',
+                        [&](boost::system::error_code const& readError, size_t) {
+                            if (!readError)
+                            {
+                                std::istream input(&request);
+                                std::string line;
+                                std::getline(input, line);
+                                subscribed = json(line)["method"] == "mining.subscribe";
+                            }
+                            client.disconnect();
+                            boost::system::error_code ignored;
+                            peer.next_layer().close(ignored);
+                        });
+                });
+        });
+        deadline.async_wait([&](boost::system::error_code const& ec) {
+            if (!ec)
+            {
+                timedOut = true;
+                client.disconnect();
+                boost::system::error_code ignored;
+                peer.next_layer().close(ignored);
+                server.close(ignored);
+            }
+        });
+        client.connect();
+        g_io_service.run();
+        const bool valid = trust && std::string(host) == "localhost";
+        require(!timedOut && disconnected, "TLS fixture did not finish");
+        require(subscribed == (valid && !closeEarly), "TLS certificate verification failed");
+        require(uri->IsUnrecoverable() == (!valid && !closeEarly),
+            "TLS handshake failure had the wrong retry policy");
+    }
+
+    static void tls()
+    {
+        tlsHandshake(TLS1_2_VERSION, "localhost", true);
+        tlsHandshake(TLS1_3_VERSION, "localhost", true);
+        tlsHandshake(TLS1_3_VERSION, "127.0.0.1", true);
+        tlsHandshake(TLS1_3_VERSION, "localhost", false);
+        tlsHandshake(TLS1_3_VERSION, "localhost", true, true);
+#ifdef SSL_R_UNEXPECTED_EOF_WHILE_READING
+        // OpenSSL 3 can also report an abrupt EOF as an SSL-category error.
+        g_io_service.restart();
+        EthStratumClient client(60, 1);
+        auto uri = std::make_shared<dev::URI>("stratum2+tls://localhost:1");
+        client.setConnection(uri);
+        client.init_socket();
+        client.handshake_handler({static_cast<int>(
+                                     ERR_PACK(ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_EOF_WHILE_READING)),
+            boost::asio::error::get_ssl_category()});
+        g_io_service.run();
+        require(!uri->IsUnrecoverable(), "OpenSSL 3 EOF prevented a retry");
+#endif
+        g_io_service.restart();
     }
 
     static void rejectHandshake(unsigned mode, Json::Value reply)
@@ -130,7 +243,7 @@ struct ProtocolTest
     static void getworkSocketLifetime()
     {
         using boost::asio::ip::tcp;
-        g_io_service.reset();
+        g_io_service.restart();
         tcp::acceptor server(g_io_service,
             tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
         tcp::socket peer(g_io_service);
@@ -183,7 +296,7 @@ struct ProtocolTest
         require(socket.expired(), "Getwork retained its socket after cancellation completed");
         require(callbacks == callbacksBeforeDestruction,
             "Getwork dispatched a client callback after destruction");
-        g_io_service.reset();
+        g_io_service.restart();
     }
 
     static void managerShutdown()
@@ -210,7 +323,7 @@ struct ProtocolTest
             {
                 disconnectThread = std::this_thread::get_id();
                 m_connected.store(false);
-                g_io_service.post([this]() {
+                boost::asio::post(g_io_service, [this]() {
                     statusRead = !manager.isConnected();
                     m_onDisconnected();
                 });
@@ -230,7 +343,7 @@ struct ProtocolTest
         require(disconnectThread == ioId && destructionThread == ioId && statusRead &&
                     !manager.isConnected() && !manager.isRunning(),
             "pool shutdown did not serialize client teardown with I/O status readers");
-        g_io_service.reset();
+        g_io_service.restart();
     }
 
     static void run()
@@ -378,6 +491,39 @@ struct ProtocolTest
                     "eth-proxy result notification failed");
             }
         }
+        for (auto const& [prefix, rejected] : {
+                 std::pair{R"({"jsonrpc":"1.0","id":42,"result":true})", true},
+                 std::pair{R"({"id":3,"result":false,"error":"not authorized"})", true},
+                 std::pair{R"({"method":"mining.notify","params":["bad"]})", false}})
+        {
+            EthStratumClient client(60, 1);
+            auto uri = std::make_shared<dev::URI>("stratum://127.0.0.1:1");
+            client.setConnection(uri);
+            uri->SetStratumMode(0, true);
+            client.init_socket();
+            client.startSession();
+            client.m_connected.store(true);
+            client.m_session->subscribed.store(true);
+            unsigned jobs = 0, disconnected = 0;
+            client.onWorkReceived([&](dev::eth::WorkPackage&) { ++jobs; });
+            client.onDisconnected([&] { ++disconnected; });
+
+            // Deliver both lines in one read, before the queued disconnect can run.
+            std::string batch = std::string(prefix) + "\n" +
+                Json::writeString(client.m_jSwBuilder, notify) + "\n";
+            std::ostream received(&client.m_socketState->recvBuffer);
+            received << batch;
+            client.onRecvSocketDataCompleted({}, batch.size());
+            require(jobs == unsigned(!rejected) && client.m_newjobprocessed == !rejected &&
+                        client.m_message.empty(),
+                "Stratum mishandled buffered work after rejecting a message");
+            if (!rejected)
+                client.disconnect();
+            g_io_service.restart();
+            g_io_service.run();
+            require(disconnected == 1 && !client.isConnected() && !client.isPendingState(),
+                "Stratum protocol rejection did not finish its queued disconnect");
+        }
         {
             EthStratumClient client(60, 1);
             auto uri = std::make_shared<dev::URI>("stratum2+tcp://127.0.0.1:1");
@@ -484,6 +630,7 @@ int main()
     {
         ProtocolTest::run();
         ProtocolTest::getworkSocketLifetime();
+        ProtocolTest::tls();
     }
     catch (std::exception const& ex)
     {
@@ -590,7 +737,7 @@ int main()
         }
     }
 
-    g_io_service.reset();
+    g_io_service.restart();
     {
         tcp::acceptor stalledServer(
             g_io_service, tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
@@ -613,7 +760,7 @@ int main()
         }
     }
 
-    g_io_service.reset();
+    g_io_service.restart();
     std::map<std::string, dev::eth::DeviceDescriptor> devices;
     dev::eth::Farm farm(devices, {}, {}, {}, {});
     try
@@ -657,7 +804,7 @@ int main()
         }
     }
 
-    g_io_service.reset();
+    g_io_service.restart();
     tcp::acceptor managerServer(
         g_io_service, tcp::endpoint(boost::asio::ip::address_v4::loopback(), 0));
     tcp::socket managerPeer(g_io_service);

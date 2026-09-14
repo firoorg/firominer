@@ -331,7 +331,7 @@ URI::URI(std::string uri, bool _sim) : m_uri{std::move(uri)}
 
     // Determine host type
     boost::system::error_code ec;
-    boost::asio::ip::address address = boost::asio::ip::address::from_string(m_host, ec);
+    boost::asio::ip::address address = boost::asio::ip::make_address(m_host, ec);
     if (!ec)
     {
         // This is a valid Ip Address

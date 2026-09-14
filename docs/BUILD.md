@@ -19,14 +19,14 @@ This project uses [CMake] and [Hunter] package manager.
 
 ### Common
 
-1. [CMake] >= 3.16 for managed OpenCL builds on Linux and Windows (the default configuration); >= 3.10 when OpenCL is disabled or uses the system library (macOS or `-DHUNTER_ENABLED=OFF`).
+1. [CMake] >= 3.18.
 2. [Git](https://git-scm.com/downloads)
 3. [Perl](https://www.perl.org/get.html), needed to build OpenSSL
 4. [CUDA Toolkit 12.9 Update 2](https://developer.nvidia.com/cuda-12-9-2-download-archive) (required when `ETHASHCUDA` is enabled, as it is by default; pass `-DETHASHCUDA=OFF` to build without NVIDIA CUDA support)
 
 ### Linux
 
-1. GCC version >= 4.8
+1. A C++17 compiler (CI uses GCC 11 and GCC 13).
 2. DBUS development libs if building with `-DETHDBUS`. E.g. on Ubuntu run:
 
 ```shell
@@ -137,6 +137,23 @@ cmake .. -DETHASHCUDA=ON -DETHASHCL=OFF
 If you want to install dependencies yourself or use system package manager you can disable Hunter by adding
 [`-DHUNTER_ENABLED=OFF`](https://docs.hunter.sh/en/latest/reference/user-variables.html#hunter-enabled)
 to the configuration options.
+
+The managed build pins Boost 1.92.0, OpenSSL 3.5.8 LTS, JsonCpp 1.9.7,
+CLI11 2.6.2, and intx 0.5.1 in `cmake/Boost.cmake` and
+`cmake/Hunter/config.cmake`. Boost uses its upstream CMake build. System builds
+require at least these versions. OpenCL builds also require the Khronos
+OpenCL-Headers and OpenCL-CLHPP CMake packages (`OpenCLHeaders` and
+`OpenCLHeadersCpp`); managed builds pin both and the ICD loader to
+v2026.05.29. The OpenCL API target remains 1.2.
+
+Packages include `share/firominer/dependencies.txt` and append these resolved
+versions to `BUILD-INFO.txt` in CI. `firominer --version` reports the compiled
+Boost, JsonCpp and CLI11 versions plus the linked OpenSSL runtime. The package
+smoke tests check these against the release pins. Update the pins and those
+checks together when upgrading dependencies.
+
+CUDA remains at 12.9.2 to retain Maxwell, Pascal and Volta support. Dependency
+updates do not imply a measured hashrate improvement.
 
 
 [CMake]: https://cmake.org/

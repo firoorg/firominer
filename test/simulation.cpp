@@ -8,7 +8,7 @@
 #include <libcrypto/ethash.hpp>
 #include <libpoolprotocols/testing/SimulateClient.h>
 
-boost::asio::io_service g_io_service;
+boost::asio::io_context g_io_service;
 bool g_exitOnError = false;
 
 int main(int argc, char* argv[])

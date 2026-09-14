@@ -23,6 +23,7 @@ along with firominer.  If not, see <http://www.gnu.org/licenses/>.
 #include "CUDAMiner_cuda.h"
 
 #include <functional>
+#include <map>
 
 namespace dev
 {

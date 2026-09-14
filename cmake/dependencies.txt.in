@@ -1,0 +1,10 @@
+Dependencies resolved at configuration:
+Boost: @Boost_VERSION_STRING@
+OpenSSL: @OPENSSL_VERSION@
+JsonCpp: @jsoncpp_VERSION@
+CLI11: @CLI11_VERSION@
+intx: @intx_VERSION@
+@FIROMINER_OPENCL_DEPENDENCIES@
+CUDA toolkit: @FIROMINER_CUDA_VERSION@
+
+firominer --version also reports the linked OpenSSL runtime version.

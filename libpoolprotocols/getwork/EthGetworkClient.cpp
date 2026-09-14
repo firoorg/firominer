@@ -96,26 +96,25 @@ void EthGetworkClient::connect()
         // calling the resolver each time is useful as most
         // load balancers will give Ips in different order
         m_resolver = boost::asio::ip::tcp::resolver(g_io_service);
-        boost::asio::ip::tcp::resolver::query q(m_conn->Host(), toString(m_conn->Port()));
 
         // Start resolving async
         auto const generation = m_operationGeneration.fetch_add(1, std::memory_order_relaxed) + 1;
         arm_request_timer();
         auto const callbackState = m_callbackState;
-        m_resolver.async_resolve(q,
+        m_resolver.async_resolve(m_conn->Host(), toString(m_conn->Port()), tcp::resolver::address_configured,
             m_io_strand.wrap([callbackState, generation](const boost::system::error_code& ec,
-                                 tcp::resolver::iterator i) {
+                                 tcp::resolver::results_type results) {
                 std::lock_guard<std::recursive_mutex> lock(callbackState->mutex);
                 auto* client = callbackState->client;
                 if (client && generation == client->m_operationGeneration.load(std::memory_order_relaxed))
-                    client->handle_resolve(ec, i);
+                    client->handle_resolve(ec, results);
             }));
     }
     else
     {
         // No need to use the resolver if host is already an IP address
         m_endpoints.push(
-            boost::asio::ip::tcp::endpoint(boost::asio::ip::address::from_string(m_conn->Host()), m_conn->Port()));
+            boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address(m_conn->Host()), m_conn->Port()));
         send(m_jsonGetWork);
     }
 }
@@ -489,7 +488,8 @@ void EthGetworkClient::retry_endpoint()
     begin_connect();
 }
 
-void EthGetworkClient::handle_resolve(const boost::system::error_code& ec, tcp::resolver::iterator i)
+void EthGetworkClient::handle_resolve(
+    const boost::system::error_code& ec, const tcp::resolver::results_type& results)
 {
     if (ec == boost::asio::error::operation_aborted)
         return;
@@ -497,11 +497,8 @@ void EthGetworkClient::handle_resolve(const boost::system::error_code& ec, tcp::
     if (!ec)
     {
         cancel_request_timer();
-        while (i != tcp::resolver::iterator())
-        {
-            m_endpoints.push(i->endpoint());
-            i++;
-        }
+        for (auto const& result : results)
+            m_endpoints.push(result.endpoint());
         m_resolver.cancel();
 
         // Resolver has finished so invoke connection asynchronously
@@ -758,7 +755,7 @@ void EthGetworkClient::send(std::string const& sReq)
     if (m_txPending.compare_exchange_strong(ex, true, std::memory_order_relaxed))
     {
         auto const callbackState = m_callbackState;
-        g_io_service.post(m_io_strand.wrap([callbackState]() {
+        boost::asio::post(g_io_service, m_io_strand.wrap([callbackState]() {
             std::lock_guard<std::recursive_mutex> lock(callbackState->mutex);
             if (callbackState->client)
                 callbackState->client->begin_connect();

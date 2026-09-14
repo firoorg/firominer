@@ -8,7 +8,7 @@
 #include <libethcore/Miner.h>
 #include <libpoolprotocols/PoolURI.h>
 
-extern boost::asio::io_service g_io_service;
+extern boost::asio::io_context g_io_service;
 
 using namespace std;
 

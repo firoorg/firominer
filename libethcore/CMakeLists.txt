@@ -6,7 +6,7 @@ set(SOURCES
 include_directories(BEFORE ..)
 
 add_library(ethcore ${SOURCES})
-target_link_libraries(ethcore PUBLIC devcore crypto PRIVATE hwmon Boost::filesystem)
+target_link_libraries(ethcore PUBLIC devcore crypto JsonCpp::JsonCpp PRIVATE hwmon Boost::filesystem Boost::process)
 
 if(ETHASHCL)
 	target_link_libraries(ethcore PUBLIC ethash-cl)

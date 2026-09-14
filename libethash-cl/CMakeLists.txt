@@ -29,19 +29,14 @@ set(SOURCES
 	${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel.h
 )
 
-if(APPLE OR NOT HUNTER_ENABLED)
-	# Use the system library on macOS and for unmanaged dependency builds.
-	find_package(OpenCL REQUIRED)
-else()
-	include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenCL.cmake)
-endif()
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/OpenCL.cmake)
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(..)
 
 add_library(ethash-cl ${SOURCES})
 target_link_libraries(ethash-cl PUBLIC ethcore crypto)
-target_link_libraries(ethash-cl PUBLIC OpenCL::OpenCL)
+target_link_libraries(ethash-cl PUBLIC OpenCL::OpenCL OpenCL::HeadersCpp)
 target_link_libraries(ethash-cl PRIVATE Boost::filesystem Threads::Threads)
 
 if(WIN32 AND BUILD_TESTING)

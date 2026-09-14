@@ -21,6 +21,7 @@ along with firominer.  If not, see <http://www.gnu.org/licenses/>.
 #include <libethcore/Miner.h>
 
 #include <functional>
+#include <map>
 
 namespace dev
 {

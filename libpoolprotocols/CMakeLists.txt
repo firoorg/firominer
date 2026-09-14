@@ -10,9 +10,9 @@ set(SOURCES
 	getwork/EthGetworkClient.h getwork/EthGetworkClient.cpp
 )
 
-hunter_add_package(OpenSSL)
-find_package(OpenSSL REQUIRED)
-
 add_library(poolprotocols ${SOURCES})
-target_link_libraries(poolprotocols PUBLIC devcore crypto jsoncpp_lib_static OpenSSL::SSL PRIVATE firominer-buildinfo Boost::system OpenSSL::Crypto)
+target_link_libraries(poolprotocols PUBLIC devcore crypto JsonCpp::JsonCpp OpenSSL::SSL PRIVATE firominer-buildinfo Boost::system OpenSSL::Crypto)
+if(WIN32)
+	target_link_libraries(poolprotocols PRIVATE crypt32)
+endif()
 target_include_directories(poolprotocols PRIVATE ..)

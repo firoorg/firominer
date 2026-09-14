@@ -151,7 +151,7 @@ void PoolManager::setClientHandlers()
             // Suspend mining and submit new connection request
             cnote << "No connection. Suspend mining ...";
             Farm::f().pause();
-            g_io_service.post(m_io_strand.wrap(boost::bind(&PoolManager::rotateConnect, this)));
+            boost::asio::post(g_io_service, m_io_strand.wrap(boost::bind(&PoolManager::rotateConnect, this)));
         }
     });
 
@@ -253,9 +253,9 @@ void PoolManager::stop()
         {
             // Client callbacks and socket operations run on the I/O thread. Keep it
             // alive until both disconnection and client destruction have completed.
-            boost::asio::io_service::work keepAlive(g_io_service);
+            auto keepAlive = boost::asio::make_work_guard(g_io_service);
             std::exception_ptr disconnectError;
-            g_io_service.post(m_io_strand.wrap([this, &disconnectError]() {
+            boost::asio::post(g_io_service, m_io_strand.wrap([this, &disconnectError]() {
                 try
                 {
                     if (p_client->isConnected() || p_client->isPendingState())
@@ -277,7 +277,7 @@ void PoolManager::stop()
 
             auto released = std::make_shared<std::promise<void>>();
             auto completed = released->get_future();
-            g_io_service.post(m_io_strand.wrap([this, released]() {
+            boost::asio::post(g_io_service, m_io_strand.wrap([this, released]() {
                 try
                 {
                     {
@@ -441,7 +441,7 @@ void PoolManager::start()
     m_running.store(true, std::memory_order_relaxed);
     m_async_pending.store(true, std::memory_order_relaxed);
     m_connectionSwitches.fetch_add(1, std::memory_order_relaxed);
-    g_io_service.post(m_io_strand.wrap(boost::bind(&PoolManager::rotateConnect, this)));
+    boost::asio::post(g_io_service, m_io_strand.wrap(boost::bind(&PoolManager::rotateConnect, this)));
 }
 
 void PoolManager::rotateConnect()

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.18)
 
 # Set before helper functions capture the policy used to create their targets.
 if(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE)
@@ -19,8 +19,8 @@ set(HUNTER_CONFIGURATION_TYPES Release CACHE STRING "Build type of Hunter packag
 set(HUNTER_JOBS_NUMBER 6 CACHE STRING "Number of parallel builds used by Hunter")
 set(HUNTER_USE_CACHE_SERVERS NO)
 HunterGate(
-  URL "https://github.com/cpp-pm/hunter/archive/v0.23.267.tar.gz"
-  SHA1 "9c5c7fa6e17c2ae15dd922184bc7c51235aaae70"
+  URL "https://github.com/cpp-pm/hunter/archive/v0.26.9.tar.gz"
+  SHA1 "a962c9f0cfd6f8fc62ea25943d89debfa61d4d4a"
   LOCAL
 )
 
@@ -61,13 +61,20 @@ function(configureProject)
 	endif()
 endfunction()
 
-hunter_add_package(Boost COMPONENTS system filesystem)
+if(HUNTER_ENABLED)
+	include(cmake/Boost.cmake)
+else()
+	find_package(Boost 1.92.0 CONFIG REQUIRED COMPONENTS system filesystem process)
+endif()
 hunter_add_package(jsoncpp)
 hunter_add_package(intx)
+hunter_add_package(OpenSSL)
+hunter_add_package(CLI11)
 
-find_package(Boost CONFIG REQUIRED COMPONENTS system filesystem)
-find_package(jsoncpp CONFIG REQUIRED)
-find_package(intx CONFIG REQUIRED)
+find_package(jsoncpp 1.9.7 CONFIG REQUIRED)
+find_package(intx 0.5.1 CONFIG REQUIRED)
+find_package(OpenSSL 3.5.8 REQUIRED)
+find_package(CLI11 2.6.2 CONFIG REQUIRED)
 
 configureProject()
 
@@ -137,14 +144,25 @@ if (BUILD_TESTING)
 	set_tests_properties(miner-state PROPERTIES TIMEOUT 30)
 endif()
 add_subdirectory(libethcore)
+if(BUILD_TESTING)
+	add_executable(reboot-script-test test/reboot.cpp)
+	target_include_directories(reboot-script-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+	target_link_libraries(reboot-script-test PRIVATE ethcore)
+	set_target_properties(reboot-script-test PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-reboot")
+	add_test(NAME reboot-script COMMAND reboot-script-test)
+	set_tests_properties(reboot-script PROPERTIES TIMEOUT 30)
+endif()
 add_subdirectory(libhwmon)
 add_subdirectory(libpoolprotocols)
 if (BUILD_TESTING)
 	add_executable(protocol-parsing-test test/protocol.cpp)
+	target_compile_definitions(protocol-parsing-test PRIVATE
+		FIROMINER_TLS_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/test/tls")
 	target_include_directories(protocol-parsing-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 	target_link_libraries(protocol-parsing-test PRIVATE poolprotocols ethcore Threads::Threads)
 	add_test(NAME protocol-parsing COMMAND protocol-parsing-test)
-	set_tests_properties(protocol-parsing PROPERTIES TIMEOUT 10)
+	set_tests_properties(protocol-parsing PROPERTIES TIMEOUT 30)
 	add_executable(simulation-verification-test test/simulation.cpp)
 	target_include_directories(simulation-verification-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 	target_link_libraries(simulation-verification-test PRIVATE poolprotocols ethcore Threads::Threads)
@@ -175,6 +193,31 @@ if (BUILD_TESTING AND APICORE)
 endif()
 
 add_subdirectory(firominer)
+
+set(FIROMINER_OPENCL_DEPENDENCIES "OpenCL: disabled")
+if(ETHASHCL)
+	if(HUNTER_ENABLED)
+		set(FIROMINER_OPENCL_DEPENDENCIES "OpenCL-Headers: v2026.05.29\nOpenCL-CLHPP: v2026.05.29")
+		if(APPLE)
+			string(APPEND FIROMINER_OPENCL_DEPENDENCIES "\nOpenCL loader: system framework")
+		else()
+			string(APPEND FIROMINER_OPENCL_DEPENDENCIES "\nOpenCL-ICD-Loader: v2026.05.29")
+		endif()
+	else()
+		set(FIROMINER_OPENCL_DEPENDENCIES "OpenCL headers and loader: system packages")
+	endif()
+endif()
+set(FIROMINER_CUDA_VERSION "disabled")
+if(ETHASHCUDA)
+	get_directory_property(FIROMINER_CUDA_VERSION DIRECTORY libethash-cuda DEFINITION CUDA_VERSION)
+endif()
+configure_file(cmake/dependencies.txt.in dependencies.txt @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/dependencies.txt"
+	DESTINATION share/firominer)
+if(HUNTER_ENABLED)
+	install(DIRECTORY "${HUNTER_INSTALL_PREFIX}/licenses/"
+		DESTINATION share/firominer/licenses)
+endif()
 
 
 if(WIN32)

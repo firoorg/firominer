@@ -27,6 +27,7 @@
 #include <array>
 #include <cstdint>
 #include <random>
+#include <boost/container_hash/hash.hpp>
 
 #include "CommonData.h"
 
