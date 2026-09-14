@@ -178,6 +178,9 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "#ifndef FIROPOW_CL_INLINE_MIX\n";
         ret << "#define FIROPOW_CL_INLINE_MIX 0\n";
         ret << "#endif\n";
+        ret << "#if FIROPOW_CL_SUBGROUP\n";
+        ret << "#pragma OPENCL EXTENSION cl_khr_subgroups : enable\n";
+        ret << "#endif\n";
         ret << "\n";
         ret << "typedef unsigned int       uint32_t;\n";
         ret << "typedef unsigned long      uint64_t;\n";
@@ -221,6 +224,7 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "        __global const dag_t *g_dag,\n";
         ret << "        __local const uint32_t c_dag[PROGPOW_CACHE_WORDS],\n";
         ret << "        __local uint32_t loop_offsets[GROUP_SHARE],\n";
+        ret << "        const bool use_subgroup,\n";
         ret << "        const bool hack_false)\n";
     }
     ret << "{\n";
@@ -255,10 +259,25 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "offset = SHFL(mix[0], loop%PROGPOW_LANES, PROGPOW_LANES);\n";
     else
     {
+        ret << "#if FIROPOW_CL_SUBGROUP\n";
+        ret << "if (use_subgroup)\n";
+        ret << "{\n";
+        ret << "    // Broadcast sources must be uniform across the entire subgroup.\n";
+        ret << "    for (uint32_t base = 0; base < get_sub_group_size(); base += PROGPOW_LANES)\n";
+        ret << "    {\n";
+        ret << "        uint32_t value = sub_group_broadcast(mix[0], base + loop % PROGPOW_LANES);\n";
+        ret << "        if (get_sub_group_local_id() / PROGPOW_LANES == base / PROGPOW_LANES)\n";
+        ret << "            offset = value;\n";
+        ret << "    }\n";
+        ret << "}\n";
+        ret << "else\n";
+        ret << "#endif\n";
+        ret << "{\n";
         ret << "if(lane_id == (loop % PROGPOW_LANES))\n";
         ret << "    loop_offsets[group_id] = mix[0];\n";
         ret << "barrier(CLK_LOCAL_MEM_FENCE);\n";
         ret << "offset = loop_offsets[group_id];\n";
+        ret << "}\n";
     }
     ret << "offset %= PROGPOW_DAG_ELEMENTS;\n";
     ret << "offset = offset * PROGPOW_LANES + (lane_id ^ loop) % PROGPOW_LANES;\n";

@@ -78,7 +78,7 @@ void keccak_f800_round(uint32_t st[25], const int r)
 // Keccak - implemented as a variant of SHAKE
 // The width is 800, with a bitrate of 576, a capacity of 224, and no padding
 // Only need 64 bits of output for mining
-void keccak_f800(uint32_t* st)
+void keccak_f800(__private uint32_t* st)
 {
     // Complete all 22 rounds as a separate impl to
     // evaluate only first 8 words is wasteful of regsters
@@ -157,11 +157,25 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
 {
     uint32_t const lid = get_local_id(0);
     __local uint32_t should_abort;
+#if FIROPOW_CL_SUBGROUP
+    __local uint32_t subgroup_layout_ok;
+    if (lid == 0)
+        subgroup_layout_ok = 1;
+#endif
     if (lid == 0)
         should_abort = g_output->abort;
     barrier(CLK_LOCAL_MEM_FENCE);
     if (should_abort)
         return;
+
+#if FIROPOW_CL_SUBGROUP
+    // OpenCL does not guarantee that subgroup lanes follow local work-item IDs.
+    // Every logical 16-lane hash must fit in a contiguous, aligned subgroup slice.
+    const uint32_t first_lid = sub_group_broadcast(lid, 0);
+    if (get_sub_group_size() % PROGPOW_LANES != 0 ||
+        first_lid % PROGPOW_LANES != 0 || first_lid + get_sub_group_local_id() != lid)
+        atomic_and(&subgroup_layout_ok, 0u);
+#endif
 
     __local shuffle_t share[HASHES_PER_GROUP];
     // Keep DAG offsets separate from per-hash seed and digest storage.
@@ -184,6 +198,13 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
 
     // Sync threads so shared mem is in sync
     barrier(CLK_LOCAL_MEM_FENCE);
+
+#if FIROPOW_CL_SUBGROUP
+    // A workgroup-uniform decision keeps the portable path's barriers convergent.
+    const bool use_subgroup = subgroup_layout_ok != 0;
+#else
+    const bool use_subgroup = false;
+#endif
 
 
     // uint32_t state[25];     // Keccak's state
@@ -231,9 +252,15 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
         // initialize mix for all lanes
         fill_mix(share[group_id].uint32s, lane_id, mix);
 
+#if FIROPOW_CL_SUBGROUP
+        // Finish seed reads before share[] is reused for the digest.
+        if (use_subgroup)
+            sub_group_barrier(CLK_LOCAL_MEM_FENCE);
+#endif
+
 #pragma unroll 1
         for (uint32_t l = 0; l < PROGPOW_CNT_DAG; l++)
-            progPowLoop(l, mix, g_dag, c_dag, loop_offsets, hack_false);
+            progPowLoop(l, mix, g_dag, c_dag, loop_offsets, use_subgroup, hack_false);
 
         // Reduce mix data to a per-lane 32-bit digest
         uint32_t mix_hash = FNV_OFFSET_BASIS;
@@ -252,6 +279,11 @@ ethash_search(__global struct SearchResults* restrict g_output, __constant hash3
             fnv1a(digest_temp.uint32s[i % 8], share[group_id].uint32s[i]);
         if (h == lane_id)
             digest = digest_temp;
+#if FIROPOW_CL_SUBGROUP
+        // Finish digest reads before the next hash overwrites the shared seed.
+        if (use_subgroup)
+            sub_group_barrier(CLK_LOCAL_MEM_FENCE);
+#endif
     }
 
 

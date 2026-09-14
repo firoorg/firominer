@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## Unreleased
+
+### Added
+
+- Optional `--cl-subgroup` DAG-offset broadcasts for compatible AMD OpenCL GPUs, with portable fallback.
+
+### Changed
+
+- Enabled OpenCL helper inlining by default, with `--cl-no-inline` and a launcher checkbox for legacy compiler compatibility.
+
 ## 1.2.0
 
 ### Added

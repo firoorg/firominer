@@ -46,7 +46,7 @@ def executable_path(value):
 
 
 def build_command(executable, mode, endpoint, username, password, reward="",
-                  message="", network="mainnet", inline=False, opencl=False):
+                  message="", network="mainnet", legacy=False, opencl=False):
     executable = executable_path(executable)
     if mode not in ("solo", "pool") or network not in NETWORKS:
         raise ValueError("Select a mining mode and network.")
@@ -97,10 +97,10 @@ def build_command(executable, mode, endpoint, username, password, reward="",
             command.append("--coinbase-message=" + message)
     elif message:
         raise ValueError("Pools construct the coinbase; a custom message is available only for solo mining.")
-    if inline:
+    if legacy:
         if not opencl:
-            raise ValueError("Detect an OpenCL GPU with this executable before enabling the experiment.")
-        command.extend(["-G", "--cl-experimental-inline"])
+            raise ValueError("Detect an OpenCL GPU with this executable before selecting the legacy kernel.")
+        command.extend(["-G", "--cl-no-inline"])
     return command
 
 
@@ -134,7 +134,7 @@ def probe_opencl(executable):
         result = subprocess.run([executable, "-G", "--list-devices", "--nocolor"],
                                 timeout=20, **process_options())
         if result.returncode == 0 and has_opencl_gpu(result.stdout):
-            return True, "OpenCL GPU detected · inline experiment available"
+            return True, "OpenCL GPU detected · legacy kernel available"
         return False, "No usable OpenCL GPU detected by this miner"
     except subprocess.TimeoutExpired:
         return False, "OpenCL scan timed out; check your GPU driver and retry"
@@ -210,7 +210,7 @@ class MinerWindow:
             ("username", ""), ("password", ""))} for mode in ("solo", "pool")}
         self.reward = tk.StringVar()
         self.message = tk.StringVar()
-        self.inline = tk.BooleanVar()
+        self.legacy = tk.BooleanVar()
         self.status = tk.StringVar(value="Ready")
         self.hardware = tk.StringVar(value="Choose a miner, then scan for OpenCL GPUs")
         self.inputs = []
@@ -274,12 +274,12 @@ class MinerWindow:
         hardware = ttk.LabelFrame(frame, text="GPU", padding=10)
         hardware.grid(row=3, sticky="ew", pady=8)
         hardware.columnconfigure(0, weight=1)
-        self.inline_check = ttk.Checkbutton(hardware, text="Use the OpenCL inline experiment", variable=self.inline)
-        self.inline_check.grid(row=0, sticky="w")
+        self.legacy_check = ttk.Checkbutton(hardware, text="Use legacy OpenCL kernel", variable=self.legacy)
+        self.legacy_check.grid(row=0, sticky="w")
         self.scan_button = ttk.Button(hardware, text="Scan GPUs", command=self.scan)
         self.scan_button.grid(row=0, column=1, padx=(12, 0))
         ttk.Label(hardware, textvariable=self.hardware).grid(row=1, sticky="w", pady=(6, 0))
-        ttk.Label(hardware, text="Experimental: forces OpenCL. Leave off for the normal GPU backend.").grid(row=2, columnspan=2, sticky="w", pady=(3, 0))
+        ttk.Label(hardware, text="For driver compatibility. Selecting this forces the OpenCL backend.").grid(row=2, columnspan=2, sticky="w", pady=(3, 0))
 
         actions = ttk.Frame(frame)
         actions.grid(row=4, sticky="ew", pady=(0, 8))
@@ -328,8 +328,8 @@ class MinerWindow:
     def invalidate_scan(self, *_):
         self.opencl = False
         self.scanned_path = ""
-        self.inline.set(False)
-        self.hardware.set("Executable changed · scan to enable the OpenCL experiment")
+        self.legacy.set(False)
+        self.hardware.set("Executable changed · scan to enable the legacy OpenCL kernel option")
         self.refresh()
 
     def refresh(self):
@@ -339,7 +339,7 @@ class MinerWindow:
         self.network_combo.configure(state="disabled" if busy else "readonly")
         for widget in (self.binary_entry, self.browse_button, self.scan_button):
             widget.configure(state="disabled" if busy or self.scanning else "normal")
-        self.inline_check.configure(state="normal" if self.opencl and not busy else "disabled")
+        self.legacy_check.configure(state="normal" if self.opencl and not busy else "disabled")
         self.start_button.configure(state="disabled" if busy or self.scanning else "normal")
         self.stop_button.configure(state="normal" if self.process and not self.stopping else "disabled")
 
@@ -352,7 +352,7 @@ class MinerWindow:
             self.hardware.set(str(error))
             return
         self.opencl = False
-        self.inline.set(False)
+        self.legacy.set(False)
         self.scanning = True
         self.hardware.set("Scanning OpenCL GPUs…")
         self.refresh()
@@ -367,7 +367,7 @@ class MinerWindow:
         try:
             command = build_command(self.executable.get(), self.mode.get(), **values,
                 reward=self.reward.get(), message=self.message.get() if self.mode.get() == "solo" else "",
-                network=self.network.get(), inline=self.inline.get(),
+                network=self.network.get(), legacy=self.legacy.get(),
                 opencl=self.opencl and self.scanned_path == executable_path(self.executable.get()))
             self.process = subprocess.Popen(command, bufsize=1, **process_options())
         except (ValueError, OSError) as error:

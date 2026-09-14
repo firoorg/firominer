@@ -77,6 +77,7 @@ private:
     cl::Buffer* m_light = nullptr;
 
     CLSettings m_settings;
+    bool m_useSubgroups = false;
     std::mutex m_abortMutex;
     bool m_hasNextProgpowKernel = false;
     bool m_kernelReady = false;

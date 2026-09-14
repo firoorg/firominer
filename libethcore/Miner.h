@@ -118,7 +118,8 @@ struct CLSettings : public MinerSettings
     unsigned globalWorkSize = 0;
     unsigned globalWorkSizeMultiplier = 32768;
     unsigned localWorkSize = 256;
-    bool experimentalInline = false;
+    bool inlineMix = true;
+    bool subgroup = false;
 };
 
 // Holds settings for CPU Miner

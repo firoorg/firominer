@@ -13,7 +13,7 @@
 * Mainnet, testnet, devnet and regtest epoch schedules
 * Optional HTTP monitoring and TCP JSON-RPC control API
 * Development CPU backend, selected explicitly with `--cpu` when compiled in
-* Desktop launcher for solo and pool mining, with live logs and OpenCL experiment detection
+* Desktop launcher for solo and pool mining, with live logs and OpenCL device detection
 * Custom solo coinbase messages with the companion Firo daemon patch
 
 
@@ -91,10 +91,11 @@ Windows 10 version 1903 or newer is needed for Unicode coinbase messages
 Credentials are kept only for the current session. The launcher passes them to
 the miner on its command line, as the CLI does.
 
-The OpenCL scan enables **Experimental OpenCL inline** only when the selected
-miner detects a usable OpenCL GPU/accelerator. Checking it selects OpenCL mining
-so the experiment runs even on cards that also support CUDA. It is off by default;
-see [hardware verification](docs/TESTING.md#experimental-opencl-inlining).
+OpenCL helper inlining is enabled by default. The OpenCL scan enables the
+**Use legacy OpenCL kernel** checkbox when the selected miner detects a usable
+OpenCL GPU/accelerator. Check it to select OpenCL mining with the older compiler
+workaround (`--cl-no-inline`); otherwise the launcher uses the normal GPU backend.
+See [hardware verification](docs/TESTING.md#opencl-inlining-and-legacy-compatibility).
 
 The optional coinbase message is available for solo mining with a patched node;
 see the next section. Pools construct their own coinbase and cannot accept a
@@ -336,7 +337,13 @@ required memory cannot mine that epoch.
 Start with the defaults, then compare accepted shares and sustained hashrate
 on your hardware. Use `--help-ext cl` and `--help-ext cu` for supported options.
 `--cl-global-work` is a direct multiplier; it need not be a power of two.
-`--cl-experimental-inline` is opt-in and requires hardware verification.
+OpenCL helper inlining is enabled by default. Use `--cl-no-inline` for the legacy
+compiler workaround if the default kernel fails compilation or produces invalid results.
+`--cl-subgroup` optionally replaces DAG-offset workgroup barriers with subgroup
+broadcasts on detected AMD GPUs with `cl_khr_subgroups` and an OpenCL C 2.0
+compiler. It defaults to off. Other vendors and unsupported lane layouts use
+portable broadcasts; a subgroup build failure retries the portable kernel.
+Compare sustained hashrate on your card before keeping this option enabled.
 Keep host solution verification enabled by leaving out `--noeval`.
 
 ### Can I CPU mine?
