@@ -268,8 +268,7 @@ CLMiner::CLMiner(unsigned _index, CLSettings _settings, DeviceDescriptor& _devic
     m_settings.localWorkSize = ((m_settings.localWorkSize + 7) / 8) * 8;
     m_settings.globalWorkSize = checkedGlobalWorkSize(
         uint64_t{m_settings.localWorkSize} * m_settings.globalWorkSizeMultiplier);
-    if (m_settings.experimentalInline)
-        cllog << "Experimental OpenCL inline mix kernel enabled";
+    cllog << (m_settings.inlineMix ? "OpenCL inline mix kernel enabled" : "Legacy OpenCL mix kernel enabled");
 }
 
 CLMiner::~CLMiner()
@@ -728,6 +727,15 @@ bool CLMiner::initDevice()
 
     m_device = devices.at(m_deviceDescriptor.clDeviceOrdinal);
 
+    // Keep this opt-in optimization limited to AMD until other vendors are validated.
+    const std::string extensions = " " + m_device.getInfo<CL_DEVICE_EXTENSIONS>() + " ";
+    m_useSubgroups = m_settings.subgroup &&
+        (m_device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_GPU) &&
+        m_device.getInfo<CL_DEVICE_VENDOR_ID>() == 0x1002 &&
+        extensions.find(" cl_khr_subgroups ") != std::string::npos;
+    if (m_settings.subgroup && !m_useSubgroups)
+        cllog << "Subgroup DAG-offset broadcasts unavailable for this device; using portable broadcasts";
+
     // create context
     m_context = cl::Context(m_device);
     m_queue = cl::CommandQueue(m_context, m_device);
@@ -926,7 +934,8 @@ bool CLMiner::compileKernel(uint64_t period_seed,
     code += std::string(CLMiner_kernel);
 
     addDefinition(code, "GROUP_SIZE", m_settings.localWorkSize);
-    addDefinition(code, "FIROPOW_CL_INLINE_MIX", m_settings.experimentalInline);
+    addDefinition(code, "FIROPOW_CL_INLINE_MIX", m_settings.inlineMix);
+    addDefinition(code, "FIROPOW_CL_SUBGROUP", m_useSubgroups);
     addDefinition(code, "ACCESSES", 64);
     addDefinition(code, "LIGHT_WORDS", epochContext->light_cache_num_items);
     addDefinition(code, "DAG_NODES", epochContext->full_dataset_num_items * 2);
@@ -981,12 +990,25 @@ bool CLMiner::compileKernel(uint64_t period_seed,
     program = cl::Program(m_context, sources);
     try
     {
-        program.build({m_device}, m_options);
+        const std::string options = std::string(m_options) + (m_useSubgroups ? " -cl-std=CL2.0" : "");
+        program.build({m_device}, options.c_str());
     }
     catch (cl::BuildError const& buildErr)
     {
         cwarn << "OpenCL kernel build log:\n" << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_device);
         cwarn << "OpenCL kernel build error (" << buildErr.err() << "):\n" << buildErr.what();
+        if (m_useSubgroups)
+        {
+            cwarn << "Disabling subgroup DAG-offset broadcasts and retrying the portable kernel";
+            m_useSubgroups = false;
+            return compileKernel(period_seed, epochContext, program, searchKernel);
+        }
+        if (m_settings.inlineMix)
+        {
+            cwarn << "Disabling OpenCL helper inlining and retrying the legacy mix kernel";
+            m_settings.inlineMix = false;
+            return compileKernel(period_seed, epochContext, program, searchKernel);
+        }
         return false;
     }
     searchKernel = cl::Kernel(program, "ethash_search");
@@ -994,6 +1016,7 @@ bool CLMiner::compileKernel(uint64_t period_seed,
     searchKernel.setArg(1, m_header);
     searchKernel.setArg(5, 0);
 
-    cllog << "Pre-compiled period " << period_seed << " OpenCL ProgPow kernel";
+    cllog << "Pre-compiled period " << period_seed << " OpenCL ProgPow kernel"
+          << (m_useSubgroups ? " (subgroup broadcasts with lane-layout fallback)" : "");
     return true;
 }

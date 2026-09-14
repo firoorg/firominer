@@ -11,9 +11,18 @@ add_custom_command(
 	-P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/txt2str.cmake"
 	COMMENT "Generating OpenCL Kernel"
 	DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/CLMiner_kernel.cl
+		${CMAKE_CURRENT_SOURCE_DIR}/../cmake/txt2str.cmake
 	VERBATIM
 )
 add_custom_target(cl_kernel DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel.h ${CMAKE_CURRENT_SOURCE_DIR}/CLMiner_kernel.cl)
+
+if(BUILD_TESTING AND FIROMINER_PYTHON3 AND FIROMINER_PYTHON_VERSION_CHECK EQUAL 0)
+	add_test(NAME opencl-kernel-embedding COMMAND ${FIROMINER_PYTHON3}
+		${CMAKE_CURRENT_SOURCE_DIR}/../test/opencl-embedding.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../cmake/txt2str.cmake
+		${CMAKE_CURRENT_SOURCE_DIR}/CLMiner_kernel.cl)
+endif()
 
 set(SOURCES
 	CLMiner.h CLMiner.cpp

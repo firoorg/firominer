@@ -5,6 +5,13 @@ release. They are unsigned development builds. Check `BUILD-INFO.txt` for the
 source commit, build configuration, and CI run. GPU execution and pool acceptance
 still need testing on real hardware; passing CI alone does not establish either.
 
+Linux release CI uses `-O3` and C/C++ link-time optimization, enabled with
+`-DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE=ON` (CMake 3.9+). Configuration
+fails if the toolchain cannot provide it. Windows releases already use `/O2`,
+`/GL` and `/LTCG`. Packaged builds retain a generic x86-64 CPU baseline. GPU
+mining kernels are optimized separately by the OpenCL driver or CUDA runtime
+compiler; host build flags alone do not establish a mining speedup.
+
 ## Choose and unpack a package
 
 | Package | Intended machine | Included backends |
@@ -76,9 +83,10 @@ error. Confirm logs stay responsive while mining and settings cannot change
 during a run.
 
 Run the OpenCL scan on a machine with no supported OpenCL device and with a
-supported card. The inline option must stay disabled in the first case and
-become available in the second; enabling it must produce the miner's
-`Experimental OpenCL inline mix kernel enabled` log message.
+supported card. The legacy kernel checkbox must stay disabled in the first case
+and become available in the second. Leave it unchecked for normal backend
+selection and default OpenCL inlining. Checking it must select OpenCL and produce
+the miner's `Legacy OpenCL mix kernel enabled` log message.
 
 For coinbase messages, use an isolated Firo test node with the companion patch
 in `patches/` (installed under `share/firominer/patches/`). Follow its verification
@@ -86,22 +94,28 @@ instructions, including distinct messages at the same tip and a UTF-8 message.
 Confirm the stock daemon is rejected when a message is requested, normal work
 still succeeds when it is blank, and pool mode does not send a message.
 
-## Experimental OpenCL inlining
+## OpenCL inlining and legacy compatibility
 
-Add `--cl-experimental-inline` to an OpenCL (`-G`) command to test forced helper
-inlining and direct private mix storage without the old volatile-array workaround.
-The option is off by default. Each selected OpenCL miner logs that the experiment
-is enabled. It requires an OpenCL C 1.2-compatible compiler that supports
-`always_inline`; older compiler workarounds remain available by omitting the flag.
-A build failure uses normal device error handling, without silently switching
-kernel variants.
+OpenCL mining uses forced helper inlining and direct private mix storage by
+default, without the old volatile-array workaround. Each selected OpenCL miner
+logs `OpenCL inline mix kernel enabled`. This requires an OpenCL C 1.2-compatible
+compiler that supports `always_inline`. It introduces no new GPU instruction
+requirement, but older drivers still need hardware verification. Use
+`--cl-no-inline` to select the legacy workaround. The existing
+`--cl-experimental-inline` flag remains accepted and explicitly enables inlining.
+If both flags are supplied, the last one takes precedence for the initial build.
+If compilation fails, the miner logs a warning and retries with the legacy
+workaround, retaining it for subsequent periods on that miner. When subgroups
+are requested, their portable fallback is tried first. If the legacy build also
+fails, normal device error handling applies. This cannot detect a compiler that
+accepts the kernel but produces incorrect results; keep host verification enabled.
 
-Run the same workload with and without the flag, keeping the device, driver,
+Run the same workload with and without `--cl-no-inline`, keeping the device, driver,
 clocks, local/global work sizes and other options fixed. Leave host verification
 enabled and compare accepted, invalid, rejected and stale shares across several
-periods before comparing hashrate. Include workgroup sizes 64, 128 and 256. Revert
-to the default path if the experimental variant fails compilation or produces
-invalid results. CPU tests and generated-kernel compilation do not establish GPU
+periods before comparing hashrate. Include workgroup sizes 64, 128 and 256. Use
+the legacy path if the inline variant fails compilation or produces invalid
+results. CPU tests and generated-kernel compilation do not establish GPU
 correctness or a speedup.
 
 Use simulation for functional and period-transition checks. Easy simulated work
@@ -109,6 +123,30 @@ can change periods about every 200 ms, so it is not a stable kernel-throughput
 benchmark. For performance comparisons, allow warmup and sample the same fixed
 jobs/periods with a suitable GPU profiling setup, or compare repeated realistic
 pool runs while recording the changing jobs and targets.
+
+## Optional OpenCL subgroup broadcasts
+
+`--cl-subgroup` enables an experimental DAG-offset broadcast path only on detected
+AMD GPUs advertising `cl_khr_subgroups`. The option defaults to off and works with
+both inline and legacy mix storage. It builds with OpenCL C 2.0; a build failure
+disables subgroup broadcasts for that miner and retries the portable variant.
+Other vendors keep portable broadcasts until they have been validated.
+
+The kernel checks that each logical 16-lane hash fits in a contiguous subgroup
+slice. If any lane has an incompatible layout, the entire workgroup uses the
+original local-memory broadcast. Seed and digest sharing retain their memory
+barriers. A successful subgroup build logs
+`(subgroup broadcasts with lane-layout fallback)`; that message does not establish
+that the runtime layout passed the check or that hashrate improved.
+
+Compare runs with and without `--cl-subgroup` at the same periods and work sizes,
+leaving host verification enabled. Check all returned mix digests against the CPU
+reference, target selection, period transitions, and rejected/invalid shares
+before comparing sustained hashrate. Include both mix variants, local sizes
+64/128/256, and subgroup widths 32 and 64 where available. Also check a device
+without the extension and a non-AMD GPU: requesting the option must leave their
+broadcast path portable. The offline kernel test covers all four variants at
+three periods and three workgroup sizes, 36 compilations in total.
 
 ## Pool and daemon tests
 

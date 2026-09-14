@@ -292,7 +292,8 @@ public:
 
         app.add_set("--cl-local-work", m_CLSettings.localWorkSize, {64, 128, 256}, "", true);
 
-        app.add_flag("--cl-experimental-inline", m_CLSettings.experimentalInline, "");
+        app.add_flag("--cl-experimental-inline,!--cl-no-inline", m_CLSettings.inlineMix, "");
+        app.add_flag("--cl-subgroup", m_CLSettings.subgroup, "");
 
 #endif
 
@@ -894,10 +895,16 @@ public:
                  << "                        Set the global work size multiplier" << endl
                  << "    --cl-local-work     UINT {64,128,256} Default = " << m_CLSettings.localWorkSize << endl
                  << "                        Set the local work size multiplier" << endl
-                 << "    --cl-experimental-inline Default = off" << endl
-                 << "                        Force helper inlining and disable the volatile" << endl
-                 << "                        mix workaround. Requires a compatible OpenCL" << endl
-                 << "                        compiler; test with host verification enabled." << endl;
+                 << "    --cl-subgroup       Default = off" << endl
+                 << "                        Try subgroup DAG-offset broadcasts on AMD GPUs" << endl
+                 << "                        with cl_khr_subgroups and OpenCL C 2.0 support." << endl
+                 << "                        Other devices use the portable kernel." << endl
+                 << "    --cl-no-inline      Default = off" << endl
+                 << "                        Use the legacy volatile mix workaround instead" << endl
+                 << "                        of helper inlining for older OpenCL compilers." << endl
+                 << "    --cl-experimental-inline Default = on" << endl
+                 << "                        Retained for compatibility; helper inlining is" << endl
+                 << "                        enabled by default. Keep host verification enabled." << endl;
         }
 
         if (ctx == "cu")

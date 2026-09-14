@@ -33,15 +33,17 @@ class GuiTests(unittest.TestCase):
         return gui.build_command(**values)
 
     def test_commands(self):
-        command = self.command(message="--hello 'Firo'", network="testnet")
+        command = self.command(message="--hello 'Firo'", network="testnet", opencl=True)
         self.assertIn("--coinbase-message=--hello 'Firo'", command)
         self.assertIn("testnet", command)
         uri = command[command.index("-P") + 1]
         self.assertEqual(uri, "getwork://rpc%2Ename:p%2Ea%3Ass%40word%2B%25%60@127.0.0.1:8888")
         self.assertNotIn("-G", command)
-        command = self.command(mode="pool", endpoint="stratum+tls://pool.example:4444", username="wallet.worker", inline=True, opencl=True)
+        self.assertNotIn("--cl-no-inline", command)
+        self.assertNotIn("--cl-experimental-inline", command)
+        command = self.command(mode="pool", endpoint="stratum+tls://pool.example:4444", username="wallet.worker", legacy=True, opencl=True)
         self.assertIn("-G", command)
-        self.assertIn("--cl-experimental-inline", command)
+        self.assertIn("--cl-no-inline", command)
         self.assertNotIn("--reward-address", command)
         self.assertTrue(any("wallet.worker:" in value for value in command))
         command = self.command(endpoint="http://localhost:8888/wallet@name+1")
@@ -52,7 +54,7 @@ class GuiTests(unittest.TestCase):
         with patch.object(gui.sys, "platform", "win32"), patch.object(gui.shutil, "which", return_value="miner.cmd"):
             with self.assertRaises(ValueError):
                 gui.executable_path("miner.cmd")
-        for changes in ({"message": "é" * 41}, {"reward": ""}, {"inline": True},
+        for changes in ({"message": "é" * 41}, {"reward": ""}, {"legacy": True},
                         {"mode": "pool", "endpoint": "stratum://pool:42", "message": "tag"},
                         {"endpoint": "http://user:pass@localhost:42"},
                         {"endpoint": "http://[::1]:8888"}, {"endpoint": "http://localhost:0"},
@@ -128,7 +130,8 @@ class GuiWindowTests(unittest.TestCase):
                 root.update()
                 self.assertTrue(all(widget.winfo_ismapped() for widget in window.solo))
                 self.assertEqual(window.solo[1].winfo_x(), window.connection_entries["username"].winfo_x())
-                self.assertIn("disabled", window.inline_check.state())
+                self.assertFalse(window.legacy.get())
+                self.assertIn("disabled", window.legacy_check.state())
                 window.executable.set(sys.executable)
                 window.start()
                 dialogs.showerror.assert_called_once()
