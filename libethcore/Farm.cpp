@@ -598,6 +598,7 @@ void Farm::collectData(const boost::system::error_code& ec)
             HwMonitorInfo hwInfo = miner->hwmonInfo();
 
             unsigned int tempC = 0, fanpcnt = 0, powerW = 0;
+            bool temperatureRead = false;
 
             if (hwInfo.deviceType == HwMonitorInfoType::NVIDIA && nvmlh)
             {
@@ -618,7 +619,7 @@ void Farm::collectData(const boost::system::error_code& ec)
 
                 if (devIdx >= 0)
                 {
-                    wrap_nvml_get_tempC(nvmlh, devIdx, &tempC);
+                    temperatureRead = wrap_nvml_get_tempC(nvmlh, devIdx, &tempC) == 0;
                     wrap_nvml_get_fanpcnt(nvmlh, devIdx, &fanpcnt);
 
                     if (m_Settings.hwMon == 2)
@@ -647,7 +648,7 @@ void Farm::collectData(const boost::system::error_code& ec)
 
                     if (devIdx >= 0)
                     {
-                        wrap_amdsysfs_get_tempC(sysfsh, devIdx, &tempC);
+                        temperatureRead = wrap_amdsysfs_get_tempC(sysfsh, devIdx, &tempC) == 0;
                         wrap_amdsysfs_get_fanpcnt(sysfsh, devIdx, &fanpcnt);
 
                         if (m_Settings.hwMon == 2)
@@ -674,7 +675,7 @@ void Farm::collectData(const boost::system::error_code& ec)
 
                     if (devIdx >= 0)
                     {
-                        wrap_adl_get_tempC(adlh, devIdx, &tempC);
+                        temperatureRead = wrap_adl_get_tempC(adlh, devIdx, &tempC) == 0;
                         wrap_adl_get_fanpcnt(adlh, devIdx, &fanpcnt);
 
                         if (m_Settings.hwMon == 2)
@@ -684,17 +685,8 @@ void Farm::collectData(const boost::system::error_code& ec)
 #endif
             }
 
-
-            // If temperature control has been enabled call
-            // check threshold
-            if (m_Settings.tempStop)
-            {
-                bool paused = miner->pauseTest(MinerPauseEnum::PauseDueToOverHeating);
-                if (!paused && (tempC >= m_Settings.tempStop))
-                    miner->pause(MinerPauseEnum::PauseDueToOverHeating);
-                if (paused && (tempC <= m_Settings.tempStart))
-                    miner->resume(MinerPauseEnum::PauseDueToOverHeating);
-            }
+            miner->updateTemperaturePause(
+                temperatureRead, tempC, m_Settings.tempStart, m_Settings.tempStop);
 
             m_telemetry.miners.at(minerIdx).sensors.tempC = tempC;
             m_telemetry.miners.at(minerIdx).sensors.fanP = fanpcnt;
