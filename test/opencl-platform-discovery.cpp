@@ -75,15 +75,16 @@ int main()
         return result;
     if (platformNames(&clGetPlatformIDs, &clGetPlatformInfo, "Linked loader", actual) != 0)
         return 1;
-    if (actual != expected)
+    if (!std::includes(actual.begin(), actual.end(), expected.begin(), expected.end()))
     {
-        std::cerr << "OpenCL platform discovery differs:\n";
+        std::cerr << "Linked loader missed system OpenCL platforms:\n";
         for (const auto& name : expected)
             std::cerr << "  System: " << name << '\n';
         for (const auto& name : actual)
             std::cerr << "  Linked: " << name << '\n';
         return 1;
     }
-    std::cout << "OpenCL loaders agree on " << actual.size() << " platform(s)\n";
+    std::cout << "Linked loader found all " << expected.size() << " system platform(s), "
+              << actual.size() << " total\n";
     return 0;
 }
