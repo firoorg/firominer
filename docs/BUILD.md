@@ -5,7 +5,6 @@
 * [Requirements](#requirements)
     * [Common](#common)
     * [Linux](#linux)
-        * [OpenCL support on Linux](#opencl-support-on-linux)
     * [macOS](#macos)
     * [Windows](#windows)
 * [CMake configuration options](#cmake-configuration-options)
@@ -20,7 +19,7 @@ This project uses [CMake] and [Hunter] package manager.
 
 ### Common
 
-1. [CMake] >= 3.10
+1. [CMake] >= 3.16 for managed OpenCL builds on Linux and Windows (the default configuration); >= 3.10 when OpenCL is disabled or uses the system library (macOS or `-DHUNTER_ENABLED=OFF`).
 2. [Git](https://git-scm.com/downloads)
 3. [Perl](https://www.perl.org/get.html), needed to build OpenSSL
 4. [CUDA Toolkit 12.9 Update 2](https://developer.nvidia.com/cuda-12-9-2-download-archive) (required when `ETHASHCUDA` is enabled, as it is by default; pass `-DETHASHCUDA=OFF` to build without NVIDIA CUDA support)
@@ -32,15 +31,6 @@ This project uses [CMake] and [Hunter] package manager.
 
 ```shell
 sudo apt install libdbus-1-dev
-```
-
-#### OpenCL support on Linux
-
-If you're planning to use [OpenCL on Linux](https://github.com/ruslo/hunter/wiki/pkg.opencl#pitfalls)
-you have to install the OpenGL libraries. E.g. on Ubuntu run:
-
-```shell
-sudo apt-get install mesa-common-dev libglu1-mesa-dev freeglut3-dev
 ```
 
 ### macOS

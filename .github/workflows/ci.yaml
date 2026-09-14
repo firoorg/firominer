@@ -81,8 +81,7 @@ jobs:
         run: |
           apt-get update
           apt-get install --yes --no-install-recommends \
-            build-essential ca-certificates cmake git ninja-build perl python3 \
-            mesa-common-dev libglu1-mesa-dev freeglut3-dev
+            build-essential ca-certificates cmake git ninja-build perl python3
 
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
