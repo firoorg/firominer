@@ -62,12 +62,12 @@ jobs:
     name: Linux (${{ matrix.package }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    container: nvidia/cuda:11.8.0-devel-ubuntu22.04@sha256:94fd755736cb58979173d491504f0b573247b1745250249415b07fefc738e41f
+    container: nvidia/cuda:12.9.2-devel-ubuntu22.04@sha256:e0203e3a0d3d02b05f4210867b973b7f48997c71bc99b994f2bd350ee60f77a1
     strategy:
       fail-fast: false
       matrix:
         include:
-          - package: cuda11.8-opencl
+          - package: cuda12.9-opencl
             cuda: 'ON'
             tests: 'OFF'
           - package: opencl
@@ -132,15 +132,15 @@ jobs:
             cp -a /usr/local/cuda/lib64/libnvrtc.so* \
               /usr/local/cuda/lib64/libnvrtc-builtins.so* \
               /usr/local/cuda/lib64/libcudart.so* stage/lib/
-            test -e stage/lib/libnvrtc.so.11.2
-            test -e stage/lib/libnvrtc-builtins.so.11.8
+            test -e stage/lib/libnvrtc.so.12
+            test -e stage/lib/libnvrtc-builtins.so.12.9
           fi
           printf '%s\n' \
             "Source: https://github.com/$GITHUB_REPOSITORY/tree/$(git rev-parse HEAD)" \
             "Source commit: ${{ github.event.pull_request.head.sha || github.sha }}" \
             "Build: Release; CUDA=${{ matrix.cuda }}; OpenCL=ON; CPU=ON; API=ON; DBUS=OFF" \
             "Host optimization: -O3; C/C++ IPO/LTO; generic x86-64" \
-            "Platform: Linux x86-64, Ubuntu 22.04, CUDA toolkit 11.8" \
+            "Platform: Linux x86-64, Ubuntu 22.04, CUDA toolkit 12.9.2" \
             "CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             > stage/BUILD-INFO.txt
           (cd stage && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
@@ -205,16 +205,16 @@ jobs:
       - name: Install CUDA
         shell: pwsh
         run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'cuda-11.8.exe'
-          Invoke-WebRequest https://developer.download.nvidia.com/compute/cuda/11.8.0/network_installers/cuda_11.8.0_windows_network.exe -OutFile $installer
-          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne '8A19C2BFE33ECABCFCD9D776FABC8D1596FC1BF3A2565243C30BADCA3A4BDE5B') {
+          $installer = Join-Path $env:RUNNER_TEMP 'cuda-12.9.2.exe'
+          Invoke-WebRequest https://developer.download.nvidia.com/compute/cuda/12.9.2/network_installers/cuda_12.9.2_windows_x86_64_network.exe -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne 'DD7B10659DD38C4551E8E0A5EAEB607E9B642DD01F803C45F561D4D18B04D88C') {
             throw 'CUDA installer checksum mismatch'
           }
-          $process = Start-Process $installer -ArgumentList '-s','-n','nvcc_11.8','cudart_11.8','nvrtc_11.8','nvrtc_dev_11.8' -Wait -PassThru
+          $process = Start-Process $installer -ArgumentList '-s','-n','nvcc_12.9','cudart_12.9','nvrtc_12.9','nvrtc_dev_12.9' -Wait -PassThru
           if ($process.ExitCode -notin 0, 3010) {
             throw "CUDA installer failed with exit code $($process.ExitCode)"
           }
-          $cuda = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8'
+          $cuda = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9'
           if (!(Test-Path "$cuda\bin\nvcc.exe")) { throw 'nvcc missing after CUDA installation' }
           '@call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" %* -vcvars_ver=14.29' |
             Set-Content "$env:RUNNER_TEMP\vcvars142.bat" -Encoding ascii
@@ -237,7 +237,7 @@ jobs:
             -DHUNTER_JOBS_NUMBER=2 ^
             -DHUNTER_MSVC_VCVARSALL:FILEPATH="%RUNNER_TEMP%\vcvars142.bat" ^
             -DCUDA_USE_STATIC_CUDA_RUNTIME=OFF ^
-            -DCUDA_TOOLKIT_ROOT_DIR="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8" || exit /b 1
+            -DCUDA_TOOLKIT_ROOT_DIR="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9" || exit /b 1
           cmake -S . -B build-opencl -G "Visual Studio 17 2022" -A x64 -T v142 ^
             -DBUILD_TESTING=ON ^
             -DAPICORE=ON ^
@@ -251,7 +251,7 @@ jobs:
       - name: Build
         shell: cmd
         run: |
-          rem CUDA 11.8 and its dependencies must use the same v142 environment.
+          rem CUDA 12.9 and its dependencies must use the same v142 environment.
           call "%RUNNER_TEMP%\vcvars142.bat" amd64 || exit /b 1
           cmake --build build --config Release --target firominer --parallel 2 || exit /b 1
           cmake --build build-opencl --config Release --parallel 2 || exit /b 1
@@ -266,7 +266,7 @@ jobs:
           cmake --install build --config Release --prefix stage-cuda-opencl
           cmake --install build-opencl --config Release --prefix stage-opencl
           Copy-Item "$env:CUDA_PATH\bin\cudart64_*.dll" stage-cuda-opencl\bin -ErrorAction Stop
-          Copy-Item "$env:CUDA_PATH\bin\nvrtc*.dll" stage-cuda-opencl\bin -ErrorAction Stop
+          Copy-Item "$env:CUDA_PATH\bin\nvrtc64_120_0.dll", "$env:CUDA_PATH\bin\nvrtc-builtins64_129.dll" stage-cuda-opencl\bin -ErrorAction Stop
           foreach ($variant in @('cuda-opencl', 'opencl')) {
             $stage = "stage-$variant"
             Copy-Item LICENSE, README.md $stage
@@ -280,7 +280,7 @@ jobs:
               "Source: https://github.com/$env:GITHUB_REPOSITORY/tree/$(git rev-parse HEAD)"
               "Source commit: ${{ github.event.pull_request.head.sha || github.sha }}"
               "Build: Release; CUDA=$cuda; OpenCL=ON; CPU=ON; API=ON; DBUS=OFF"
-              'Platform: Windows x86-64, v142 toolset, CUDA toolkit 11.8'
+              'Platform: Windows x86-64, v142 toolset, CUDA toolkit 12.9.2'
               "CI: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
             ) | Set-Content "$stage/BUILD-INFO.txt" -Encoding utf8
             Push-Location $stage
@@ -290,7 +290,7 @@ jobs:
             } | Set-Content SHA256SUMS -Encoding utf8
             Pop-Location
           }
-          7z a -tzip -mx=9 -mtc=off -mta=off -mtm=off firominer-windows-x86_64-cuda11.8-opencl.zip .\stage-cuda-opencl\*
+          7z a -tzip -mx=9 -mtc=off -mta=off -mtm=off firominer-windows-x86_64-cuda12.9-opencl.zip .\stage-cuda-opencl\*
           7z a -tzip -mx=9 -mtc=off -mta=off -mtm=off firominer-windows-x86_64-opencl.zip .\stage-opencl\*
           Get-ChildItem firominer-windows-*.zip | ForEach-Object {
             "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
@@ -322,7 +322,7 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          path: firominer-windows-x86_64-cuda11.8-opencl.zip
+          path: firominer-windows-x86_64-cuda12.9-opencl.zip
           if-no-files-found: error
           archive: false
 
@@ -395,11 +395,11 @@ jobs:
         run: |
           set -euo pipefail
           assets=(
-            firominer-linux-x86_64-cuda11.8-opencl.tar.gz
-            firominer-linux-x86_64-cuda11.8-opencl.tar.gz.sha256
+            firominer-linux-x86_64-cuda12.9-opencl.tar.gz
+            firominer-linux-x86_64-cuda12.9-opencl.tar.gz.sha256
             firominer-linux-x86_64-opencl.tar.gz
             firominer-linux-x86_64-opencl.tar.gz.sha256
-            firominer-windows-x86_64-cuda11.8-opencl.zip
+            firominer-windows-x86_64-cuda12.9-opencl.zip
             firominer-windows-x86_64-opencl.zip
             SHA256SUMS-windows.txt
           )
@@ -407,7 +407,7 @@ jobs:
             test -f "$asset"
           done
           test "$(find . -maxdepth 1 -type f | wc -l)" -eq "${#assets[@]}"
-          sha256sum --check firominer-linux-x86_64-cuda11.8-opencl.tar.gz.sha256
+          sha256sum --check firominer-linux-x86_64-cuda12.9-opencl.tar.gz.sha256
           sha256sum --check firominer-linux-x86_64-opencl.tar.gz.sha256
           sed -i 's/\r$//' SHA256SUMS-windows.txt
           sha256sum --check SHA256SUMS-windows.txt
@@ -420,11 +420,11 @@ jobs:
         run: |
           set -euo pipefail
           assets=(
-            firominer-linux-x86_64-cuda11.8-opencl.tar.gz
-            firominer-linux-x86_64-cuda11.8-opencl.tar.gz.sha256
+            firominer-linux-x86_64-cuda12.9-opencl.tar.gz
+            firominer-linux-x86_64-cuda12.9-opencl.tar.gz.sha256
             firominer-linux-x86_64-opencl.tar.gz
             firominer-linux-x86_64-opencl.tar.gz.sha256
-            firominer-windows-x86_64-cuda11.8-opencl.zip
+            firominer-windows-x86_64-cuda12.9-opencl.zip
             firominer-windows-x86_64-opencl.zip
             SHA256SUMS-windows.txt
           )

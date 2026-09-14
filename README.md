@@ -44,8 +44,13 @@ Linux x86-64 and Windows x64 packages in two variants:
 
 | Package | Required driver | Backends |
 | --- | --- | --- |
-| `cuda11.8-opencl` | NVIDIA driver | CUDA, OpenCL, CPU diagnostics |
+| `cuda12.9-opencl` | NVIDIA 575.57.08+ (Linux) or 576.57+ (Windows); legacy GPU limits below | CUDA, OpenCL, CPU diagnostics |
 | `opencl` | Vendor OpenCL driver for GPU mining | OpenCL, CPU diagnostics |
+
+The CUDA package uses CUDA 12.9 Update 2 and supports Maxwell or newer NVIDIA
+GPUs. Maxwell, Pascal, and Volta require an R575 or R580 driver; later driver
+branches no longer support them. The package needs the CUDA 12.9 driver floor
+because FiroPoW kernels are compiled to PTX at runtime.
 
 Both variants include the API and Python desktop launcher. Keep the extracted
 directory intact: the executable in `bin/` needs its companion libraries.
@@ -193,7 +198,7 @@ Very low-difficulty development networks use small GPU batches and may be limite
 
 ### Continuous Integration and development builds
 
-GitHub Actions runs core tests normally and under AddressSanitizer/UndefinedBehaviorSanitizer and ThreadSanitizer. Release builds for Linux and Windows each provide CUDA 11.8 + OpenCL and OpenCL-only packages. All include the API server and CPU diagnostics, selected explicitly with `--cpu`; normal runs still select GPUs. The OpenCL-only builds also run the core tests and smoke-test the packaged executable.
+GitHub Actions runs core tests normally and under AddressSanitizer/UndefinedBehaviorSanitizer and ThreadSanitizer. Release builds for Linux and Windows each provide CUDA 12.9 Update 2 + OpenCL and OpenCL-only packages. All include the API server and CPU diagnostics, selected explicitly with `--cpu`; normal runs still select GPUs. The OpenCL-only builds also run the core tests and smoke-test the packaged executable.
 
 Packages include runtime libraries, documentation, source/build identification, and checksums. They require a compatible GPU driver; the CUDA package requires an NVIDIA driver even when selecting another backend. Linux packages target Ubuntu 22.04 or newer compatible x86-64 systems, and Windows packages target Windows 10/11 x64. See [Testing PR artifacts](docs/TESTING.md) for setup and a functional test guide.
 
@@ -223,7 +228,7 @@ cmake --install build --prefix "$PWD/stage"
 ```
 
 The installed miner is `stage/bin/firominer`. For CUDA support, install CUDA
-Toolkit 11.8 (the version used by CI), set `-DETHASHCUDA=ON`, and pass
+Toolkit 12.9 Update 2 (the version used by CI), set `-DETHASHCUDA=ON`, and pass
 `-DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda` if needed. A local installation does
 not bundle CUDA libraries automatically; the CI packaging steps add them.
 
@@ -242,8 +247,8 @@ cmake --install build --config Release --prefix stage
 ```
 
 The installed miner is `stage\bin\firominer.exe`. For CUDA support, install
-CUDA Toolkit 11.8 and configure with `-DETHASHCUDA=ON` and
-`-DCUDA_TOOLKIT_ROOT_DIR="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8"`.
+CUDA Toolkit 12.9 Update 2 and configure with `-DETHASHCUDA=ON` and
+`-DCUDA_TOOLKIT_ROOT_DIR="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9"`.
 CI uses VS 2022 with the v142 toolset and explicitly sets Hunter's compiler
 environment to match. See the Windows configure steps in
 [the CI workflow](.github/workflows/ci.yaml) when using that setup.
