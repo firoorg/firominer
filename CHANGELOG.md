@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 1.4.0
+
+### Added
+
+- Editable `mine_firo.bat` launcher in Windows packages and new Firo miner artwork.
+- Packaged dependency versions and licenses for easier release auditing.
+
+### Changed
+
+- Updated managed dependencies to OpenSSL 3.5.8 LTS, Boost 1.92.0, JsonCpp 1.9.7, CLI11 2.6.2, and Khronos OpenCL components v2026.05.29.
+- Recognized AMD and NVIDIA OpenCL GPUs by vendor ID across additional runtimes, with consistent PCI domain and function handling across CUDA and OpenCL.
+- Released temporary GPU light caches after DAG generation, removed duplicate simulation verification, and reduced CUDA digest-reduction work.
+- Required CMake 3.18 or newer and recorded resolved dependency versions in release packages.
+
+### Fixed
+
+- Allowed the managed Windows OpenCL loader to discover platforms exposed by current AMD and NVIDIA drivers.
+- Kept overheated miners paused when temperature reads fail.
+- Avoided duplicate CUDA and OpenCL subscriptions for unmatched NVIDIA devices in automatic mixed mode.
+- Stopped processing buffered Stratum responses after a fatal response and reaped completed asynchronous scripts on Linux.
+- Forwarded the selected MSVC runtime to legacy CUDA builds.
+
+### Removed
+
+- Redundant standalone Windows checksum asset; the combined `SHA256SUMS.txt` still covers every release archive.
+- Obsolete OpenGL build prerequisites and the vendored legacy OpenCL C++ header.
+
 ## 1.3.0
 
 ### Added

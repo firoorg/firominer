@@ -1,12 +1,16 @@
-Firominer v1.3.0 updates CUDA packages to CUDA 12.9 Update 2, enables OpenCL helper inlining by default, and removes the desktop launcher. Start the miner from a terminal; Python and Tk are no longer required to run it.
+Firominer v1.4.0 updates the supported dependency stack, improves GPU discovery across modern OpenCL runtimes, and reduces miner memory and verification overhead. It also fixes thermal pause handling, fatal Stratum response handling, and duplicate CUDA/OpenCL selection on NVIDIA systems.
 
 ### Changes
 
-- OpenCL automatically retries the legacy mix kernel if compilation fails. Use `--cl-no-inline` for driver compatibility. The existing `--cl-experimental-inline` flag remains accepted.
-- Added experimental `--cl-subgroup` DAG-offset broadcasts for compatible AMD GPUs. This option remains off by default, with portable fallbacks for unsupported devices, incompatible subgroup layouts, and compilation failures.
-- Linux packages now use C/C++ link-time optimization while retaining a generic x86-64 CPU baseline.
-- Fixed Windows release archive downloads and OpenCL source embedding for MSVC builds.
-- Added `SHA256SUMS.txt` covering all four Linux and Windows download archives. The existing Linux `.sha256` files, Windows checksum manifest, and checksums inside each package remain available.
+- Updated managed packages to OpenSSL 3.5.8 LTS, Boost 1.92.0, JsonCpp 1.9.7, CLI11 2.6.2, and Khronos OpenCL components v2026.05.29. Release packages include resolved dependency versions and licenses.
+- Replaced the old managed OpenCL loader so current Windows AMD and NVIDIA drivers can expose all installed platforms.
+- Recognized AMD and NVIDIA GPUs by vendor ID on additional OpenCL runtimes, including Mesa Rusticl. PCI domains and functions are preserved when the runtime reports them.
+- Prevented automatic mixed mode from starting separate CUDA and OpenCL miners for an NVIDIA GPU that cannot be matched safely. Use `-G` to select OpenCL explicitly in that case.
+- Released temporary CUDA and OpenCL light caches after DAG generation, avoided duplicate simulation solution verification, and reduced CUDA digest-reduction operations. These changes do not establish an end-to-end hashrate gain.
+- Kept thermal pauses unchanged when a temperature read fails, stopped buffered Stratum processing after fatal responses, and reaped completed asynchronous scripts on Linux.
+- Added an editable `bin/mine_firo.bat` launcher to Windows packages and refreshed the miner artwork.
+- Raised the minimum CMake version to 3.18 and removed obsolete OpenGL build prerequisites.
+- Removed the redundant `SHA256SUMS-windows.txt` release asset. The combined `SHA256SUMS.txt` covers all four downloadable archives, and every package retains its internal manifest.
 
 ### Downloads and compatibility
 
@@ -19,12 +23,12 @@ Packages target compatible Ubuntu 22.04 or newer x86-64 systems and Windows 10/1
 
 Maxwell, Pascal, and Volta NVIDIA GPUs remain supported with an appropriate R575 or R580 driver. R580 is the final driver branch supporting these architectures. CUDA packages require the driver versions above because FiroPoW kernels compile to PTX at runtime.
 
-Launch `./bin/firominer` on Linux or `.\bin\firominer.exe` in Windows PowerShell. Select `-U` for CUDA or `-G` for OpenCL. See the included `docs/TESTING.md` for checksum verification, device selection, and pool or solo mining examples.
+Launch `./bin/firominer` on Linux or `.\bin\firominer.exe` in Windows PowerShell. Windows packages also include `bin\mine_firo.bat`, which can be edited with pool and wallet details. Select `-U` for CUDA or `-G` for OpenCL. See the included `docs/TESTING.md` for checksum verification, device selection, and pool or solo mining examples.
 
 ### Validation
 
-Publication is gated on core tests, AddressSanitizer/UndefinedBehaviorSanitizer, ThreadSanitizer, Linux and Windows package builds, package smoke tests, and checksum verification. Offline OpenCL checks cover four kernel variants across three periods and three workgroup sizes.
+Publication is gated on core tests, AddressSanitizer/UndefinedBehaviorSanitizer, ThreadSanitizer, Linux CUDA/OpenCL package builds, Windows CUDA/OpenCL package builds, package smoke tests, and checksum verification. The release workflow also verifies that the tag matches the source version and is on main.
 
-Physical GPU execution, accepted pool shares, and hashrate improvements have not been validated for this release. Keep host solution verification enabled. Automatic kernel fallback handles compilation failures; it cannot detect a driver that compiles an incorrect kernel.
+Development validation covered Windows discovery of an RTX 4090 and AMD gfx1036, CUDA/OpenCL PCI identity normalization, managed and system OpenCL builds, and CPU-verified CUDA kernel results. The exact release binaries have not been exercised on physical GPUs or a live pool, and no end-to-end hashrate improvement is claimed. Keep host solution verification enabled.
 
-[Full changes since v1.2.0](https://github.com/firoorg/firominer/compare/v1.2.0...v1.3.0). Includes [#15](https://github.com/firoorg/firominer/pull/15), [#16](https://github.com/firoorg/firominer/pull/16), and [#17](https://github.com/firoorg/firominer/pull/17).
+[Full changes since v1.3.0](https://github.com/firoorg/firominer/compare/v1.3.0...v1.4.0). Includes [#18](https://github.com/firoorg/firominer/pull/18), [#19](https://github.com/firoorg/firominer/pull/19), [#20](https://github.com/firoorg/firominer/pull/20), [#21](https://github.com/firoorg/firominer/pull/21), [#22](https://github.com/firoorg/firominer/pull/22), [#23](https://github.com/firoorg/firominer/pull/23), [#24](https://github.com/firoorg/firominer/pull/24), and [#25](https://github.com/firoorg/firominer/pull/25).
