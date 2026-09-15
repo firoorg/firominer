@@ -217,8 +217,7 @@ inline bool shouldAutoSubscribeOpenCL(
     DeviceDescriptor const& device, MinerType minerType, bool cudaSubscribed)
 {
     return device.clDetected && device.subscriptionType == DeviceSubscriptionTypeEnum::None &&
-           (minerType != MinerType::Mixed || !cudaSubscribed || device.clVendorId != 0x10de ||
-               device.uniqueId.compare(0, 3, "CL:") != 0);
+           (minerType != MinerType::Mixed || !cudaSubscribed || device.clVendorId != 0x10de);
 }
 
 struct HwMonitorInfo

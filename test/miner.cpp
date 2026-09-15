@@ -71,13 +71,13 @@ int main()
     fallbackNvidia.uniqueId = "CL:0:0";
     DeviceDescriptor fallbackAmd = fallbackNvidia;
     fallbackAmd.clVendorId = 0x1002;
-    DeviceDescriptor pciNvidia = fallbackNvidia;
-    pciNvidia.uniqueId = "01:00.0";
+    DeviceDescriptor unmatchedPciNvidia = fallbackNvidia;
+    unmatchedPciNvidia.uniqueId = "81:02.0";
     if (shouldAutoSubscribeOpenCL(fallbackNvidia, MinerType::Mixed, true) ||
         !shouldAutoSubscribeOpenCL(fallbackNvidia, MinerType::CL, false) ||
         !shouldAutoSubscribeOpenCL(fallbackNvidia, MinerType::Mixed, false) ||
         !shouldAutoSubscribeOpenCL(fallbackAmd, MinerType::Mixed, true) ||
-        !shouldAutoSubscribeOpenCL(pciNvidia, MinerType::Mixed, true))
+        shouldAutoSubscribeOpenCL(unmatchedPciNvidia, MinerType::Mixed, true))
     {
         std::cerr << "automatic OpenCL selection did not preserve the CUDA preference\n";
         return 1;

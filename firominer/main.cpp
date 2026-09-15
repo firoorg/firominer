@@ -708,7 +708,7 @@ public:
                 {
                     if (it->second.clDetected &&
                         it->second.subscriptionType == DeviceSubscriptionTypeEnum::None)
-                        cwarn << "Skipping PCI-unmatched NVIDIA OpenCL device " << it->second.name
+                        cwarn << "Skipping unmatched NVIDIA OpenCL device " << it->second.name
                               << " in mixed mode; use -G to select OpenCL";
                     continue;
                 }
