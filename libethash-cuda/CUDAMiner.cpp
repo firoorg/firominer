@@ -22,6 +22,7 @@ along with firominer.  If not, see <http://www.gnu.org/licenses/>.
 #include <nvrtc.h>
 
 #include <libethcore/Farm.h>
+#include <libdevcore/PciId.h>
 #include <libcrypto/ethash.hpp>
 #include <libcrypto/progpow.hpp>
 
@@ -419,7 +420,6 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
     for (int i = 0; i < numDevices; i++)
     {
         string uniqueId;
-        ostringstream s;
         DeviceDescriptor deviceDescriptor;
         cudaDeviceProp props;
 
@@ -427,8 +427,11 @@ void CUDAMiner::enumDevices(std::map<string, DeviceDescriptor>& _DevicesCollecti
         {
             CUDA_SAFE_CALL(cudaGetDeviceProperties(&props, i));
             CUDA_SAFE_CALL(cudaSetDevice(i));
-            s << setw(2) << setfill('0') << hex << props.pciBusID << ":" << setw(2) << props.pciDeviceID << ".0";
-            uniqueId = s.str();
+            char pciBusId[32]{};
+            CUDA_SAFE_CALL(cudaDeviceGetPCIBusId(pciBusId, sizeof(pciBusId), i));
+            uniqueId = pciId(pciBusId);
+            if (uniqueId.empty())
+                throw cuda_runtime_error("Invalid CUDA PCI bus ID");
 
             if (_DevicesCollection.find(uniqueId) != _DevicesCollection.end())
                 deviceDescriptor = _DevicesCollection[uniqueId];

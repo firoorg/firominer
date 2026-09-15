@@ -25,7 +25,7 @@ if(BUILD_TESTING AND FIROMINER_PYTHON3 AND FIROMINER_PYTHON_VERSION_CHECK EQUAL 
 endif()
 
 set(SOURCES
-	CLMiner.h CLMiner.cpp
+	CLMiner.h CLMiner.cpp CLDevice.h
 	${CMAKE_CURRENT_BINARY_DIR}/CLMiner_kernel.h
 )
 
@@ -38,6 +38,17 @@ add_library(ethash-cl ${SOURCES})
 target_link_libraries(ethash-cl PUBLIC ethcore crypto)
 target_link_libraries(ethash-cl PUBLIC OpenCL::OpenCL OpenCL::HeadersCpp)
 target_link_libraries(ethash-cl PRIVATE Boost::filesystem Threads::Threads)
+
+if(BUILD_TESTING)
+	add_executable(opencl-device-discovery-test ../test/opencl-device-discovery.cpp)
+	if(TARGET OpenCL::Headers)
+		target_link_libraries(opencl-device-discovery-test PRIVATE OpenCL::Headers)
+	else()
+		target_include_directories(opencl-device-discovery-test PRIVATE
+			$<TARGET_PROPERTY:OpenCL::OpenCL,INTERFACE_INCLUDE_DIRECTORIES>)
+	endif()
+	add_test(NAME opencl-device-discovery COMMAND opencl-device-discovery-test)
+endif()
 
 if(WIN32 AND BUILD_TESTING)
 	add_executable(opencl-platform-discovery-test ../test/opencl-platform-discovery.cpp)

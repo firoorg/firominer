@@ -65,6 +65,24 @@ int main()
         return 1;
     }
 
+    DeviceDescriptor fallbackNvidia{};
+    fallbackNvidia.clDetected = true;
+    fallbackNvidia.clVendorId = 0x10de;
+    fallbackNvidia.uniqueId = "CL:0:0";
+    DeviceDescriptor fallbackAmd = fallbackNvidia;
+    fallbackAmd.clVendorId = 0x1002;
+    DeviceDescriptor unmatchedPciNvidia = fallbackNvidia;
+    unmatchedPciNvidia.uniqueId = "81:02.0";
+    if (shouldAutoSubscribeOpenCL(fallbackNvidia, MinerType::Mixed, true) ||
+        !shouldAutoSubscribeOpenCL(fallbackNvidia, MinerType::CL, false) ||
+        !shouldAutoSubscribeOpenCL(fallbackNvidia, MinerType::Mixed, false) ||
+        !shouldAutoSubscribeOpenCL(fallbackAmd, MinerType::Mixed, true) ||
+        shouldAutoSubscribeOpenCL(unmatchedPciNvidia, MinerType::Mixed, true))
+    {
+        std::cerr << "automatic OpenCL selection did not preserve the CUDA preference\n";
+        return 1;
+    }
+
     // Batch sizes must remain usable at devnet/regtest difficulty, and every
     // stream's launch must fit wholly inside its assigned nonce segment.
     for (uint32_t group : {32u, 64u, 128u, 256u, 512u})
