@@ -6,3 +6,4 @@
 *.sh text eol=lf
 # Unified patches preserve whitespace in their source context.
 *.patch text eol=lf whitespace=-blank-at-eol
+*.bat text eol=crlf

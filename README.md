@@ -85,6 +85,10 @@ Windows PowerShell:
 .\bin\firominer.exe -P "stratum+tcp://WALLET.WORKER:PASSWORD@firo.cedric-crispin.com:4064"
 ```
 
+Windows packages also include `bin/mine_firo.bat`. Right-click it and choose
+**Edit**, replace `WALLET`, `WORKER` and `PASSWORD`, then save and double-click
+the file to start mining. The commented example shows the expected format.
+
 Follow the pool's login requirements. URL-encode reserved characters in login
 values. Repeat `-P` with additional pool URLs to configure failover in order;
 `-P exit` ends the cycle when reached. Use `--help-ext con` for connection schemes
