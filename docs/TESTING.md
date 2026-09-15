@@ -111,15 +111,17 @@ benchmark. For performance comparisons, allow warmup and sample the same fixed
 jobs/periods with a suitable GPU profiling setup, or compare repeated realistic
 pool runs while recording the changing jobs and targets.
 
-## Optional OpenCL subgroup exchanges
+## OpenCL subgroup exchanges
 
-`--cl-subgroup` enables an experimental DAG-offset exchange path only on detected
-AMD GPUs advertising `cl_khr_subgroups`. The option defaults to off and works with
-both inline and legacy mix storage. If the device also advertises
-`cl_khr_subgroup_shuffle`, it uses one indexed shuffle instead of broadcasting
-separately for each 16-lane slice. It builds with OpenCL C 2.0; a shuffle build
-failure retries the existing subgroup broadcasts. A subsequent build failure
-disables subgroup exchanges for that miner and retries the portable variant.
+Subgroup DAG-offset exchanges are enabled by default only on detected AMD GPUs
+advertising `cl_khr_subgroups`, with both inline and legacy mix storage. Use
+`--cl-no-subgroup` to select portable exchanges or `--cl-subgroup` to re-enable
+subgroups. If both flags are supplied, the last one takes precedence. If the
+device also advertises `cl_khr_subgroup_shuffle`, it uses one indexed shuffle
+instead of broadcasting separately for each 16-lane slice. It builds with OpenCL
+C 2.0; a shuffle build failure retries the existing subgroup broadcasts. A
+subsequent build failure disables subgroup exchanges for that miner and retries
+the portable variant.
 Other vendors keep portable broadcasts until they have been validated.
 
 The kernel checks that each logical 16-lane hash fits in a contiguous subgroup
@@ -130,7 +132,7 @@ barriers. A successful subgroup build logs
 `(subgroup shuffles with lane-layout fallback)`; neither message establishes
 that the runtime layout passed the check or that hashrate improved.
 
-Compare runs with and without `--cl-subgroup` at the same periods and work sizes,
+Compare default runs against `--cl-no-subgroup` at the same periods and work sizes,
 leaving host verification enabled. Check all returned mix digests against the CPU
 reference, target selection, period transitions, and rejected/invalid shares
 before comparing sustained hashrate. Include both mix variants, local sizes

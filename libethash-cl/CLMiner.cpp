@@ -722,7 +722,7 @@ bool CLMiner::initDevice()
 
     m_device = devices.at(m_deviceDescriptor.clDeviceOrdinal);
 
-    // Keep this opt-in optimization limited to AMD until other vendors are validated.
+    // Keep subgroup exchanges limited to AMD until other vendors are validated.
     const std::string extensions = " " + m_device.getInfo<CL_DEVICE_EXTENSIONS>() + " ";
     m_useSubgroups = m_settings.subgroup &&
         (m_device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_GPU) &&
