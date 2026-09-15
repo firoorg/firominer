@@ -728,6 +728,8 @@ bool CLMiner::initDevice()
         (m_device.getInfo<CL_DEVICE_TYPE>() & CL_DEVICE_TYPE_GPU) &&
         m_device.getInfo<CL_DEVICE_VENDOR_ID>() == 0x1002 &&
         extensions.find(" cl_khr_subgroups ") != std::string::npos;
+    m_useSubgroupShuffle = m_useSubgroups &&
+        extensions.find(" cl_khr_subgroup_shuffle ") != std::string::npos;
     if (m_settings.subgroup && !m_useSubgroups)
         cllog << "Subgroup DAG-offset broadcasts unavailable for this device; using portable broadcasts";
 
@@ -935,6 +937,7 @@ bool CLMiner::compileKernel(uint64_t period_seed,
     addDefinition(code, "GROUP_SIZE", m_settings.localWorkSize);
     addDefinition(code, "FIROPOW_CL_INLINE_MIX", m_settings.inlineMix);
     addDefinition(code, "FIROPOW_CL_SUBGROUP", m_useSubgroups);
+    addDefinition(code, "FIROPOW_CL_SUBGROUP_SHUFFLE", m_useSubgroupShuffle);
     addDefinition(code, "ACCESSES", 64);
     addDefinition(code, "LIGHT_WORDS", epochContext->light_cache_num_items);
     addDefinition(code, "DAG_NODES", epochContext->full_dataset_num_items * 2);
@@ -996,6 +999,12 @@ bool CLMiner::compileKernel(uint64_t period_seed,
     {
         cwarn << "OpenCL kernel build log:\n" << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(m_device);
         cwarn << "OpenCL kernel build error (" << buildErr.err() << "):\n" << buildErr.what();
+        if (m_useSubgroupShuffle)
+        {
+            cwarn << "Disabling subgroup shuffles and retrying subgroup broadcasts";
+            m_useSubgroupShuffle = false;
+            return compileKernel(period_seed, epochContext, program, searchKernel);
+        }
         if (m_useSubgroups)
         {
             cwarn << "Disabling subgroup DAG-offset broadcasts and retrying the portable kernel";
@@ -1016,6 +1025,7 @@ bool CLMiner::compileKernel(uint64_t period_seed,
     searchKernel.setArg(5, 0);
 
     cllog << "Pre-compiled period " << period_seed << " OpenCL ProgPow kernel"
-          << (m_useSubgroups ? " (subgroup broadcasts with lane-layout fallback)" : "");
+          << (m_useSubgroupShuffle ? " (subgroup shuffles with lane-layout fallback)" :
+                  m_useSubgroups ? " (subgroup broadcasts with lane-layout fallback)" : "");
     return true;
 }

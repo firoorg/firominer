@@ -931,7 +931,7 @@ public:
                  << "    --cl-local-work     UINT {64,128,256} Default = " << m_CLSettings.localWorkSize << endl
                  << "                        Set the local work size multiplier" << endl
                  << "    --cl-subgroup       Default = off" << endl
-                 << "                        Try subgroup DAG-offset broadcasts on AMD GPUs" << endl
+                 << "                        Try subgroup DAG-offset exchanges on AMD GPUs" << endl
                  << "                        with cl_khr_subgroups and OpenCL C 2.0 support." << endl
                  << "                        Other devices use the portable kernel." << endl
                  << "    --cl-no-inline      Default = off" << endl

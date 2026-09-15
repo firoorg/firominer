@@ -180,6 +180,9 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "#endif\n";
         ret << "#if FIROPOW_CL_SUBGROUP\n";
         ret << "#pragma OPENCL EXTENSION cl_khr_subgroups : enable\n";
+        ret << "#if FIROPOW_CL_SUBGROUP_SHUFFLE\n";
+        ret << "#pragma OPENCL EXTENSION cl_khr_subgroup_shuffle : enable\n";
+        ret << "#endif\n";
         ret << "#endif\n";
         ret << "\n";
         ret << "typedef unsigned int       uint32_t;\n";
@@ -262,6 +265,11 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "#if FIROPOW_CL_SUBGROUP\n";
         ret << "if (use_subgroup)\n";
         ret << "{\n";
+        ret << "#if FIROPOW_CL_SUBGROUP_SHUFFLE\n";
+        ret << "    // Each logical hash selects a source in its own 16-lane slice.\n";
+        ret << "    const uint32_t base = get_sub_group_local_id() & ~(PROGPOW_LANES - 1u);\n";
+        ret << "    offset = sub_group_shuffle(mix[0], base + loop % PROGPOW_LANES);\n";
+        ret << "#else\n";
         ret << "    // Broadcast sources must be uniform across the entire subgroup.\n";
         ret << "    for (uint32_t base = 0; base < get_sub_group_size(); base += PROGPOW_LANES)\n";
         ret << "    {\n";
@@ -269,6 +277,7 @@ std::string getKern(uint64_t prog_seed, kernel_type kern)
         ret << "        if (get_sub_group_local_id() / PROGPOW_LANES == base / PROGPOW_LANES)\n";
         ret << "            offset = value;\n";
         ret << "    }\n";
+        ret << "#endif\n";
         ret << "}\n";
         ret << "else\n";
         ret << "#endif\n";
