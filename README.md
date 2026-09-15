@@ -111,6 +111,10 @@ without hardware monitoring; detection does not establish mining correctness on
 every GPU/driver combination. If PCI information is unavailable, devices receive
 distinct `CL:platform:device` IDs. In that case, select `-G` or `-U` explicitly on
 NVIDIA systems because automatic matching between backends is unavailable.
+On systems with multiple PCI domains, OpenCL runtimes must expose
+`cl_khr_pci_bus_info` for reliable device matching. Legacy vendor queries omit the
+domain; select a single backend if that information is missing. Hardware
+monitoring is currently unavailable for nonzero PCI domains.
 
 To exercise a GPU locally without a pool connection:
 

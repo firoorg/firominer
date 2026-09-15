@@ -56,6 +56,7 @@ extern "C" CL_API_ENTRY cl_int CL_API_CALL clGetDeviceInfo(cl_device_id device,
 
 int main()
 {
+    using dev::pciId;
     using namespace dev::eth;
     const auto check = [](bool condition, const char* message) {
         if (!condition)
@@ -66,6 +67,11 @@ int main()
         "NVIDIA GPU bitmask rejected");
     check(!isSupportedOpenCLGpu(CL_DEVICE_TYPE_CPU, 0x1002), "CPU accepted as GPU");
     check(!isSupportedOpenCLGpu(CL_DEVICE_TYPE_GPU, 0x8086), "Intel support enabled unintentionally");
+    check(pciId("0000:81:02.3") == "81:02.3", "CUDA zero-domain identity changed");
+    check(pciId("0000000A:AB:1F.3") == "000a:ab:1f.3", "CUDA PCI identity not canonical");
+    check(pciId("0001:81:02.0") != pciId("0001:81:02.3"), "CUDA PCI functions collapsed");
+    check(pciId("0001:81:02").empty(), "Incomplete CUDA PCI address accepted");
+    check(pciId("0001:81:02.3x").empty(), "Invalid CUDA PCI address accepted");
 
     _cl_device_id device;
     device.nvidia = true;
@@ -85,6 +91,21 @@ int main()
     check(openclDeviceId(&device, 0x10de, 0, 0) == "81:02.3", "Standard NVIDIA PCI query failed");
     device.domain = 1;
     check(openclDeviceId(&device, 0x1002, 0, 0) == "0001:81:02.3", "PCI domains collapsed");
+    device.amd = true;
+    device.topologyType = 1;
+    check(openclDeviceId(&device, 0x1002, 0, 0) == "0001:81:02.3",
+        "AMD topology masked the standard PCI domain");
+    device.nvidia = true;
+    device.failSlot = false;
+    check(openclDeviceId(&device, 0x10de, 0, 0) == "0001:81:02.3",
+        "NVIDIA topology masked the standard PCI domain");
+    check(openclDeviceId(&device, 0x10de, 0, 0) == pciId("0001:81:02.3"),
+        "CUDA and OpenCL PCI identities differ");
+    const auto firstDomain = openclDeviceId(&device, 0x10de, 0, 0);
+    device.domain = 2;
+    check(openclDeviceId(&device, 0x10de, 0, 0) != firstDomain,
+        "Native devices in different PCI domains collapsed");
+    device.amd = device.nvidia = false;
     device.standard = false;
 #endif
     check(openclDeviceId(&device, 0x1002, 1, 0) == "CL:1:0", "First fallback identity incorrect");
