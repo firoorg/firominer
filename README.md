@@ -110,7 +110,8 @@ Rusticl, by their device vendor ID. These runtimes use the generic kernel path
 without hardware monitoring; detection does not establish mining correctness on
 every GPU/driver combination. If PCI information is unavailable, devices receive
 distinct `CL:platform:device` IDs. In that case, select `-G` or `-U` explicitly on
-NVIDIA systems because automatic matching between backends is unavailable.
+NVIDIA systems when choosing a backend. Mixed mode skips PCI-unmatched NVIDIA
+OpenCL devices when CUDA is already selected; use `-G` to select OpenCL instead.
 On systems with multiple PCI domains, OpenCL runtimes must expose
 `cl_khr_pci_bus_info` for reliable device matching. Legacy vendor queries omit the
 domain; select a single backend if that information is missing. Hardware

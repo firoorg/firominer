@@ -181,6 +181,7 @@ struct DeviceDescriptor
     std::string name;      // Device Name
 
     bool clDetected;  // For OpenCL detected devices
+    unsigned int clVendorId = 0;
     std::string clName;
     unsigned int clPlatformId;
     std::string clPlatformName;
@@ -211,6 +212,14 @@ struct DeviceDescriptor
 
     int cpCpuNumer;  // For CPU
 };
+
+inline bool shouldAutoSubscribeOpenCL(
+    DeviceDescriptor const& device, MinerType minerType, bool cudaSubscribed)
+{
+    return device.clDetected && device.subscriptionType == DeviceSubscriptionTypeEnum::None &&
+           (minerType != MinerType::Mixed || !cudaSubscribed || device.clVendorId != 0x10de ||
+               device.uniqueId.compare(0, 3, "CL:") != 0);
+}
 
 struct HwMonitorInfo
 {

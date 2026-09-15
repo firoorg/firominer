@@ -698,11 +698,20 @@ public:
         if (!m_CLSettings.devices.size() &&
             (m_minerType == MinerType::CL || m_minerType == MinerType::Mixed))
         {
+            const bool cudaSubscribed = std::any_of(m_DevicesCollection.cbegin(), m_DevicesCollection.cend(),
+                [](auto const& device) {
+                    return device.second.subscriptionType == DeviceSubscriptionTypeEnum::Cuda;
+                });
             for (auto it = m_DevicesCollection.begin(); it != m_DevicesCollection.end(); it++)
             {
-                if (!it->second.clDetected ||
-                    it->second.subscriptionType != DeviceSubscriptionTypeEnum::None)
+                if (!shouldAutoSubscribeOpenCL(it->second, m_minerType, cudaSubscribed))
+                {
+                    if (it->second.clDetected &&
+                        it->second.subscriptionType == DeviceSubscriptionTypeEnum::None)
+                        cwarn << "Skipping PCI-unmatched NVIDIA OpenCL device " << it->second.name
+                              << " in mixed mode; use -G to select OpenCL";
                     continue;
+                }
                 it->second.subscriptionType = DeviceSubscriptionTypeEnum::OpenCL;
             }
         }

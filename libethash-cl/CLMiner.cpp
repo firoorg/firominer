@@ -667,6 +667,7 @@ void CLMiner::enumDevices(std::map<std::string, DeviceDescriptor>& _DevicesColle
             deviceDescriptor.type = clDeviceType;
             deviceDescriptor.uniqueId = uniqueId;
             deviceDescriptor.clDetected = true;
+            deviceDescriptor.clVendorId = vendor;
             deviceDescriptor.clPlatformId = pIdx;
             deviceDescriptor.clPlatformName = platformName;
             deviceDescriptor.clPlatformType = platformType;
