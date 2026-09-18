@@ -337,11 +337,13 @@ on your hardware. Use `--help-ext cl` and `--help-ext cu` for supported options.
 OpenCL helper inlining is enabled by default. Use `--cl-no-inline` for the legacy
 compiler workaround if the default kernel produces invalid results. Compilation
 failures automatically retry the legacy kernel with a warning.
-`--cl-subgroup` optionally replaces DAG-offset workgroup barriers with subgroup
-broadcasts on detected AMD GPUs with `cl_khr_subgroups` and an OpenCL C 2.0
-compiler. It defaults to off. Other vendors and unsupported lane layouts use
-portable broadcasts; a subgroup build failure retries the portable kernel.
-Compare sustained hashrate on your card before keeping this option enabled.
+Subgroup DAG-offset exchanges are enabled by default on detected AMD GPUs with
+`cl_khr_subgroups` and an OpenCL C 2.0 compiler. Drivers also advertising
+`cl_khr_subgroup_shuffle` use indexed shuffles; otherwise they use subgroup
+broadcasts. Other vendors and unsupported lane layouts use portable broadcasts.
+Compilation failures retry subgroup broadcasts, then the portable kernel.
+Use `--cl-no-subgroup` to disable subgroup exchanges, or `--cl-subgroup` to
+re-enable them. Compare sustained hashrate on your card when choosing a mode.
 Keep host solution verification enabled by leaving out `--noeval`.
 
 ### Can I CPU mine?

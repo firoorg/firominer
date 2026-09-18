@@ -123,29 +123,36 @@ benchmark. For performance comparisons, allow warmup and sample the same fixed
 jobs/periods with a suitable GPU profiling setup, or compare repeated realistic
 pool runs while recording the changing jobs and targets.
 
-## Optional OpenCL subgroup broadcasts
+## OpenCL subgroup exchanges
 
-`--cl-subgroup` enables an experimental DAG-offset broadcast path only on detected
-AMD GPUs advertising `cl_khr_subgroups`. The option defaults to off and works with
-both inline and legacy mix storage. It builds with OpenCL C 2.0; a build failure
-disables subgroup broadcasts for that miner and retries the portable variant.
+Subgroup DAG-offset exchanges are enabled by default only on detected AMD GPUs
+advertising `cl_khr_subgroups`, with both inline and legacy mix storage. Use
+`--cl-no-subgroup` to select portable exchanges or `--cl-subgroup` to re-enable
+subgroups. If both flags are supplied, the last one takes precedence. If the
+device also advertises `cl_khr_subgroup_shuffle`, it uses one indexed shuffle
+instead of broadcasting separately for each 16-lane slice. It builds with OpenCL
+C 2.0; a shuffle build failure retries the existing subgroup broadcasts. A
+subsequent build failure disables subgroup exchanges for that miner and retries
+the portable variant.
 Other vendors keep portable broadcasts until they have been validated.
 
 The kernel checks that each logical 16-lane hash fits in a contiguous subgroup
 slice. If any lane has an incompatible layout, the entire workgroup uses the
 original local-memory broadcast. Seed and digest sharing retain their memory
 barriers. A successful subgroup build logs
-`(subgroup broadcasts with lane-layout fallback)`; that message does not establish
+`(subgroup broadcasts with lane-layout fallback)` or
+`(subgroup shuffles with lane-layout fallback)`; neither message establishes
 that the runtime layout passed the check or that hashrate improved.
 
-Compare runs with and without `--cl-subgroup` at the same periods and work sizes,
+Compare default runs against `--cl-no-subgroup` at the same periods and work sizes,
 leaving host verification enabled. Check all returned mix digests against the CPU
 reference, target selection, period transitions, and rejected/invalid shares
 before comparing sustained hashrate. Include both mix variants, local sizes
 64/128/256, and subgroup widths 32 and 64 where available. Also check a device
-without the extension and a non-AMD GPU: requesting the option must leave their
-broadcast path portable. The offline kernel test covers all four variants at
-three periods and three workgroup sizes, 36 compilations in total.
+without shuffle support to check the broadcast fallback, and a device without
+subgroup support or a non-AMD GPU to check the portable fallback. The offline
+kernel test covers all six variants at three periods and three workgroup sizes,
+54 compilations in total.
 
 ## Pool and daemon tests
 

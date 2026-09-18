@@ -19,12 +19,13 @@ def check(binary, arguments, success, *expected, shutdown_event=None):
         raise AssertionError(
             f"Arguments {arguments!r}: unexpected exit {result.returncode} or output:\n{output}"
         )
+    return output
 
 
 if __name__ == "__main__":
     binary, = sys.argv[1:]
     # The omitted temperature stop defaults to zero, outside its explicit-input range.
-    check(binary, ["--help"], True, "minimal usage : firominer")
+    help_output = check(binary, ["--help"], True, "minimal usage : firominer")
     check(binary, ["-H", "con"], True, "Connections specifications :")
     check(binary, ["--version"], True, "Dependencies: Boost ", "; JsonCpp ", "; CLI11 ", "; OpenSSL ")
     check(binary, ["--help", "--tstop", "50"], True, "minimal usage : firominer")
@@ -39,6 +40,7 @@ if __name__ == "__main__":
         check(binary, ["--help", "--firopow-network", value], True, "minimal usage : firominer")
     for value in ("invalid", "MAINNET"):
         check(binary, ["--help", "--firopow-network", value], False, "Error:", "--firopow-network")
+
     if sys.platform == "win32":
         import ctypes
         import uuid
@@ -57,4 +59,20 @@ if __name__ == "__main__":
             check(binary, ["--help"], True, "minimal usage : firominer", shutdown_event=name)
         finally:
             kernel32.CloseHandle(event)
+
+    if "-G,--opencl" in help_output:
+        for flags, enabled in (
+            ([], True),
+            (["--cl-subgroup"], True),
+            (["--cl-no-subgroup"], False),
+            (["--cl-subgroup", "--cl-no-subgroup"], False),
+            (["--cl-no-subgroup", "--cl-subgroup"], True),
+            (["--cl-no-inline", "--cl-no-subgroup"], False),
+        ):
+            check(binary, ["--help-ext", "cl", *flags], True,
+                  "--cl-subgroup       Default = " + ("on" if enabled else "off"),
+                  "--cl-no-subgroup")
+    else:
+        for flag in ("--cl-subgroup", "--cl-no-subgroup"):
+            check(binary, ["--help", flag], False, "Error:", flag)
     print("CLI help, dependency versions, defaults, ranges and set membership passed")

@@ -21,10 +21,13 @@ int main(int argc, char** argv)
               << "#define PROGPOW_DAG_ELEMENTS " << ethash::calculate_full_dataset_num_items(epoch) / 2
               << '\n';
     const std::string mode = argv[4];
-    if (mode == "inline" || mode == "inline-subgroup")
+    if (mode == "inline" || mode == "inline-subgroup" || mode == "inline-shuffle")
         std::cout << "#define FIROPOW_CL_INLINE_MIX 1\n";
-    if (mode == "legacy-subgroup" || mode == "inline-subgroup")
+    if (mode == "legacy-subgroup" || mode == "inline-subgroup" ||
+        mode == "legacy-shuffle" || mode == "inline-shuffle")
         std::cout << "#define FIROPOW_CL_SUBGROUP 1\n";
+    if (mode == "legacy-shuffle" || mode == "inline-shuffle")
+        std::cout << "#define FIROPOW_CL_SUBGROUP_SHUFFLE 1\n";
     std::cout << progpow::getKern(period, progpow::kernel_type::OpenCL) << kernel.rdbuf();
     return std::cout ? 0 : 1;
 }
