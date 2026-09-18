@@ -48,7 +48,8 @@ jobs:
           unset LD_LIBRARY_PATH QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH
           cmake "-DPACKAGE_DIR=$PWD/relocated GUI" -DVERIFY_ONLY=ON -P cmake/DeployLinuxGui.cmake
           QT_QPA_PLATFORM=offscreen './relocated GUI/bin/firominer-gui' --version
-          QT_QPA_PLATFORM=xcb xvfb-run -a './relocated GUI/bin/firominer-gui' --version
+          QT_QPA_PLATFORM=xcb QT_DEBUG_PLUGINS=1 xvfb-run -a './relocated GUI/bin/firominer-gui' --version > gui-plugins.txt 2>&1
+          grep -F "$PWD/relocated GUI/lib/firominer-gui/plugins/platforms/libqxcb.so" gui-plugins.txt
           # A system Qt installation must not hide a missing bundled library.
           rm 'relocated GUI/lib/firominer-gui/libQt6Core.so.6'
           if cmake "-DPACKAGE_DIR=$PWD/relocated GUI" -DVERIFY_ONLY=ON -P cmake/DeployLinuxGui.cmake; then

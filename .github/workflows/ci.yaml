@@ -186,7 +186,7 @@ jobs:
           # Fail if any non-platform dependency falls back to a build-machine library.
           /usr/bin/cmake "-DPACKAGE_DIR=$PWD" -DVERIFY_ONLY=ON -P ../cmake/DeployLinuxGui.cmake
           QT_QPA_PLATFORM=offscreen ./bin/firominer-gui --version
-          QT_QPA_PLATFORM=xcb QT_DEBUG_PLUGINS=1 xvfb-run -a ./bin/firominer-gui --version 2> gui-plugins.txt
+          QT_QPA_PLATFORM=xcb QT_DEBUG_PLUGINS=1 xvfb-run -a ./bin/firominer-gui --version > gui-plugins.txt 2>&1
           grep -F "$PWD/lib/firominer-gui/plugins/platforms/libqxcb.so" gui-plugins.txt
           test -f share/firominer/patches/firo-coinbase-message.patch
           readelf -d bin/firominer | grep -F '$ORIGIN/../lib'
