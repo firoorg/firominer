@@ -355,7 +355,9 @@ void MainWindow::updateTheme()
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
     if (watched == qApp && event->type() == QEvent::ApplicationPaletteChange)
-        updateTheme();
+        // Let Qt finish propagating the application palette before repolishing
+        // our stylesheet; otherwise Qt 6.2 can restore a child's old colors.
+        QTimer::singleShot(0, this, &MainWindow::updateTheme);
     return QMainWindow::eventFilter(watched, event);
 }
 
