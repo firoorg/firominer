@@ -7,19 +7,26 @@ run either application.
 
 ## Running
 
-Each Windows package from the **CI** workflow contains both the desktop
+Each Linux and Windows package from the **CI** workflow contains both the desktop
 launcher and the matching command-line miner. The release workflow publishes
-the same combined packages, in `cuda12.9-opencl` and `opencl` variants. Qt and
-Visual C++ runtime libraries, licenses, and corresponding GUI/Qt source are
-included. There is no separate launcher download to combine with a miner.
+the same combined packages, in `cuda12.9-opencl` and `opencl` variants. Qt
+libraries, licenses, and corresponding GUI/Qt source are included, along with
+the Visual C++ runtime on Windows. There is no separate launcher download to
+combine with a miner.
 
-Extract the entire ZIP, then double-click `bin/firominer-gui.exe`. Command-line
+On Windows, extract the entire ZIP, then double-click `bin/firominer-gui.exe`. Command-line
 users can run `bin/firominer.exe` or the included batch file from the same
 package. Keep the executables, libraries, and plugin folders together. Only
 the appropriate GPU driver needs to be installed separately.
 
-The GUI starts the adjacent `firominer.exe` automatically. If selecting a
-different miner executable in Settings, keep it inside its complete extracted
+On Linux, extract the entire `.tar.gz` archive and run `./bin/firominer-gui`, or
+`./bin/firominer` for the command line. The GUI targets Ubuntu 22.04 or compatible
+newer x86-64 desktops with X11 or XWayland. No separate Qt installation is needed.
+The operating system supplies the desktop/display server, fonts, standard C/C++
+runtime and graphics drivers. Native Wayland plugins are not included.
+
+The GUI starts the adjacent `firominer` (`firominer.exe` on Windows) automatically.
+If selecting a different miner executable in Settings, keep it inside its complete extracted
 package with its libraries, and use a build with API support (`APICORE=ON`).
 The bundled current miner supports graceful Windows shutdown. Older miners
 can run but may require the launcher's forced-stop fallback when stopping.
@@ -49,7 +56,7 @@ unchanged. Windows high-contrast settings take precedence.
 
 The build requires CMake 3.18+, a C++17 compiler, and Qt 6.2+ with Widgets and
 Network. Enable tests to include Qt Test. These are developer requirements,
-not separate installations required by users of the bundled Windows package.
+not separate installations required by users of the bundled packages.
 
 For Windows, use a Qt kit matching your compiler, for example Qt 6.8.3
 `msvc2022_64` with Visual Studio 2022:
@@ -80,9 +87,13 @@ ctest --test-dir build-gui --output-on-failure
 ./build-gui/firominer-gui
 ```
 
-The tests set `QT_QPA_PLATFORM=offscreen` and run without a GPU or pool. Linux
-installation uses system Qt libraries; it does not produce a portable Linux
-bundle.
+The tests set `QT_QPA_PLATFORM=offscreen` and run without a GPU or pool. Ordinary
+Linux installation uses system Qt libraries. The CI packaging step additionally
+runs `cmake/DeployLinuxGui.cmake` and `cmake/CollectLinuxGuiSources.sh` to collect
+Qt, its supporting libraries and their corresponding source into each archive.
+The private `lib/firominer-gui` directory and relative library search paths keep
+GUI dependencies separate from the miner. `bin/qt.conf` selects the bundled
+plugins, following [Qt's shared-library deployment layout](https://doc.qt.io/qt-6/linux-deployment.html).
 
 To build the GUI with the miner, add `-DFIROMINER_GUI=ON` and your Qt prefix to
 the normal root CMake configuration, keeping `APICORE=ON`. CMake rejects the
@@ -104,14 +115,23 @@ bundled third-party components and license notices. The source is distributed
 in the same artifact as the binaries, under the distributor's control.
 `sources/README.txt` records the build revision and Qt source provenance.
 
+Linux packages include the same Firominer source archive and the exact Ubuntu
+source packages for every bundled GUI library/plugin in `sources/debian`.
+This includes distribution patches, build rules and dependency copyright notices.
+`sources/debian/packages.tsv` records binary/source package versions;
+`sources/debian/README.txt` explains rebuilding and replacing these libraries.
+CI verifies both the offscreen and X11 plugins from a relocated archive and
+rejects dependencies that fall back to the build machine outside the documented
+platform runtime and graphics stack.
+
 Keep these archives and all license notices with any redistributed package.
 If using another Qt build, include its matching source, all applied patches,
 build instructions and any additional dependency source required by their
 licenses. An upstream download link alone is not a corresponding-source
 arrangement. See [Qt's open-source obligations](https://www.qt.io/development/download-open-source).
 
-To replace Qt, extract its source archive. The CI package uses Visual Studio
-2022, x64, shared Qt 6.8.3; its feature/compiler configuration is recorded in
+To replace Qt on Windows, extract its source archive. The Windows CI package uses
+Visual Studio 2022, x64, shared Qt 6.8.3; its feature/compiler configuration is recorded in
 `sources/qt-build-config.pri`. In an x64 Visual Studio developer shell, with
 CMake and Ninja available, build your modified Qt source:
 

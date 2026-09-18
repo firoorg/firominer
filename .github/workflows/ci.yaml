@@ -79,9 +79,11 @@ jobs:
     steps:
       - name: Install build tools
         run: |
+          sed -n 's/^deb /deb-src /p' /etc/apt/sources.list > /etc/apt/sources.list.d/firominer-source.list
           apt-get update
           apt-get install --yes --no-install-recommends \
-            build-essential ca-certificates cmake git ninja-build perl python3
+            build-essential ca-certificates cmake git ninja-build perl python3 \
+            qt6-base-dev qt6-qpa-plugins patchelf xvfb xauth fonts-dejavu-core
 
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -120,12 +122,24 @@ jobs:
         if: matrix.tests == 'ON'
         run: /usr/bin/ctest --test-dir build --output-on-failure --timeout 300
 
+      - name: Build and test GUI
+        run: |
+          /usr/bin/cmake -S gui -B build-gui -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          /usr/bin/cmake --build build-gui --parallel 2
+          /usr/bin/ctest --test-dir build-gui --output-on-failure
+
       - name: Stage package
         run: |
           /usr/bin/cmake --install build --prefix "$PWD/stage"
+          /usr/bin/cmake --install build-gui --prefix "$PWD/stage"
+          /usr/bin/cmake "-DPACKAGE_DIR=$PWD/stage" \
+            "-DQT_PLUGIN_DIR=$(qmake6 -query QT_INSTALL_PLUGINS)" -P cmake/DeployLinuxGui.cmake
+          bash cmake/CollectLinuxGuiSources.sh "$PWD/stage"
+          git archive --format=tar.gz --output=stage/sources/firominer-source.tar.gz HEAD
           cp LICENSE README.md stage/
           mkdir -p stage/docs
-          cp docs/TESTING.md docs/API_DOCUMENTATION.md stage/docs/
+          cp docs/TESTING.md docs/API_DOCUMENTATION.md docs/GUI.md stage/docs/
           if [ '${{ matrix.cuda }}' = ON ]; then
             mkdir -p stage/lib
             cp -a /usr/local/cuda/lib64/libnvrtc.so* \
@@ -137,9 +151,10 @@ jobs:
           printf '%s\n' \
             "Source: https://github.com/$GITHUB_REPOSITORY/tree/$(git rev-parse HEAD)" \
             "Source commit: ${{ github.event.pull_request.head.sha || github.sha }}" \
-            "Build: Release; CUDA=${{ matrix.cuda }}; OpenCL=ON; CPU=ON; API=ON; DBUS=OFF" \
+            "Build: Release; CUDA=${{ matrix.cuda }}; OpenCL=ON; CPU=ON; API=ON; GUI=ON; DBUS=OFF" \
             "Host optimization: -O3; C/C++ IPO/LTO; generic x86-64" \
             "Platform: Linux x86-64, Ubuntu 22.04, CUDA toolkit 12.9.2" \
+            "GUI: Qt $(qmake6 -query QT_VERSION); X11/XWayland; bundled Qt and supporting libraries" \
             "CI: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             > stage/BUILD-INFO.txt
           cat stage/share/firominer/dependencies.txt >> stage/BUILD-INFO.txt
@@ -152,10 +167,25 @@ jobs:
             -cf "$PACKAGE.tar" -C stage .
           gzip -n "$PACKAGE.tar"
           sha256sum "$PACKAGE.tar.gz" > "$PACKAGE.tar.gz.sha256"
-          mkdir unpacked
-          tar -xzf "$PACKAGE.tar.gz" -C unpacked
-          cd unpacked
+          mkdir 'unpacked Linux package'
+          tar -xzf "$PACKAGE.tar.gz" -C 'unpacked Linux package'
+          cd 'unpacked Linux package'
           sha256sum --check SHA256SUMS
+          test -x bin/firominer-gui
+          test -f bin/qt.conf
+          test -f sources/firominer-source.tar.gz
+          test -n "$(find sources/debian -name '*.dsc' -print -quit)"
+          test -f share/firominer-gui/licenses/LGPL-3.0.txt
+          # Check the relocated archive, with no build-kit search path overrides.
+          unset LD_LIBRARY_PATH QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH
+          find lib/firominer-gui -type f -exec ldd '{}' \; > gui-dependencies.txt
+          ldd bin/firominer-gui >> gui-dependencies.txt
+          if grep 'not found' gui-dependencies.txt; then exit 1; fi
+          # Fail if any non-platform dependency falls back to a build-machine library.
+          /usr/bin/cmake "-DPACKAGE_DIR=$PWD" -DVERIFY_ONLY=ON -P ../cmake/DeployLinuxGui.cmake
+          QT_QPA_PLATFORM=offscreen ./bin/firominer-gui --version
+          QT_QPA_PLATFORM=xcb QT_DEBUG_PLUGINS=1 xvfb-run -a ./bin/firominer-gui --version 2> gui-plugins.txt
+          grep -F "$PWD/lib/firominer-gui/plugins/platforms/libqxcb.so" gui-plugins.txt
           test -f share/firominer/patches/firo-coinbase-message.patch
           readelf -d bin/firominer | grep -F '$ORIGIN/../lib'
           ldd bin/firominer > dependencies.txt || true
@@ -482,6 +512,14 @@ jobs:
               unzip -Z1 "$package" | grep -Fx "$entry"
             done
           done
+          for package in firominer-linux-*.tar.gz; do
+            tar -tzf "$package" > linux-contents.txt
+            for entry in bin/firominer bin/firominer-gui bin/qt.conf docs/GUI.md lib/firominer-gui/plugins/platforms/libqxcb.so sources/firominer-source.tar.gz share/firominer-gui/licenses/LGPL-3.0.txt; do
+              grep -Fx "./$entry" linux-contents.txt
+            done
+            grep -E '^\./sources/debian/[^/]+\.dsc$' linux-contents.txt
+          done
+          rm linux-contents.txt
           cat firominer-linux-*.tar.gz.sha256 SHA256SUMS-windows.txt > SHA256SUMS.txt
           sha256sum --check SHA256SUMS.txt
 

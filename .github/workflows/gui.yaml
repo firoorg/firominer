@@ -26,7 +26,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends cmake ninja-build qt6-base-dev qt6-qpa-plugins
+          sudo apt-get install --yes --no-install-recommends cmake ninja-build qt6-base-dev qt6-qpa-plugins patchelf xvfb xauth
 
       - name: Configure and build
         run: |
@@ -35,3 +35,19 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build-gui --output-on-failure
+
+      - name: Verify Linux deployment
+        run: |
+          cmake --install build-gui --prefix "$PWD/stage-gui"
+          cmake "-DPACKAGE_DIR=$PWD/stage-gui" "-DQT_PLUGIN_DIR=$(qmake6 -query QT_INSTALL_PLUGINS)" -P cmake/DeployLinuxGui.cmake
+          mv stage-gui 'relocated GUI'
+          unset LD_LIBRARY_PATH QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH
+          cmake "-DPACKAGE_DIR=$PWD/relocated GUI" -DVERIFY_ONLY=ON -P cmake/DeployLinuxGui.cmake
+          QT_QPA_PLATFORM=offscreen './relocated GUI/bin/firominer-gui' --version
+          QT_QPA_PLATFORM=xcb xvfb-run -a './relocated GUI/bin/firominer-gui' --version
+          # A system Qt installation must not hide a missing bundled library.
+          rm 'relocated GUI/lib/firominer-gui/libQt6Core.so.6'
+          if cmake "-DPACKAGE_DIR=$PWD/relocated GUI" -DVERIFY_ONLY=ON -P cmake/DeployLinuxGui.cmake; then
+            echo 'Deployment verification missed the missing Qt library' >&2
+            exit 1
+          fi
