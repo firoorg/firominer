@@ -24,6 +24,7 @@
 #include <firominer/buildinfo.h>
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <limits>
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
@@ -120,6 +121,10 @@ public:
         m_cliDisplayTimer.cancel();
         g_io_service.stop();
         m_io_thread.join();
+#if defined(_WIN32)
+        if (m_shutdownEvent)
+            CloseHandle(m_shutdownEvent);
+#endif
     }
 
     void cliDisplayInterval_elapsed(const boost::system::error_code& ec)
@@ -374,6 +379,16 @@ public:
 
         // Exception handling is held at higher level
         app.parse(argc, argv);
+
+#if defined(_WIN32)
+        const char* shutdownEventName = std::getenv("FIROMINER_SHUTDOWN_EVENT");
+        if (shutdownEventName && shutdownEventName[0])
+        {
+            m_shutdownEvent = OpenEventA(SYNCHRONIZE, FALSE, shutdownEventName);
+            if (!m_shutdownEvent)
+                throw CLI::ValidationError("FIROMINER_SHUTDOWN_EVENT", "Could not open the Windows event");
+        }
+#endif
         if (bhelp)
         {
             help();
@@ -1273,7 +1288,17 @@ private:
 
         // Poll the lock-free signal flag; signal handlers cannot safely notify a condition variable.
         while (!g_signal.load(std::memory_order_relaxed))
+        {
+#if defined(_WIN32)
+            if (m_shutdownEvent)
+            {
+                if (WaitForSingleObject(m_shutdownEvent, 50) == WAIT_OBJECT_0)
+                    g_signal.store(SIGTERM, std::memory_order_relaxed);
+            }
+            else
+#endif
             this_thread::sleep_for(chrono::milliseconds(50));
+        }
         cnote << "Got interrupt ...";
         g_running.store(false, std::memory_order_relaxed);
 
@@ -1304,6 +1329,9 @@ private:
     MinerType m_minerType = MinerType::Mixed;
     OperationMode m_mode = OperationMode::None;
     bool m_shouldListDevices = false;
+#if defined(_WIN32)
+    HANDLE m_shutdownEvent = nullptr;
+#endif
 
     FarmSettings m_FarmSettings;  // Operating settings for Farm
     PoolSettings m_PoolSettings;  // Operating settings for PoolManager

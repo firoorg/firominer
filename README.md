@@ -14,6 +14,7 @@
 * Optional HTTP monitoring and TCP JSON-RPC control API
 * Development CPU backend, selected explicitly with `--cpu` when compiled in
 * Custom solo coinbase messages with the companion Firo daemon patch
+* Optional native Qt Widgets dashboard, with the command-line miner kept separate
 
 
 ## Table of Contents
@@ -50,8 +51,11 @@ GPUs. Maxwell, Pascal, and Volta require an R575 or R580 driver; later driver
 branches no longer support them. The package needs the CUDA 12.9 driver floor
 because FiroPoW kernels are compiled to PTX at runtime.
 
-Both variants include the command-line miner and API. Keep the extracted
-directory intact: the executable in `bin/` needs its companion libraries.
+Both variants on Linux and Windows include the GUI and matching command-line
+miner, so the same package supports desktop and command-line use. Qt libraries
+are bundled. Linux GUI packages target Ubuntu 22.04 or compatible newer desktops
+with X11 or XWayland. Keep the extracted directory intact: the executables in
+`bin/` need their companion libraries.
 Current packages bundle the CUDA runtime/compiler libraries where applicable
 and the Visual C++ runtime on Windows. A full CUDA Toolkit is needed to build
 the CUDA backend, but not to run these packages. GPU drivers are installed
@@ -60,7 +64,10 @@ checksum verification and platform requirements.
 
 ## Usage
 
-Launch **firominer** from a terminal.
+On Windows, double-click `bin/firominer-gui.exe` to open the desktop launcher,
+or run `bin/firominer.exe` from a terminal. On Linux, run `./bin/firominer-gui`
+for the desktop launcher or `./bin/firominer` for the command line.
+See [the GUI guide](https://github.com/firoorg/firominer/blob/main/docs/GUI.md).
 The commands below assume `firominer` is on your `PATH`. From an extracted
 package, use `./bin/firominer` on Linux or `.\bin\firominer.exe` in Windows
 PowerShell. For command line help, run:

@@ -1,0 +1,58 @@
+name: GUI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Qt Widgets (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends cmake ninja-build qt6-base-dev qt6-qpa-plugins libgl-dev patchelf xvfb xauth
+
+      - name: Configure and build
+        run: |
+          cmake -S gui -B build-gui -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build-gui --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build-gui --output-on-failure
+
+      - name: Verify Linux deployment
+        run: |
+          cmake --install build-gui --prefix "$PWD/stage-gui"
+          cmake "-DPACKAGE_DIR=$PWD/stage-gui" "-DQT_PLUGIN_DIR=$(qmake6 -query QT_INSTALL_PLUGINS)" -P cmake/DeployLinuxGui.cmake
+          mv stage-gui 'relocated GUI'
+          unset LD_LIBRARY_PATH QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH
+          cmake "-DPACKAGE_DIR=$PWD/relocated GUI" -DVERIFY_ONLY=ON -P cmake/DeployLinuxGui.cmake
+          QT_QPA_PLATFORM=offscreen './relocated GUI/bin/firominer-gui' --version
+          QT_QPA_PLATFORM=xcb QT_DEBUG_PLUGINS=1 xvfb-run -a './relocated GUI/bin/firominer-gui' --version > gui-plugins.txt 2>&1
+          grep -F "$PWD/relocated GUI/lib/firominer-gui/plugins/platforms/libqxcb.so" gui-plugins.txt
+          # A system Qt installation must not hide a missing bundled library.
+          rm 'relocated GUI/lib/firominer-gui/libQt6Core.so.6'
+          if cmake "-DPACKAGE_DIR=$PWD/relocated GUI" -DVERIFY_ONLY=ON -P cmake/DeployLinuxGui.cmake; then
+            echo 'Deployment verification missed the missing Qt library' >&2
+            exit 1
+          fi

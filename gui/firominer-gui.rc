@@ -1,0 +1,2 @@
+#define IDI_FIROMINER 101
+IDI_FIROMINER ICON "firominer.ico"
