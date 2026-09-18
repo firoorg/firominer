@@ -24,6 +24,7 @@
 #include <firominer/buildinfo.h>
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <limits>
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
@@ -271,12 +272,6 @@ public:
 
         app.add_flag("--stdout", g_logStdout, "");
 
-#if defined(_WIN32)
-        string shutdownEventName;
-        auto shutdownOption = app.add_option("--shutdown-event", shutdownEventName,
-            "Windows event used by firominer-gui to request a clean shutdown");
-#endif
-
 #if API_CORE
 
         app.add_option("--api-bind", m_api_bind, "")
@@ -386,11 +381,12 @@ public:
         app.parse(argc, argv);
 
 #if defined(_WIN32)
-        if (shutdownOption->count())
+        const char* shutdownEventName = std::getenv("FIROMINER_SHUTDOWN_EVENT");
+        if (shutdownEventName && shutdownEventName[0])
         {
-            m_shutdownEvent = OpenEventA(SYNCHRONIZE, FALSE, shutdownEventName.c_str());
+            m_shutdownEvent = OpenEventA(SYNCHRONIZE, FALSE, shutdownEventName);
             if (!m_shutdownEvent)
-                throw CLI::ValidationError("--shutdown-event", "Could not open the Windows event");
+                throw CLI::ValidationError("FIROMINER_SHUTDOWN_EVENT", "Could not open the Windows event");
         }
 #endif
         if (bhelp)
@@ -1079,9 +1075,6 @@ public:
                  << endl
                  << "                        channel prefix)" << endl
                  << "    --stdout            FLAG Log to stdout instead of stderr" << endl
-#if defined(_WIN32)
-                 << "    --shutdown-event    TEXT Windows event used by firominer-gui to stop" << endl
-#endif
                  << "    --noeval            FLAG By-pass host software re-evaluation of GPUs"
                  << endl
                  << "                        found nonces. Trims some ms. from submission" << endl

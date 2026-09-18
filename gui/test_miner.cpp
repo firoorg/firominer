@@ -1,5 +1,6 @@
 // A local-only process fixture. It never initializes GPUs or contacts a pool.
 #include <QCoreApplication>
+#include <QDir>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -32,11 +33,16 @@ int main(int argc, char** argv)
     const QString password = option("--api-password");
     const QString pool = option("-P");
     const QString mode = QUrl(pool).path();
+    if (args.contains("--shutdown-event"))
+        return 10; // Older Firominer versions reject this option.
+    if (mode.startsWith("/external") && QDir::currentPath() != app.applicationDirPath())
+        return 11;
 #ifdef Q_OS_WIN
-    const auto eventName = option("--shutdown-event");
-    HANDLE shutdownEvent = OpenEventW(SYNCHRONIZE, FALSE,
+    const auto eventName = qEnvironmentVariable("FIROMINER_SHUTDOWN_EVENT");
+    const bool legacy = mode == "/external-legacy";
+    HANDLE shutdownEvent = legacy ? nullptr : OpenEventW(SYNCHRONIZE, FALSE,
         reinterpret_cast<LPCWSTR>(eventName.utf16()));
-    if (!shutdownEvent)
+    if (!legacy && !shutdownEvent)
         return 8;
 #else
     std::signal(SIGTERM, [](int) { stopRequested.store(true); });
@@ -44,7 +50,7 @@ int main(int argc, char** argv)
     QTimer shutdownTimer;
     QObject::connect(&shutdownTimer, &QTimer::timeout, &app, [&] {
 #ifdef Q_OS_WIN
-        const bool stopping = WaitForSingleObject(shutdownEvent, 0) == WAIT_OBJECT_0;
+        const bool stopping = shutdownEvent && WaitForSingleObject(shutdownEvent, 0) == WAIT_OBJECT_0;
 #else
         const bool stopping = stopRequested.load();
 #endif
@@ -152,7 +158,8 @@ int main(int argc, char** argv)
     });
     const int result = app.exec();
 #ifdef Q_OS_WIN
-    CloseHandle(shutdownEvent);
+    if (shutdownEvent)
+        CloseHandle(shutdownEvent);
 #endif
     return result;
 }

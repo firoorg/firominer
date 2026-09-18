@@ -3,6 +3,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QTcpServer>
@@ -212,7 +213,7 @@ bool MinerController::start(const MiningConfig& config)
     m_port = reservation.serverPort();
     reservation.close();
     m_apiPassword = QUuid::createUuid().toString(QUuid::Id128);
-    auto args = arguments(config, m_port, m_apiPassword);
+    const auto args = arguments(config, m_port, m_apiPassword);
 #ifdef Q_OS_WIN
     const auto eventName = QStringLiteral("Local\\FirominerStop-%1")
                                .arg(QUuid::createUuid().toString(QUuid::Id128));
@@ -226,7 +227,10 @@ bool MinerController::start(const MiningConfig& config)
         emit failure(tr("Could not create the miner's shutdown event."));
         return false;
     }
-    args << "--shutdown-event" << eventName;
+    // Older miners ignore this environment variable instead of rejecting a new CLI option.
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("FIROMINER_SHUTDOWN_EVENT"), eventName);
+    m_process.setProcessEnvironment(environment);
 #endif
     m_stopping = false;
     m_hadStats = false;

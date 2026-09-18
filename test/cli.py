@@ -1,13 +1,18 @@
 """Check CLI parsing and defaults without starting a miner or connecting to a pool."""
 
+import os
 import subprocess
 import sys
 
 
-def check(binary, arguments, success, *expected):
+def check(binary, arguments, success, *expected, shutdown_event=None):
+    environment = os.environ.copy()
+    environment.pop("FIROMINER_SHUTDOWN_EVENT", None)
+    if shutdown_event is not None:
+        environment["FIROMINER_SHUTDOWN_EVENT"] = shutdown_event
     result = subprocess.run(
         [binary, *arguments], capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=10,
+        encoding="utf-8", errors="replace", timeout=10, env=environment,
     )
     output = result.stdout + result.stderr
     if (result.returncode == 0) != success or any(text not in output for text in expected):
@@ -43,12 +48,13 @@ if __name__ == "__main__":
         kernel32.CreateEventW.restype = ctypes.c_void_p
         kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
         name = "Local\\FirominerStop-test-" + uuid.uuid4().hex
-        check(binary, ["--help", "--shutdown-event", name], False, "Error:", "--shutdown-event")
+        check(binary, ["--help"], True, "minimal usage : firominer", shutdown_event="")
+        check(binary, ["--help"], False, "Error:", "FIROMINER_SHUTDOWN_EVENT", shutdown_event=name)
         event = kernel32.CreateEventW(None, True, False, name)
         if not event:
             raise ctypes.WinError()
         try:
-            check(binary, ["--help", "--shutdown-event", name], True, "minimal usage : firominer")
+            check(binary, ["--help"], True, "minimal usage : firominer", shutdown_event=name)
         finally:
             kernel32.CloseHandle(event)
     print("CLI help, dependency versions, defaults, ranges and set membership passed")

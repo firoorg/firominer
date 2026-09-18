@@ -1,9 +1,13 @@
 #include "minercontroller.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTest>
 
 namespace
@@ -153,6 +157,36 @@ private slots:
         QVERIFY(logs.contains({QString("Graceful shutdown complete")}));
         QCOMPARE(finished.count(), 1);
         QCOMPARE(states.last().first().toString(), QString("Stopped"));
+        QVERIFY(failures.isEmpty());
+    }
+
+    void launchesExternalMiner_data()
+    {
+        QTest::addColumn<bool>("legacy");
+        QTest::newRow("current") << false;
+#ifdef Q_OS_WIN
+        QTest::newRow("legacy") << true;
+#endif
+    }
+
+    void launchesExternalMiner()
+    {
+        QFETCH(bool, legacy);
+        QTemporaryDir directory(QDir::tempPath() + "/External miner XXXXXX");
+        QVERIFY(directory.isValid());
+        auto config = configuration(legacy ? "/external-legacy" : "/external");
+        config.executable = directory.filePath(QFileInfo(helperPath).fileName());
+        QVERIFY(QFile::copy(helperPath, config.executable));
+        MinerController controller;
+        QSignalSpy stats(&controller, &MinerController::statistics);
+        QSignalSpy failures(&controller, &MinerController::failure);
+        QSignalSpy logs(&controller, &MinerController::logLine);
+        QVERIFY(controller.start(config));
+        QTRY_VERIFY_WITH_TIMEOUT(!stats.isEmpty(), 7000);
+        QVERIFY(failures.isEmpty());
+        controller.stop();
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.isRunning(), 5000);
+        QCOMPARE(logs.contains({QString("Graceful shutdown complete")}), !legacy);
         QVERIFY(failures.isEmpty());
     }
 
