@@ -7,20 +7,22 @@ run either application.
 
 ## Running
 
-The **GUI** GitHub Actions workflow uploads `firominer-gui-windows-x64.zip`.
-This companion contains the launcher, Qt and Visual C++ runtime libraries,
-licenses, and corresponding source archives. It does not contain the miner.
-Obtain a Windows miner package from the **CI** workflow for the same commit,
-then extract the companion into that package, preserving its directory layout.
-Released miner packages do not currently include the GUI. Windows launchers
-require the matching miner build for graceful shutdown; older releases such as
-v1.4.0 do not accept the launcher's shutdown option.
+Each Windows package from the **CI** workflow contains both the desktop
+launcher and the matching command-line miner. The release workflow publishes
+the same combined packages, in `cuda12.9-opencl` and `opencl` variants. Qt and
+Visual C++ runtime libraries, licenses, and corresponding GUI/Qt source are
+included. There is no separate launcher download to combine with a miner.
 
-Keep `firominer-gui.exe` and its bundled libraries and plugin folders together.
-Place it beside `firominer.exe` in the miner package's `bin` directory, or
-select the miner executable in the GUI's settings. The GUI does not contain a
-mining backend; it needs the matching Firominer build with API support
-(`APICORE=ON`) and the appropriate GPU driver.
+Extract the entire ZIP, then double-click `bin/firominer-gui.exe`. Command-line
+users can run `bin/firominer.exe` or the included batch file from the same
+package. Keep the executables, libraries, and plugin folders together. Only
+the appropriate GPU driver needs to be installed separately.
+
+The GUI starts the adjacent `firominer.exe` automatically. If selecting a
+different miner executable in Settings, keep it inside its complete extracted
+package with its libraries, and use a build with API support (`APICORE=ON`).
+The bundled current miner supports graceful Windows shutdown. Older miners
+can run but may require the launcher's forced-stop fallback when stopping.
 
 Enter your pool connection, payout address and worker name, select a backend,
 then start mining. The dashboard displays data reported by the miner. Hardware
@@ -38,6 +40,10 @@ other networks and advanced miner flags remain available through the CLI.
 Pool passwords are kept only for the current GUI session. Other mining settings
 are saved for your next launch. Closing the window while mining offers to stop
 and quit, or keep mining in the system tray when a tray is available.
+
+Settings also provides Light, Dark, and System appearance. Light is the default;
+Save applies and remembers your choice, while Cancel leaves the current theme
+unchanged. Windows high-contrast settings take precedence.
 
 ## Building the GUI only
 
@@ -61,7 +67,7 @@ MSVC builds also copy the redistributable Visual C++ runtime libraries beside
 the executable. Copy the contents of `stage-gui` into a matching Firominer
 package for local use, preserving its directory layout. This install step alone
 does not collect corresponding source for redistribution; follow the source
-requirements below or use the source-inclusive CI companion. Building from an
+requirements below or use the source-inclusive CI package. Building from an
 MSYS2 Qt package may require additional third-party DLLs supplied by that distribution;
 `windeployqt` does not collect all of those libraries.
 
@@ -91,14 +97,14 @@ included in `share/firominer-gui/licenses`; the GPLv3 text is in
 `share/firominer-gui/LICENSE`. Qt library replacement and debugging modifications
 to those libraries are permitted under these licenses.
 
-The Windows CI companion includes the exact Firominer checkout and the
+Each Windows CI and release package includes the exact Firominer checkout and the
 SHA256-verified Qt 6.8.3 `qtbase` source archive under `sources/`. That module
 contains the source for every deployed Qt library and plugin, including its
 bundled third-party components and license notices. The source is distributed
 in the same artifact as the binaries, under the distributor's control.
 `sources/README.txt` records the build revision and Qt source provenance.
 
-Keep these archives and all license notices with any redistributed companion.
+Keep these archives and all license notices with any redistributed package.
 If using another Qt build, include its matching source, all applied patches,
 build instructions and any additional dependency source required by their
 licenses. An upstream download link alone is not a corresponding-source

@@ -26,7 +26,9 @@ is unavailable. macOS and `HUNTER_ENABLED=OFF` builds use system OpenCL.
 | Linux / Windows `opencl` | OpenCL vendor driver installed | OpenCL, CPU diagnostics, API |
 
 Linux packages target x86-64 Ubuntu 22.04 or compatible newer systems. Windows
-packages target Windows 10/11 x64 and bundle the Visual C++ runtime libraries.
+packages target Windows 10/11 x64. Both Windows variants include the desktop
+launcher and matching command-line miner, with Qt and Visual C++ runtime
+libraries. Choose a backend variant, then download and extract that one ZIP.
 Install the GPU vendor's driver with CUDA/OpenCL support as
 appropriate. The CUDA package supports Maxwell or newer NVIDIA GPUs. Maxwell,
 Pascal, and Volta require an R575 or R580 driver; later driver branches no
@@ -50,6 +52,12 @@ entries in `SHA256SUMS.txt`. Run commands below from the extracted directory. On
 Windows PowerShell replace `./bin/firominer` with `.\bin\firominer.exe`.
 
 ## Startup and local GPU test
+
+On Windows, open `bin/firominer-gui.exe` from the extracted package. Confirm the
+dashboard opens, then use Mining setup to configure a test pool and start the
+bundled miner. Stop it and confirm that mining ends. Also check the CLI below;
+`firominer.exe` remains directly runnable from the same directory. The GUI guide
+is included at `docs/GUI.md`, and GUI/Qt corresponding source at `sources/`.
 
 ```sh
 ./bin/firominer --version
