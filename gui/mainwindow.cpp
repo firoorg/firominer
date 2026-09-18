@@ -775,7 +775,8 @@ void MainWindow::toggleMining()
         showFailure(error);
         return;
     }
-    saveSettings();
+    if (!saveSettings())
+        return;
     updateConnectionSummary();
     clearReadings();
     chart_->reset();

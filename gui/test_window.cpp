@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
@@ -216,6 +217,44 @@ private slots:
         MainWindow restored;
         QCOMPARE(restored.findChild<QLineEdit*>("walletInput")->text(), QString("test-payout-address"));
         QVERIFY(restored.findChild<QLineEdit*>("passwordInput")->text().isEmpty());
+    }
+
+    void failedSavePreventsStartingAndAllowsRetry()
+    {
+#ifdef Q_OS_WIN
+        const auto helper = "gui-test-miner.exe";
+#else
+        const auto helper = "gui-test-miner";
+#endif
+        QSettings settings;
+        settings.setValue("miner/executable", QDir(QCoreApplication::applicationDirPath()).filePath(helper));
+        settings.setValue("pool/endpoint", "stratum+tcp://pool.example:3333");
+        settings.setValue("pool/wallet", "test-account");
+        settings.sync();
+        QCOMPARE(settings.status(), QSettings::NoError);
+        MainWindow window;
+        auto* wallet = window.findChild<QLineEdit*>("walletInput");
+        wallet->setText("edited-account");
+        auto* controller = window.findChild<MinerController*>();
+        auto* start = window.findChild<QPushButton*>("startMining");
+
+        // A directory at the INI filename forces a write failure even as root.
+        QVERIFY(QFile::remove(settings.fileName()));
+        QVERIFY(QDir().mkdir(settings.fileName()));
+        start->click();
+        const bool started = controller->isRunning();
+        QVERIFY(QDir().rmdir(settings.fileName()));
+        QVERIFY(!started);
+        QVERIFY(window.findChild<QLabel*>("notice")->text().contains("Could not save settings"));
+        QCOMPARE(window.findChild<QLabel*>("miningState")->text(), QString("Stopped"));
+        QCOMPARE(wallet->text(), QString("edited-account"));
+        QVERIFY(wallet->isEnabled());
+
+        start->click();
+        QTRY_COMPARE_WITH_TIMEOUT(window.findChild<QLabel*>("miningState")->text(), QString("Mining"), 7000);
+        QCOMPARE(QSettings().value("pool/wallet").toString(), QString("edited-account"));
+        controller->stop();
+        QTRY_VERIFY_WITH_TIMEOUT(!controller->isRunning(), 5000);
     }
 
     void closeCanCancelAndThenStopsOwnedMiner()
