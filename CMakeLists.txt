@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.18)
 
+option(APICORE "Build with API Server support" ON)
+option(FIROMINER_GUI "Build the optional Qt Widgets desktop launcher" OFF)
+if(FIROMINER_GUI AND NOT APICORE)
+	message(FATAL_ERROR "FIROMINER_GUI requires APICORE=ON for miner monitoring and control")
+endif()
+
 # Set before helper functions capture the policy used to create their targets.
 if(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE)
 	cmake_policy(SET CMP0069 NEW)
@@ -36,7 +42,6 @@ option(ETHASHCL "Build with OpenCL mining" ON)
 option(ETHASHCUDA "Build with CUDA mining" ON)
 option(ETHASHCPU "Build with CPU mining (only for development)" OFF)
 option(ETHDBUS "Build with D-Bus support" OFF)
-option(APICORE "Build with API Server support" ON)
 option(DEVBUILD "Log developer metrics" OFF)
 
 # propagates CMake configuration options to the compiler
@@ -193,6 +198,9 @@ if (BUILD_TESTING AND APICORE)
 endif()
 
 add_subdirectory(firominer)
+if(FIROMINER_GUI)
+	add_subdirectory(gui)
+endif()
 
 set(FIROMINER_OPENCL_DEPENDENCIES "OpenCL: disabled")
 if(ETHASHCL)

@@ -14,6 +14,7 @@
 * Optional HTTP monitoring and TCP JSON-RPC control API
 * Development CPU backend, selected explicitly with `--cpu` when compiled in
 * Custom solo coinbase messages with the companion Firo daemon patch
+* Optional native Qt Widgets dashboard, with the command-line miner kept separate
 
 
 ## Table of Contents
@@ -61,6 +62,8 @@ checksum verification and platform requirements.
 ## Usage
 
 Launch **firominer** from a terminal.
+For the optional desktop launcher and its separate Windows companion artifact,
+see [the GUI guide](https://github.com/firoorg/firominer/blob/main/docs/GUI.md).
 The commands below assume `firominer` is on your `PATH`. From an extracted
 package, use `./bin/firominer` on Linux or `.\bin\firominer.exe` in Windows
 PowerShell. For command line help, run:
