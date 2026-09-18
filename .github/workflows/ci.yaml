@@ -83,7 +83,7 @@ jobs:
           apt-get update
           apt-get install --yes --no-install-recommends \
             build-essential ca-certificates cmake git ninja-build perl python3 \
-            qt6-base-dev qt6-qpa-plugins patchelf xvfb xauth fonts-dejavu-core
+            qt6-base-dev qt6-qpa-plugins libgl-dev patchelf xvfb xauth fonts-dejavu-core
 
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -26,7 +26,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends cmake ninja-build qt6-base-dev qt6-qpa-plugins patchelf xvfb xauth
+          sudo apt-get install --yes --no-install-recommends cmake ninja-build qt6-base-dev qt6-qpa-plugins libgl-dev patchelf xvfb xauth
 
       - name: Configure and build
         run: |
