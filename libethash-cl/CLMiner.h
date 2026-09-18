@@ -79,6 +79,7 @@ private:
 
     CLSettings m_settings;
     bool m_useSubgroups = false;
+    bool m_useSubgroupShuffle = false;
     std::mutex m_abortMutex;
     bool m_hasNextProgpowKernel = false;
     bool m_kernelReady = false;
