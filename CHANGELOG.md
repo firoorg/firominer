@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 1.5.0
+
+### Added
+
+- Qt Widgets desktop launcher for mainnet pool mining, with saved settings, live mining statistics and logs, tray support, and Light, Dark, and System themes.
+- Bundled launcher, Qt runtime, corresponding GUI/library sources, and license notices in every Linux and Windows release package.
+- Graceful Windows shutdown for miners started by the launcher.
+
+### Changed
+
+- Enabled subgroup DAG-offset exchanges by default on supported AMD OpenCL GPUs, using indexed subgroup shuffles when available.
+- Retained automatic fallback from subgroup shuffles to broadcasts and then the portable kernel when compilation fails; added `--cl-no-subgroup` to select the portable path explicitly.
+- Added GUI tests and relocated-package checks for Windows and Linux, including Linux offscreen and X11 plugin loading.
+
 ## 1.4.0
 
 ### Added

@@ -108,8 +108,9 @@ included in `share/firominer-gui/licenses`; the GPLv3 text is in
 `share/firominer-gui/LICENSE`. Qt library replacement and debugging modifications
 to those libraries are permitted under these licenses.
 
-Each Windows CI and release package includes the exact Firominer checkout and the
-SHA256-verified Qt 6.8.3 `qtbase` source archive under `sources/`. That module
+Each Windows CI and release package includes Firominer GUI source from the
+matching commit and the SHA256-verified Qt 6.8.3 `qtbase` source archive under
+`sources/`. That module
 contains the source for every deployed Qt library and plugin, including its
 bundled third-party components and license notices. The source is distributed
 in the same artifact as the binaries, under the distributor's control.
