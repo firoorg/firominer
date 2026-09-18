@@ -34,4 +34,21 @@ if __name__ == "__main__":
         check(binary, ["--help", "--firopow-network", value], True, "minimal usage : firominer")
     for value in ("invalid", "MAINNET"):
         check(binary, ["--help", "--firopow-network", value], False, "Error:", "--firopow-network")
+    if sys.platform == "win32":
+        import ctypes
+        import uuid
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_wchar_p]
+        kernel32.CreateEventW.restype = ctypes.c_void_p
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        name = "Local\\FirominerStop-test-" + uuid.uuid4().hex
+        check(binary, ["--help", "--shutdown-event", name], False, "Error:", "--shutdown-event")
+        event = kernel32.CreateEventW(None, True, False, name)
+        if not event:
+            raise ctypes.WinError()
+        try:
+            check(binary, ["--help", "--shutdown-event", name], True, "minimal usage : firominer")
+        finally:
+            kernel32.CloseHandle(event)
     print("CLI help, dependency versions, defaults, ranges and set membership passed")

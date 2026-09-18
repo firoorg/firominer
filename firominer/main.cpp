@@ -120,6 +120,10 @@ public:
         m_cliDisplayTimer.cancel();
         g_io_service.stop();
         m_io_thread.join();
+#if defined(_WIN32)
+        if (m_shutdownEvent)
+            CloseHandle(m_shutdownEvent);
+#endif
     }
 
     void cliDisplayInterval_elapsed(const boost::system::error_code& ec)
@@ -267,6 +271,12 @@ public:
 
         app.add_flag("--stdout", g_logStdout, "");
 
+#if defined(_WIN32)
+        string shutdownEventName;
+        auto shutdownOption = app.add_option("--shutdown-event", shutdownEventName,
+            "Windows event used by firominer-gui to request a clean shutdown");
+#endif
+
 #if API_CORE
 
         app.add_option("--api-bind", m_api_bind, "")
@@ -374,6 +384,15 @@ public:
 
         // Exception handling is held at higher level
         app.parse(argc, argv);
+
+#if defined(_WIN32)
+        if (shutdownOption->count())
+        {
+            m_shutdownEvent = OpenEventA(SYNCHRONIZE, FALSE, shutdownEventName.c_str());
+            if (!m_shutdownEvent)
+                throw CLI::ValidationError("--shutdown-event", "Could not open the Windows event");
+        }
+#endif
         if (bhelp)
         {
             help();
@@ -1060,6 +1079,9 @@ public:
                  << endl
                  << "                        channel prefix)" << endl
                  << "    --stdout            FLAG Log to stdout instead of stderr" << endl
+#if defined(_WIN32)
+                 << "    --shutdown-event    TEXT Windows event used by firominer-gui to stop" << endl
+#endif
                  << "    --noeval            FLAG By-pass host software re-evaluation of GPUs"
                  << endl
                  << "                        found nonces. Trims some ms. from submission" << endl
@@ -1272,7 +1294,17 @@ private:
 
         // Poll the lock-free signal flag; signal handlers cannot safely notify a condition variable.
         while (!g_signal.load(std::memory_order_relaxed))
+        {
+#if defined(_WIN32)
+            if (m_shutdownEvent)
+            {
+                if (WaitForSingleObject(m_shutdownEvent, 50) == WAIT_OBJECT_0)
+                    g_signal.store(SIGTERM, std::memory_order_relaxed);
+            }
+            else
+#endif
             this_thread::sleep_for(chrono::milliseconds(50));
+        }
         cnote << "Got interrupt ...";
         g_running.store(false, std::memory_order_relaxed);
 
@@ -1303,6 +1335,9 @@ private:
     MinerType m_minerType = MinerType::Mixed;
     OperationMode m_mode = OperationMode::None;
     bool m_shouldListDevices = false;
+#if defined(_WIN32)
+    HANDLE m_shutdownEvent = nullptr;
+#endif
 
     FarmSettings m_FarmSettings;  // Operating settings for Farm
     PoolSettings m_PoolSettings;  // Operating settings for PoolManager
