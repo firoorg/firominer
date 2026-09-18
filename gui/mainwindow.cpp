@@ -50,7 +50,7 @@
 
 namespace
 {
-bool useSystemColors()
+bool highContrastEnabled()
 {
     bool highContrast = false;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
@@ -61,8 +61,7 @@ bool useSystemColors()
     highContrast = SystemParametersInfo(SPI_GETHIGHCONTRAST, sizeof(settings), &settings, 0) &&
         (settings.dwFlags & HCF_HIGHCONTRASTON);
 #endif
-    const auto palette = QApplication::palette();
-    return highContrast || palette.color(QPalette::Window).lightness() < 128;
+    return highContrast;
 }
 
 QLabel* label(const QString& text, const char* role = nullptr)
@@ -151,6 +150,7 @@ public:
     void showHistory()
     {
         QDialog dialog(this);
+        dialog.setPalette(palette());
         dialog.setWindowTitle("Hashrate history");
         dialog.resize(440, 360);
         auto* layout = new QVBoxLayout(&dialog);
@@ -182,6 +182,7 @@ protected:
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
+        const auto colors = window()->palette();
         const QRectF plot(43, 18, width() - 57, height() - 53);
         if (plot.width() <= 0 || plot.height() <= 0)
             return;
@@ -197,9 +198,9 @@ protected:
         for (int i = 0; i <= 3; ++i)
         {
             const auto y = plot.bottom() - i * plot.height() / 3;
-            painter.setPen(palette().color(QPalette::Mid));
+            painter.setPen(colors.color(QPalette::Mid));
             painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
-            painter.setPen(palette().color(QPalette::WindowText));
+            painter.setPen(colors.color(QPalette::WindowText));
             painter.drawText(QRectF(0, y - 10, 35, 20), Qt::AlignRight | Qt::AlignVCenter,
                 QString::number(maximum * i / 3, 'f', 0));
         }
@@ -207,13 +208,13 @@ protected:
         {
             const auto x = plot.left() + i * plot.width() / 4;
             const auto time = now - range_ + i * range_ / 4;
-            painter.setPen(palette().color(QPalette::WindowText));
+            painter.setPen(colors.color(QPalette::WindowText));
             painter.drawText(QRectF(x - 25, plot.bottom() + 10, 50, 20), Qt::AlignCenter,
                 QDateTime::fromSecsSinceEpoch(time).toString("HH:mm"));
         }
         if (points_.isEmpty())
         {
-            painter.setPen(palette().color(QPalette::WindowText));
+            painter.setPen(colors.color(QPalette::WindowText));
             painter.drawText(plot, Qt::AlignCenter, "Hashrate history appears when mining starts");
             return;
         }
@@ -234,7 +235,8 @@ protected:
             previousTime = point.x();
         }
         painter.setClipRect(plot.adjusted(-1, -1, 1, 1));
-        painter.setPen(QPen(useSystemColors() ? palette().color(QPalette::Highlight) : QColor("#9b1c2e"), 2));
+        painter.setPen(QPen(highContrastEnabled() || colors.color(QPalette::Window).lightness() < 128 ?
+            colors.color(QPalette::Highlight) : QColor("#9b1c2e"), 2));
         painter.drawPath(line);
         if (points_.size() == 1)
             painter.drawEllipse(line.currentPosition(), 2, 2);
@@ -246,9 +248,9 @@ private:
 
 void MainWindow::updateTheme()
 {
-    if (useSystemColors())
+    if (highContrastEnabled() || theme_ == "system")
     {
-        // Leave colors and controls to the platform in dark and high-contrast modes.
+        // A user's high-contrast setting always takes precedence over the theme.
         setStyleSheet(R"(
             QLabel[role="heading"] { font-size: 29px; font-weight: 650; }
             QLabel[role="section"] { font-size: 17px; font-weight: 650; }
@@ -260,10 +262,39 @@ void MainWindow::updateTheme()
             QPushButton[role="range"] { padding: 5px 10px; }
             QLineEdit, QComboBox { padding: 9px; min-height: 20px; }
         )");
+        setPalette(QApplication::palette());
         return;
     }
-    setStyleSheet(R"(
+    const bool dark = theme_ == "dark";
+    QPalette colors = QApplication::palette();
+    auto color = [&](QPalette::ColorRole role, const char* light, const char* darkColor) {
+        colors.setColor(role, QColor(dark ? darkColor : light));
+    };
+    color(QPalette::Window, "#f6f6f4", "#1b1d21");
+    color(QPalette::WindowText, "#24262b", "#ededf0");
+    color(QPalette::Base, "#ffffff", "#26282d");
+    color(QPalette::AlternateBase, "#f6f6f4", "#303239");
+    color(QPalette::Text, "#24262b", "#ededf0");
+    color(QPalette::Button, "#ffffff", "#26282d");
+    color(QPalette::ButtonText, "#24262b", "#ededf0");
+    color(QPalette::BrightText, "#ffffff", "#ffffff");
+    color(QPalette::Highlight, "#9b1c2e", "#ec9caa");
+    color(QPalette::HighlightedText, "#ffffff", "#24262b");
+    color(QPalette::Link, "#9b1c2e", "#ec9caa");
+    color(QPalette::LinkVisited, "#682331", "#dbb1c4");
+    color(QPalette::ToolTipBase, "#ffffff", "#26282d");
+    color(QPalette::ToolTipText, "#24262b", "#ededf0");
+    color(QPalette::PlaceholderText, "#606570", "#b5b8c2");
+    color(QPalette::Light, "#ffffff", "#4d5059");
+    color(QPalette::Midlight, "#ececef", "#3b3e46");
+    color(QPalette::Mid, "#dedfe3", "#42454e");
+    color(QPalette::Dark, "#94979e", "#16171a");
+    color(QPalette::Shadow, "#727681", "#101114");
+    for (const auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+        colors.setColor(QPalette::Disabled, role, QColor(dark ? "#9397a2" : "#81848c"));
+    QString sheet = R"(
         QMainWindow, QWidget#workspace, QScrollArea, QScrollArea > QWidget > QWidget { background: #f6f6f4; }
+        QDialog, QMenu, QMessageBox { background: #f6f6f4; }
         QWidget { color: #24262b; }
         QLabel { background: transparent; }
         QLabel[role="muted"] { color: #606570; }
@@ -297,8 +328,28 @@ void MainWindow::updateTheme()
         QTableWidget { border: none; background: white; gridline-color: #ececef; selection-background-color: #f8e9ec; selection-color: #24262b; }
         QHeaderView::section { background: white; color: #606570; border: none; border-bottom: 1px solid #e5e6e9; padding: 8px 5px; text-align: left; }
         QPlainTextEdit { background: white; border: 1px solid #dedfe3; border-radius: 6px; padding: 10px; font-family: "Consolas", monospace; font-size: 12px; }
+        QComboBox QAbstractItemView { background: white; color: #24262b; selection-background-color: #9b1c2e; selection-color: white; }
         QStatusBar { background: #f6f6f4; color: #606570; }
-    )");
+    )";
+    if (dark)
+    {
+        sheet.replace("#f6f6f4", "#1b1d21");
+        sheet.replace("background: white", "background: #26282d");
+        sheet.replace("#24262b", "#ededf0");
+        sheet.replace("#606570", "#b5b8c2");
+        for (const auto* border : {"#dedfe3", "#d8d9dd", "#d7d9de", "#e5e6e9", "#ececef"})
+            sheet.replace(border, "#42454e");
+        sheet.replace("#f0f0f1", "#34363d");
+        sheet.replace("#eeeeef", "#34363d");
+        sheet.replace("#f8e9ec", "#682331");
+        sheet.replace("#fff0e9", "#493328");
+        sheet.replace("#81321b", "#ffcfac");
+        sheet.replace("color: #9b1c2e; background: transparent", "color: #ec9caa; background: transparent");
+        sheet.replace("border: 2px solid #9b1c2e", "border: 2px solid #ec9caa");
+        sheet.replace("border: 1px solid #9b1c2e", "border: 1px solid #ec9caa");
+    }
+    setStyleSheet(sheet);
+    setPalette(colors);
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
@@ -347,6 +398,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     navigation_->setMinimumHeight(220);
     side->addWidget(navigation_, 1);
     auto* settings = button("Settings", "sidebar");
+    settings->setObjectName("settingsButton");
     auto* help = button("Help", "sidebar");
     side->addWidget(settings);
     side->addWidget(help);
@@ -708,6 +760,10 @@ MiningConfig MainWindow::configuration() const
 void MainWindow::loadSettings()
 {
     QSettings settings;
+    theme_ = settings.value("appearance/theme", "light").toString();
+    if (theme_ != "light" && theme_ != "dark" && theme_ != "system")
+        theme_ = "light";
+    updateTheme();
 #ifdef Q_OS_WIN
     const auto minerName = QStringLiteral("firominer.exe");
 #else
@@ -733,6 +789,7 @@ bool MainWindow::saveSettings()
         return false;
     }
     QSettings settings;
+    settings.setValue("appearance/theme", theme_);
     settings.setValue("miner/executable", executable_);
     settings.setValue("pool/endpoint", poolInput_->text().trimmed());
     settings.setValue("pool/wallet", walletInput_->text().trimmed());
@@ -929,13 +986,29 @@ void MainWindow::showFailure(const QString& message)
 void MainWindow::showSettings()
 {
     QDialog dialog(this);
+    dialog.setObjectName("settingsDialog");
+    dialog.setPalette(palette());
     dialog.setWindowTitle("Firominer settings");
-    dialog.resize(650, 220);
+    dialog.resize(650, 320);
     auto* layout = new QVBoxLayout(&dialog);
     layout->setSpacing(16);
+    auto* appearance = new QFormLayout;
+    auto* theme = new QComboBox;
+    theme->setObjectName("themeInput");
+    theme->setAccessibleName("Color theme");
+    theme->addItem("Light", "light");
+    theme->addItem("Dark", "dark");
+    theme->addItem("System", "system");
+    theme->setCurrentIndex(theme->findData(theme_));
+    appearance->addRow("Color theme", theme);
+    layout->addLayout(appearance);
+    auto* themeNote = label("System follows your computer's colors. High-contrast settings always take priority.", "muted");
+    themeNote->setWordWrap(true);
+    layout->addWidget(themeNote);
     layout->addWidget(label("Miner executable", "section"));
     auto* row = new QHBoxLayout;
     auto* path = new QLineEdit(executable_);
+    path->setObjectName("minerExecutableInput");
     path->setAccessibleName("Miner executable path");
     auto* browse = button("Browse…");
     row->addWidget(path, 1);
@@ -954,17 +1027,25 @@ void MainWindow::showSettings()
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
         const QFileInfo file(path->text().trimmed());
-        if (!file.isFile() || !file.isExecutable())
+        if (path->text().trimmed() != executable_ && (!file.isFile() || !file.isExecutable()))
         {
             QMessageBox::warning(&dialog, "Miner not found", "Select a valid firominer executable.");
             return;
         }
         const auto previous = executable_;
+        const auto previousTheme = theme_;
         executable_ = file.absoluteFilePath();
+        theme_ = theme->currentData().toString();
         if (saveSettings())
+        {
+            updateTheme();
             dialog.accept();
+        }
         else
+        {
             executable_ = previous;
+            theme_ = previousTheme;
+        }
     });
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     dialog.exec();

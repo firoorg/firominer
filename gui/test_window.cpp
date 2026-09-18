@@ -2,6 +2,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
+#include <QDialogButtonBox>
 #include <QFile>
 #include <QJsonArray>
 #include <QLabel>
@@ -10,6 +11,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
+#include <QScopeGuard>
 #include <QScrollArea>
 #include <QStatusBar>
 #include <QTableWidget>
@@ -36,6 +38,28 @@ QJsonObject statistics()
         {"devices", QJsonArray{
             device(0, "NVIDIA GeForce RTX 4090", "CUDA", 71.2, {62, 58, 310}),
             device(1, "AMD Radeon RX 6900 XT", "OpenCL", 41.6, {65, 62, 180})}}};
+}
+
+bool chooseTheme(MainWindow& window, const QString& value, QDialogButtonBox::StandardButton action)
+{
+    bool selected = false;
+    QTimer::singleShot(0, &window, [&] {
+        auto* dialog = window.findChild<QDialog*>("settingsDialog");
+        if (!dialog)
+            return;
+        auto* theme = dialog->findChild<QComboBox*>("themeInput");
+        auto* buttons = dialog->findChild<QDialogButtonBox*>();
+        if (!theme || !buttons)
+        {
+            dialog->reject();
+            return;
+        }
+        theme->setCurrentIndex(theme->findData(value));
+        selected = theme->currentData().toString() == value;
+        buttons->button(action)->click();
+    });
+    window.findChild<QPushButton*>("settingsButton")->click();
+    return selected;
 }
 }
 
@@ -162,7 +186,9 @@ private slots:
 
     void systemPaletteChangesRemainReadable()
     {
+        QSettings().setValue("appearance/theme", "system");
         const auto original = QApplication::palette();
+        const auto restore = qScopeGuard([original] { QApplication::setPalette(original); });
         MainWindow window;
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
@@ -179,7 +205,72 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(color, QColor(Qt::white));
         QVERIFY(!fixedColors);
-        QVERIFY(window.styleSheet().contains("#f6f6f4"));
+        QCOMPARE(window.palette().color(QPalette::Window), original.color(QPalette::Window));
+    }
+
+    void explicitThemesOverrideSystemColorsAndPersist_data()
+    {
+        QTest::addColumn<bool>("systemDark");
+        QTest::addColumn<QString>("theme");
+        QTest::newRow("light-on-dark-system") << true << "light";
+        QTest::newRow("dark-on-light-system") << false << "dark";
+    }
+
+    void explicitThemesOverrideSystemColorsAndPersist()
+    {
+        QFETCH(bool, systemDark);
+        QFETCH(QString, theme);
+        const auto original = QApplication::palette();
+        const auto restore = qScopeGuard([original] { QApplication::setPalette(original); });
+        QPalette system = original;
+        for (const auto role : {QPalette::Window, QPalette::Base, QPalette::Button})
+            system.setColor(role, systemDark ? Qt::black : Qt::white);
+        for (const auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+            system.setColor(role, systemDark ? Qt::white : Qt::black);
+        QApplication::setPalette(system);
+
+        MainWindow window;
+        // A fresh install keeps the approved light design even on a dark OS.
+        QCOMPARE(window.palette().color(QPalette::Window), QColor("#f6f6f4"));
+        QVERIFY(chooseTheme(window, theme, QDialogButtonBox::Save));
+        const QColor background(theme == "dark" ? "#1b1d21" : "#f6f6f4");
+        const QColor text(theme == "dark" ? "#ededf0" : "#24262b");
+        QCOMPARE(window.palette().color(QPalette::Window), background);
+        QCOMPARE(window.findChild<QLabel*>("miningState")->palette().color(QPalette::WindowText), text);
+        QCOMPARE(window.findChild<QLineEdit*>("poolInput")->palette().color(QPalette::Text), text);
+        QCOMPARE(QSettings().value("appearance/theme").toString(), theme);
+        QCOMPARE(QApplication::palette().color(QPalette::Window), system.color(QPalette::Window));
+
+        const auto directory = qEnvironmentVariable("FIROMINER_GUI_SCREENSHOT_DIR");
+        if (!directory.isEmpty())
+        {
+            QVERIFY(QDir().mkpath(directory));
+            window.show();
+            QTest::qWait(50);
+            QVERIFY(window.grab().save(QDir(directory).filePath(QString(QTest::currentDataTag()) + ".png")));
+        }
+
+        MainWindow restored;
+        QCOMPARE(restored.palette().color(QPalette::Window), background);
+        QVERIFY(chooseTheme(restored, "system", QDialogButtonBox::Save));
+        QCOMPARE(restored.palette().color(QPalette::Window), system.color(QPalette::Window));
+        QCOMPARE(restored.findChild<QLabel*>("miningState")->palette().color(QPalette::WindowText), system.color(QPalette::WindowText));
+        QCOMPARE(restored.findChild<QLineEdit*>("poolInput")->palette().color(QPalette::Base), system.color(QPalette::Base));
+        QCOMPARE(QSettings().value("appearance/theme").toString(), QString("system"));
+    }
+
+    void cancellingThemeChangeKeepsSavedChoice()
+    {
+        MainWindow window;
+        QVERIFY(chooseTheme(window, "dark", QDialogButtonBox::Save));
+        const auto savedPalette = window.palette();
+        const auto savedSheet = window.styleSheet();
+        QVERIFY(chooseTheme(window, "light", QDialogButtonBox::Cancel));
+        QCOMPARE(window.palette(), savedPalette);
+        QCOMPARE(window.styleSheet(), savedSheet);
+        QCOMPARE(QSettings().value("appearance/theme").toString(), QString("dark"));
+        MainWindow restored;
+        QCOMPARE(restored.palette().color(QPalette::Window), QColor("#1b1d21"));
     }
 
     void historyHasAccessibleTimestampedValues()
@@ -314,6 +405,21 @@ private slots:
         window.show();
         QTest::qWait(100);
         QVERIFY(window.grab().save(QDir(directory).filePath("overview.png")));
+        QVERIFY(chooseTheme(window, "dark", QDialogButtonBox::Save));
+        QTest::qWait(50);
+        QVERIFY(window.grab().save(QDir(directory).filePath("overview-dark.png")));
+        bool settingsCaptured = false;
+        QTimer::singleShot(0, &window, [&] {
+            if (auto* dialog = window.findChild<QDialog*>("settingsDialog"))
+            {
+                QTest::qWait(50);
+                settingsCaptured = dialog->grab().save(QDir(directory).filePath("settings-dark.png"));
+                dialog->reject();
+            }
+        });
+        window.findChild<QPushButton*>("settingsButton")->click();
+        QVERIFY(settingsCaptured);
+        QVERIFY(chooseTheme(window, "light", QDialogButtonBox::Save));
         window.setMiningState("Stopped");
         window.findChild<QListWidget*>("navigation")->setCurrentRow(1);
         QTest::qWait(50);

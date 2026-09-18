@@ -60,6 +60,7 @@ private:
     QPlainTextEdit* log_;
     QSystemTrayIcon* tray_ = nullptr;
     QString executable_;
+    QString theme_ = QStringLiteral("light");
     QString currentState_ = QStringLiteral("Stopped");
     bool closing_ = false;
 };
