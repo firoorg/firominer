@@ -31,8 +31,8 @@ package with its libraries, and use a build with API support (`APICORE=ON`).
 The bundled current miner supports graceful Windows shutdown. Older miners
 can run but may require the launcher's forced-stop fallback when stopping.
 
-Enter your pool connection, payout address and worker name, select a backend,
-then start mining. The dashboard displays data reported by the miner. Hardware
+Choose **Pool** or **Solo** in Mining setup, enter the connection details, select
+a backend, then start mining. The dashboard displays data reported by the miner. Hardware
 monitoring depends on the device and driver, so some values may be unavailable.
 On Windows, the background miner has no separate console window; its output
 appears in the GUI's log view.
@@ -41,16 +41,43 @@ The GUI controls only the process it starts. Its monitoring connection is
 bound to `127.0.0.1` and protected with a fresh API password for each launch.
 It does not attach to miners started in another terminal.
 
-The setup screen currently configures mainnet Stratum pool mining. Solo mining,
-other networks and advanced miner flags remain available through the CLI.
+Pool mode configures Mainnet Stratum mining. A pool's SOLO endpoint also uses
+Pool mode. Solo mode connects directly to your own Mainnet Firo node. Other
+networks and advanced miner flags remain available through the CLI.
 
-Pool passwords are kept only for the current GUI session. Other mining settings
+Solo starts with `http://127.0.0.1:8888` and the suggested RPC username `miner`.
+Open **Node setup & config** for a local `firo.conf` example, or use the **?**
+buttons beside each field for help. Enable `server=1`, set your RPC username and
+a strong password, and restrict RPC to the miner's computer. Restart Firo Core
+after editing its configuration, let it finish syncing, and keep it running.
+The endpoint's port must match your node: 8888 is the Mainnet default, while
+some guides use a custom port such as 8382. Remote RPC connections use HTTP;
+use a trusted private connection and do not expose RPC to the Internet.
+
+Enter the same RPC password and a **transparent Mainnet Firo reward address**.
+Spark addresses cannot receive solo block rewards. **Test node** checks the
+network and requests a mining template, which also validates the reward address
+and requires blockchain and masternode sync. It does not start mining. Starting
+solo mining repeats this check before launching the miner. Checks can be
+cancelled, time out after ten seconds per request, and never follow redirects.
+
+In Solo mode the overview shows **Blocks accepted** and **Node connection**.
+Zero blocks is normal while mining: solo has no pool shares or periodic payouts.
+Accepted block rewards need confirmations before becoming spendable. Pool and
+solo details are remembered separately. Fields and their help collapse when
+not applicable; device numbers appear only with CUDA or OpenCL selected.
+
+Pool and RPC passwords are kept only for the current GUI session. Other mining settings
 are saved for your next launch. Closing the window while mining offers to stop
 and quit, or keep mining in the system tray when a tray is available.
 
 Settings also provides Light, Dark, and System appearance. Light is the default;
 Save applies and remembers your choice, while Cancel leaves the current theme
 unchanged. Windows high-contrast settings take precedence.
+
+At narrower window widths, the overview stacks vertically and setup labels wrap
+above their fields. Navigation and start/stop controls remain outside page
+scrolling. GPU table columns and rows size to their content.
 
 ## Building the GUI only
 
@@ -87,7 +114,10 @@ ctest --test-dir build-gui --output-on-failure
 ./build-gui/firominer-gui
 ```
 
-The tests set `QT_QPA_PLATFORM=offscreen` and run without a GPU or pool. Ordinary
+The tests set `QT_QPA_PLATFORM=offscreen` and run without a GPU or pool. Layout
+checks cover 640×480 through 1920×1080 windows, both themes, enlarged text and
+100%, 125%, 150% and 200% display scaling, including resizing across the reflow
+boundary and opening node help. Ordinary
 Linux installation uses system Qt libraries. The CI packaging step additionally
 runs `cmake/DeployLinuxGui.cmake` and `cmake/CollectLinuxGuiSources.sh` to collect
 Qt, its supporting libraries and their corresponding source into each archive.

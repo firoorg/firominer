@@ -2,6 +2,7 @@
 
 #include <QJsonObject>
 #include <QObject>
+#include <QNetworkAccessManager>
 #include <QProcess>
 #include <QStringList>
 #include <QTcpSocket>
@@ -16,6 +17,11 @@ struct MiningConfig
     QString password;
     QString backend = QStringLiteral("auto");
     QString devices;
+    bool solo = false;
+    QString nodeUrl = QStringLiteral("http://127.0.0.1:8888");
+    QString rpcUser = QStringLiteral("miner");
+    QString rpcPassword;
+    QString rewardAddress;
 };
 
 class MinerController : public QObject
@@ -27,6 +33,7 @@ public:
     ~MinerController() override;
 
     bool start(const MiningConfig& config);
+    bool testNode(const MiningConfig& config);
     void stop();
     bool isRunning() const;
     static QString validate(const MiningConfig& config);
@@ -39,8 +46,13 @@ signals:
     void logLine(const QString& line);
     void failure(const QString& message);
     void finished();
+    void nodeChecked(bool ready, const QString& message);
 
 private:
+    bool launch(const MiningConfig& config);
+    void beginNodeCheck(const MiningConfig& config, bool startWhenReady);
+    void requestNode(int stage);
+    void finishNodeCheck(const QString& error = {});
     void setState(const QString& state);
     void poll();
     void request(const QString& method, const QJsonObject& params = {});
@@ -51,6 +63,12 @@ private:
     void requestStop();
 
     QProcess m_process;
+    QNetworkAccessManager m_nodeNetwork;
+    QNetworkReply* m_nodeReply = nullptr;
+    MiningConfig m_nodeConfig;
+    QByteArray m_nodeBuffer;
+    bool m_startAfterNodeCheck = false;
+    QString m_rpcPassword;
     QTcpSocket m_socket;
     QTimer m_pollTimer;
     QTimer m_timeout;

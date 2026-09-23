@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QButtonGroup>
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -35,6 +36,8 @@
 #include <QSystemTrayIcon>
 #include <QTableWidget>
 #include <QTimer>
+#include <QToolButton>
+#include <QToolTip>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -365,8 +368,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
 {
     setWindowTitle("Firominer");
     setWindowIcon(QIcon(":/firominer.ico"));
-    resize(1400, 900);
     const QSize available = screen()->availableGeometry().size() - QSize(40, 80);
+    resize(QSize(1120, 800).boundedTo(available));
     setMinimumSize(QSize(640, 400).boundedTo(available));
     updateTheme();
     qApp->installEventFilter(this);
@@ -411,25 +414,33 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     auto* content = new QVBoxLayout(workspace);
     content->setContentsMargins(27, 25, 27, 12);
     content->setSpacing(18);
-    auto* header = new QHBoxLayout;
+    auto* header = new QFormLayout;
+    header->setContentsMargins(0, 0, 0, 0);
+    header->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    header->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     auto* heading = new QVBoxLayout;
-    subtitle_ = label("THIS COMPUTER", "muted");
     title_ = label("Mining overview", "heading");
-    heading->addWidget(subtitle_);
+    heading->addWidget(label("THIS COMPUTER", "muted"));
     heading->addWidget(title_);
-    header->addLayout(heading, 1);
+    auto* controls = new QHBoxLayout;
+    controls->setContentsMargins(0, 0, 0, 0);
+    controls->addStretch();
     auto* running = new QVBoxLayout;
     state_ = label("Stopped", "section");
     state_->setObjectName("miningState");
     runtime_ = label("Ready when you are", "muted");
     running->addWidget(state_);
     running->addWidget(runtime_);
-    header->addLayout(running);
-    header->addSpacing(20);
+    controls->addLayout(running);
+    controls->addSpacing(20);
     start_ = button("Start mining", "primary");
     start_->setObjectName("startMining");
     start_->setMinimumWidth(160);
-    header->addWidget(start_);
+    controls->addWidget(start_);
+    auto* headingWidget = new QWidget;
+    heading->setContentsMargins(0, 0, 0, 0);
+    headingWidget->setLayout(heading);
+    header->addRow(headingWidget, controls);
     content->addLayout(header);
     notice_ = label("");
     notice_->setObjectName("notice");
@@ -437,6 +448,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     notice_->hide();
     content->addWidget(notice_);
     pages_ = new QStackedWidget;
+    // Pages scroll independently; their size hints must not expand the whole window.
+    pages_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     pages_->addWidget(overviewPage());
     pages_->addWidget(setupPage());
     pages_->addWidget(devicesPage());
@@ -447,7 +460,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     shellScroll->setObjectName("shellScroll");
     setCentralWidget(shellScroll);
     statusBar()->setSizeGripEnabled(true);
-    statusBar()->addWidget(label("FiroPoW  |  Mainnet", "muted"));
+    modeStatus_ = label("FiroPoW  |  Mainnet  |  Pool", "muted");
+    statusBar()->addWidget(modeStatus_);
     statusBar()->addPermanentWidget(label("Local miner", "muted"));
 
     connect(navigation_, &QListWidget::currentRowChanged, this, [this](int row) {
@@ -460,20 +474,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     connect(settings, &QPushButton::clicked, this, &MainWindow::showSettings);
     connect(help, &QPushButton::clicked, this, [this] {
         QMessageBox::information(this, "Using Firominer",
-            "1. Open Mining setup and enter your pool endpoint and payout address.\n"
+            "1. Open Mining setup and choose Pool or Solo.\n"
+            "   Pool uses your pool endpoint and payout account. Solo uses your own synced Firo node, RPC login and transparent reward address.\n"
             "2. Choose your GPU backend, or leave Automatic selected.\n"
             "3. Click Start mining.\n\n"
             "The GUI runs firominer beside it. Select another executable in Settings if needed. "
             "The miner needs a compatible GPU driver.\n\n"
             "Minimizing this window keeps mining. Closing while mining asks whether to stop "
             "or keep mining in the system tray, when available.\n\n"
-            "Command-line users can still run firominer directly. This GUI currently configures "
-            "mainnet pool mining; solo mining and advanced options remain available in the CLI.");
+            "For Solo, open Node setup & config for the matching firo.conf settings. Restart Firo Core after changes and keep it synced while mining.\n\n"
+            "This GUI mines Mainnet. Other networks and advanced options remain available in the CLI.");
     });
     connect(&controller_, &MinerController::statistics, this, &MainWindow::updateStatistics);
     connect(&controller_, &MinerController::stateChanged, this, &MainWindow::setMiningState);
     connect(&controller_, &MinerController::logLine, this, &MainWindow::appendActivity);
     connect(&controller_, &MinerController::failure, this, &MainWindow::showFailure);
+    connect(&controller_, &MinerController::nodeChecked, this, [this](bool, const QString& message) {
+        nodeStatus_->setText(message);
+        statusBar()->showMessage(message, 8000);
+    });
     connect(&controller_, &MinerController::finished, this, [this] {
         if (closing_)
             QTimer::singleShot(0, this, &QWidget::close);
@@ -506,23 +525,30 @@ QWidget* MainWindow::overviewPage()
     layout->setSpacing(16);
     auto* metrics = panel();
     auto* metricLayout = new QHBoxLayout(metrics);
+    metricsLayout_ = metricLayout;
     metricLayout->setContentsMargins(23, 18, 23, 18);
+    metricLayout->setSpacing(16);
     auto addMetric = [&](const QString& text, QLabel*& value, QLabel*& detail, const char* objectName) {
         auto* group = new QVBoxLayout;
-        group->addWidget(label(text, "muted"));
+        auto* caption = label(text, "muted");
+        group->addWidget(caption);
         value = label("Unavailable", "metric");
         value->setObjectName(objectName);
         group->addWidget(value);
         detail = label("", "muted");
+        detail->setWordWrap(true);
         group->addWidget(detail);
         metricLayout->addLayout(group, 1);
+        return caption;
     };
     addMetric("Total hashrate", hashrate_, gpuCount_, "totalHashrate");
-    addMetric("Accepted shares", accepted_, shareDetail_, "acceptedShares");
+    acceptedLabel_ = addMetric("Accepted shares", accepted_, shareDetail_, "acceptedShares");
+    acceptedLabel_->setObjectName("acceptedLabel");
     addMetric("GPU power", power_, powerDetail_, "totalPower");
     layout->addWidget(metrics);
 
     auto* middle = new QHBoxLayout;
+    overviewLayout_ = middle;
     middle->setSpacing(16);
     auto* chartPanel = panel();
     auto* chartLayout = new QVBoxLayout(chartPanel);
@@ -555,24 +581,26 @@ QWidget* MainWindow::overviewPage()
     middle->addWidget(chartPanel, 3);
     auto* connection = panel();
     connection->setMinimumWidth(225);
-    connection->setMaximumWidth(300);
     auto* poolLayout = new QVBoxLayout(connection);
     poolLayout->setContentsMargins(20, 18, 20, 15);
     poolLayout->setSpacing(6);
-    poolLayout->addWidget(label("Pool connection", "section"));
+    connectionTitle_ = label("Pool connection", "section");
+    poolLayout->addWidget(connectionTitle_);
     poolState_ = label("Not connected");
     poolState_->setObjectName("poolState");
     poolLayout->addWidget(poolState_);
     auto addField = [&](const QString& text, QLabel*& value) {
-        poolLayout->addWidget(label(text, "muted"));
+        auto* caption = label(text, "muted");
+        poolLayout->addWidget(caption);
         value = label("");
         value->setWordWrap(true);
         value->setTextInteractionFlags(Qt::TextSelectableByMouse);
         poolLayout->addWidget(value);
+        return caption;
     };
-    addField("Pool", pool_);
-    addField("Worker", worker_);
-    addField("Payout address", wallet_);
+    endpointLabel_ = addField("Pool", pool_);
+    workerLabel_ = addField("Worker", worker_);
+    rewardLabel_ = addField("Payout address", wallet_);
     wallet_->setObjectName("payoutSummary");
     auto* copy = button("Copy", "link");
     copy->setToolTip("Copy payout address");
@@ -583,8 +611,8 @@ QWidget* MainWindow::overviewPage()
     payoutRow->addWidget(copy);
     poolLayout->addLayout(payoutRow);
     connect(copy, &QPushButton::clicked, this, [this] {
-        QApplication::clipboard()->setText(walletInput_->text().trimmed());
-        statusBar()->showMessage("Payout address copied", 3000);
+        QApplication::clipboard()->setText((soloMode_->isChecked() ? rewardInput_ : walletInput_)->text().trimmed());
+        statusBar()->showMessage("Address copied", 3000);
     });
     poolLayout->addStretch();
     auto* edit = button("Edit mining setup", "link");
@@ -598,7 +626,8 @@ QWidget* MainWindow::overviewPage()
     deviceLayout->setContentsMargins(18, 15, 18, 8);
     deviceLayout->addWidget(label("Your GPUs", "section"));
     auto* table = deviceTable();
-    table->setFixedHeight(164);
+    table->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+    table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     deviceLayout->addWidget(table);
     layout->addWidget(devices);
 
@@ -622,55 +651,191 @@ QWidget* MainWindow::setupPage()
     layout->setContentsMargins(0, 0, 0, 0);
     auto* card = panel();
     auto* body = new QVBoxLayout(card);
-    body->setContentsMargins(25, 23, 25, 23);
-    body->setSpacing(20);
-    body->addWidget(label("Connect to a mining pool", "section"));
-    auto* intro = label("Enter the endpoint supplied by your pool and the Firo address where it should pay you.", "muted");
-    intro->setWordWrap(true);
-    body->addWidget(intro);
-    auto* form = new QFormLayout;
-    form->setVerticalSpacing(17);
-    auto field = [&](const QString& caption, const char* name, const QString& placeholder) {
+    body->setContentsMargins(20, 18, 20, 18);
+    body->setSpacing(14);
+    auto* modes = new QHBoxLayout;
+    modes->addWidget(label("Mining mode", "section"), 1);
+    auto* group = new QButtonGroup(this);
+    poolMode_ = button("Pool", "range");
+    soloMode_ = button("Solo · own node", "range");
+    poolMode_->setObjectName("poolMode");
+    soloMode_->setObjectName("soloMode");
+    for (auto* mode : {poolMode_, soloMode_})
+    {
+        mode->setCheckable(true);
+        group->addButton(mode);
+        modes->addWidget(mode);
+    }
+    poolMode_->setChecked(true);
+    body->addLayout(modes);
+    auto* heading = new QFormLayout;
+    heading->setContentsMargins(0, 0, 0, 0);
+    heading->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    setupHeading_ = label("Connect to a mining pool", "section");
+    nodeGuideButton_ = button("Node setup && config", "link");
+    nodeGuideButton_->setObjectName("nodeGuideButton");
+    nodeGuideButton_->setCheckable(true);
+    heading->addRow(setupHeading_, nodeGuideButton_);
+    body->addLayout(heading);
+    setupIntro_ = label("", "muted");
+    setupIntro_->setWordWrap(true);
+    body->addWidget(setupIntro_);
+    nodeGuide_ = new QWidget;
+    nodeGuide_->setObjectName("nodeGuide");
+    auto* guide = new QVBoxLayout(nodeGuide_);
+    guide->setContentsMargins(0, 0, 0, 0);
+    auto* instructions = label("Local node example: update the existing entries in firo.conf. "
+        "Use a strong, unique password and enter the same password below.", "muted");
+    instructions->setWordWrap(true);
+    guide->addWidget(instructions);
+    auto* config = label("server=1\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nrpcport=8888\n"
+        "rpcuser=miner\nrpcpassword=CHANGE_ME");
+    config->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    config->setWordWrap(true);
+    guide->addWidget(config);
+    auto* restart = label("Restart Firo Core after saving, wait until fully synced, and keep it open while mining. "
+        "8888 is the Mainnet RPC default; match your existing port if different. "
+        "These settings allow mining on this computer only. For another computer, configure the node's bind address and allow only the miner's IP.", "muted");
+    restart->setWordWrap(true);
+    guide->addWidget(restart);
+    body->addWidget(nodeGuide_);
+    nodeGuide_->hide();
+    connect(nodeGuideButton_, &QPushButton::toggled, nodeGuide_, &QWidget::setVisible);
+
+    auto makeForm = [](QWidget* parent) {
+        auto* form = new QFormLayout(parent);
+        form->setContentsMargins(0, 0, 0, 0);
+        form->setVerticalSpacing(12);
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        return form;
+    };
+    auto field = [&](QFormLayout* form, const QString& caption, const char* name,
+                     const QString& placeholder, const QString& tip = QString()) {
         auto* input = new QLineEdit;
         input->setObjectName(name);
         input->setAccessibleName(caption);
         input->setPlaceholderText(placeholder);
         input->setMaxLength(1024);
-        form->addRow(caption, input);
+        input->setMinimumWidth(200);
+        auto* rowLabel = new QWidget;
+        rowLabel->setMinimumWidth(180);
+        auto* captionLayout = new QHBoxLayout(rowLabel);
+        captionLayout->setContentsMargins(0, 0, 0, 0);
+        captionLayout->setSpacing(4);
+        auto* text = label(caption);
+        text->setBuddy(input);
+        captionLayout->addWidget(text);
+        if (!tip.isEmpty())
+        {
+            input->setToolTip(tip);
+            input->setAccessibleDescription(tip);
+            auto* help = new QToolButton;
+            help->setText("?");
+            help->setAutoRaise(true);
+            help->setAccessibleName(caption + " help");
+            help->setToolTip(tip);
+            connect(help, &QToolButton::clicked, this, [help] {
+                QToolTip::showText(help->mapToGlobal(QPoint(0, help->height())), help->toolTip(), help);
+            });
+            captionLayout->addWidget(help);
+        }
+        captionLayout->addStretch();
+        form->addRow(rowLabel, input);
         return input;
     };
-    poolInput_ = field("Pool endpoint", "poolInput", "stratum+tcp://pool.example:3333");
-    walletInput_ = field("Payout address / pool account", "walletInput", "Your Firo payout address or pool username");
-    workerInput_ = field("Worker name", "workerInput", "Optional, for example desktop-01");
-    passwordInput_ = field("Pool password", "passwordInput", "x (unless your pool specifies another password)");
+    poolFields_ = new QWidget;
+    auto* poolForm = makeForm(poolFields_);
+    poolInput_ = field(poolForm, "Pool endpoint", "poolInput", "stratum+tcp://pool.example:3333");
+    walletInput_ = field(poolForm, "Payout address / account", "walletInput", "Your Firo payout address or pool username");
+    workerInput_ = field(poolForm, "Worker name", "workerInput", "Optional, for example desktop-01");
+    passwordInput_ = field(poolForm, "Pool password", "passwordInput", "x (unless your pool specifies another password)");
     passwordInput_->setEchoMode(QLineEdit::Password);
     passwordInput_->setToolTip("Kept only for this session. It is not saved to disk.");
+    body->addWidget(poolFields_);
+    soloFields_ = new QWidget;
+    auto* soloForm = makeForm(soloFields_);
+    nodeInput_ = field(soloForm, "Node endpoint", "nodeInput", "http://127.0.0.1:8888",
+        "In firo.conf, set server=1, rpcbind=127.0.0.1, rpcallowip=127.0.0.1 and rpcport=8888. "
+        "Restart Firo Core after saving. 127.0.0.1 is this computer; match your existing RPC port if different. "
+        "Remote RPC uses HTTP: use a trusted private connection, never an exposed Internet endpoint.");
+    rpcUserInput_ = field(soloForm, "RPC username", "rpcUserInput", "Same as rpcuser in firo.conf",
+        "Set rpcuser=miner in firo.conf, or enter your existing rpcuser here. Restart Firo Core after changes. "
+        "This is the node login, not your wallet address.");
+    rpcPasswordInput_ = field(soloForm, "RPC password", "rpcPasswordInput", "Same as rpcpassword in firo.conf",
+        "Set rpcpassword to a strong, unique password in firo.conf and enter it here. Restart Firo Core after changes. "
+        "This is not your wallet encryption password. Kept only for this session; not saved to disk.");
+    rpcPasswordInput_->setEchoMode(QLineEdit::Password);
+    auto* passwordField = new QWidget;
+    delete soloForm->replaceWidget(rpcPasswordInput_, passwordField);
+    auto* passwordRowLayout = new QHBoxLayout(passwordField);
+    passwordRowLayout->setContentsMargins(0, 0, 0, 0);
+    passwordRowLayout->addWidget(rpcPasswordInput_, 1);
+    auto* reveal = button("Show");
+    reveal->setAccessibleName("Show RPC password");
+    reveal->setCheckable(true);
+    passwordRowLayout->addWidget(reveal);
+    connect(reveal, &QPushButton::toggled, this, [this, reveal](bool visible) {
+        rpcPasswordInput_->setEchoMode(visible ? QLineEdit::Normal : QLineEdit::Password);
+        reveal->setText(visible ? "Hide" : "Show");
+        reveal->setAccessibleName(visible ? "Hide RPC password" : "Show RPC password");
+    });
+    rewardInput_ = field(soloForm, "Reward address", "rewardInput", "Your transparent Mainnet Firo address",
+        "Use a transparent receiving address from your Firo wallet. Spark addresses cannot receive solo block rewards. "
+        "Rewards arrive only when you find a block and become spendable after enough confirmations.");
+    auto* addressNote = label("Transparent address required. Spark addresses are not supported for solo rewards.", "muted");
+    addressNote->setWordWrap(true);
+    soloForm->addRow("", addressNote);
+    auto* check = new QHBoxLayout;
+    check->setSpacing(10);
+    testNode_ = button("Test node");
+    testNode_->setObjectName("testNode");
+    nodeStatus_ = label("Connection not checked", "muted");
+    nodeStatus_->setObjectName("nodeStatus");
+    nodeStatus_->setWordWrap(true);
+    check->addWidget(testNode_);
+    check->addWidget(nodeStatus_, 1);
+    soloForm->addRow("", check);
+    connect(testNode_, &QPushButton::clicked, this, [this] { controller_.testNode(configuration()); });
+    for (auto* input : {nodeInput_, rpcUserInput_, rpcPasswordInput_, rewardInput_})
+        connect(input, &QLineEdit::textChanged, this, [this] { nodeStatus_->setText("Connection not checked"); });
+    body->addWidget(soloFields_);
+    auto* gpu = new QWidget;
+    auto* gpuForm = makeForm(gpu);
     backendInput_ = new QComboBox;
     backendInput_->setObjectName("backendInput");
     backendInput_->addItem("Automatic · all compatible GPUs", "auto");
     backendInput_->addItem("NVIDIA CUDA", "cuda");
     backendInput_->addItem("OpenCL", "opencl");
-    form->addRow("GPU backend", backendInput_);
-    devicesInput_ = field("Device numbers", "devicesInput", "All devices, or numbers such as 0, 1");
+    auto* backendLabel = label("GPU backend");
+    backendLabel->setMinimumWidth(180);
+    backendLabel->setBuddy(backendInput_);
+    gpuForm->addRow(backendLabel, backendInput_);
+    body->addWidget(gpu);
+    devicesRow_ = new QWidget;
+    devicesInput_ = field(makeForm(devicesRow_), "Device numbers", "devicesInput", "All devices, or numbers such as 0, 1");
     devicesInput_->setToolTip("Device numbers from firominer --list-devices for the selected backend.");
     connect(backendInput_, &QComboBox::currentIndexChanged, this, [this] {
         devicesInput_->setEnabled(!controller_.isRunning() && backendInput_->currentData().toString() != "auto");
+        devicesRow_->setVisible(backendInput_->currentData().toString() != "auto");
     });
-    body->addLayout(form);
-    auto* note = label("Settings apply to the next mining session. Pool passwords are not saved. "
-        "Choose a specific backend to select device numbers; Automatic uses all compatible GPUs.", "muted");
+    body->addWidget(devicesRow_);
+    auto* note = label("Passwords stay in this session only. Automatic uses all compatible GPUs.", "muted");
     note->setWordWrap(true);
-    body->addWidget(note);
-    auto* save = button("Save setup", "primary");
-    save->setObjectName("saveSetup");
-    connect(save, &QPushButton::clicked, this, [this] {
+    saveSetup_ = button("Save setup");
+    saveSetup_->setObjectName("saveSetup");
+    connect(saveSetup_, &QPushButton::clicked, this, [this] {
         if (saveSettings())
         {
             updateConnectionSummary();
             statusBar()->showMessage("Mining setup saved", 4000);
         }
     });
-    body->addWidget(save, 0, Qt::AlignLeft);
+    auto* actions = new QHBoxLayout;
+    actions->addWidget(saveSetup_);
+    actions->addWidget(note, 1);
+    body->addLayout(actions);
+    connect(soloMode_, &QPushButton::toggled, this, &MainWindow::updateMiningMode);
     layout->addWidget(card);
     layout->addStretch();
     return scrollPage(page);
@@ -686,13 +851,8 @@ QTableWidget* MainWindow::deviceTable()
     table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    const QList<int> widths{140, 100, 85, 100, 130};
-    for (int col = 1; col < 6; ++col)
-    {
-        table->horizontalHeader()->setSectionResizeMode(col, QHeaderView::Fixed);
-        table->setColumnWidth(col, widths[col - 1]);
-    }
-    table->horizontalHeader()->setMinimumSectionSize(65);
+    table->horizontalHeader()->setMinimumSectionSize(table->fontMetrics().horizontalAdvance("Device name"));
+    table->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table->setShowGrid(false);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -716,7 +876,7 @@ QWidget* MainWindow::devicesPage()
     auto* setup = button("Choose GPUs in mining setup", "link");
     connect(setup, &QPushButton::clicked, this, [this] { navigation_->setCurrentRow(1); });
     layout->addWidget(setup, 0, Qt::AlignLeft);
-    return page;
+    return scrollPage(page);
 }
 
 QWidget* MainWindow::activityPage()
@@ -725,7 +885,9 @@ QWidget* MainWindow::activityPage()
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(0, 0, 0, 0);
     auto* toolbar = new QHBoxLayout;
-    toolbar->addWidget(label("Session activity · most recent 2,000 lines", "muted"), 1);
+    auto* description = label("Session activity · most recent 2,000 lines", "muted");
+    description->setWordWrap(true);
+    toolbar->addWidget(description, 1);
     auto* exportLog = button("Save log");
     auto* clear = button("Clear");
     toolbar->addWidget(exportLog);
@@ -748,7 +910,7 @@ QWidget* MainWindow::activityPage()
         else
             statusBar()->showMessage("Activity log saved", 4000);
     });
-    return page;
+    return scrollPage(page);
 }
 
 MiningConfig MainWindow::configuration() const
@@ -756,7 +918,9 @@ MiningConfig MainWindow::configuration() const
     return {executable_, poolInput_->text().trimmed(), walletInput_->text().trimmed(),
         workerInput_->text().trimmed(), passwordInput_->text().isEmpty() ? QStringLiteral("x") : passwordInput_->text(),
         backendInput_->currentData().toString(),
-        backendInput_->currentData().toString() == "auto" ? QString() : devicesInput_->text().trimmed()};
+        backendInput_->currentData().toString() == "auto" ? QString() : devicesInput_->text().trimmed(),
+        soloMode_->isChecked(), nodeInput_->text().trimmed(), rpcUserInput_->text(),
+        rpcPasswordInput_->text(), rewardInput_->text().trimmed()};
 }
 
 void MainWindow::loadSettings()
@@ -775,20 +939,32 @@ void MainWindow::loadSettings()
     poolInput_->setText(settings.value("pool/endpoint").toString());
     walletInput_->setText(settings.value("pool/wallet").toString());
     workerInput_->setText(settings.value("pool/worker", QHostInfo::localHostName().section('.', 0, 0)).toString());
+    nodeInput_->setText(settings.value("solo/endpoint", "http://127.0.0.1:8888").toString());
+    rpcUserInput_->setText(settings.value("solo/username", "miner").toString());
+    rewardInput_->setText(settings.value("solo/rewardAddress").toString());
     backendInput_->setCurrentIndex(std::max(0, backendInput_->findData(settings.value("miner/backend", "auto").toString())));
     devicesInput_->setText(settings.value("miner/devices").toString());
     devicesInput_->setEnabled(backendInput_->currentData().toString() != "auto");
+    devicesRow_->setVisible(backendInput_->currentData().toString() != "auto");
+    soloMode_->setChecked(settings.value("mining/solo", false).toBool());
+    poolMode_->setChecked(!soloMode_->isChecked());
     restoreGeometry(settings.value("window/geometry").toByteArray());
-    updateConnectionSummary();
+    updateMiningMode();
 }
 
 bool MainWindow::saveSettings()
 {
-    const QUrl endpoint(poolInput_->text().trimmed());
-    if (!endpoint.userInfo().isEmpty() || endpoint.authority().contains('@'))
+    for (auto* input : {poolInput_, nodeInput_})
     {
-        showFailure("Keep credentials out of the pool endpoint. Enter them in the separate account and password fields.");
-        return false;
+        const QUrl endpoint(input->text().trimmed());
+        if (!endpoint.userInfo().isEmpty() || endpoint.authority().contains('@') || endpoint.hasQuery() || endpoint.hasFragment())
+        {
+            (input == nodeInput_ ? soloMode_ : poolMode_)->setChecked(true);
+            navigation_->setCurrentRow(1);
+            input->setFocus();
+            showFailure("Keep credentials out of endpoint URLs. Use the separate login fields and remove any query or fragment.");
+            return false;
+        }
     }
     QSettings settings;
     settings.setValue("appearance/theme", theme_);
@@ -796,6 +972,10 @@ bool MainWindow::saveSettings()
     settings.setValue("pool/endpoint", poolInput_->text().trimmed());
     settings.setValue("pool/wallet", walletInput_->text().trimmed());
     settings.setValue("pool/worker", workerInput_->text().trimmed());
+    settings.setValue("mining/solo", soloMode_->isChecked());
+    settings.setValue("solo/endpoint", nodeInput_->text().trimmed());
+    settings.setValue("solo/username", rpcUserInput_->text());
+    settings.setValue("solo/rewardAddress", rewardInput_->text().trimmed());
     settings.setValue("miner/backend", backendInput_->currentData());
     settings.setValue("miner/devices", devicesInput_->text().trimmed());
     settings.setValue("window/geometry", saveGeometry());
@@ -810,12 +990,41 @@ bool MainWindow::saveSettings()
 
 void MainWindow::updateConnectionSummary()
 {
-    const QUrl endpoint(poolInput_->text().trimmed());
+    const bool solo = soloMode_->isChecked();
+    const QUrl endpoint((solo ? nodeInput_ : poolInput_)->text().trimmed());
     const auto port = endpoint.port();
     pool_->setText(endpoint.host().isEmpty() ? "Not configured" : endpoint.host() + (port > 0 ? ":" + QString::number(port) : QString()));
     worker_->setText(workerInput_->text().trimmed().isEmpty() ? "Default" : workerInput_->text().trimmed());
-    wallet_->setText(walletInput_->text().trimmed().isEmpty() ? "Not configured" : abbreviated(walletInput_->text().trimmed()));
-    wallet_->setToolTip(walletInput_->text().trimmed());
+    const auto address = (solo ? rewardInput_ : walletInput_)->text().trimmed();
+    wallet_->setText(address.isEmpty() ? "Not configured" : abbreviated(address));
+    wallet_->setToolTip(address);
+}
+
+void MainWindow::updateMiningMode()
+{
+    const bool solo = soloMode_->isChecked();
+    poolFields_->setVisible(!solo);
+    soloFields_->setVisible(solo);
+    nodeGuideButton_->setVisible(solo);
+    if (!solo)
+        nodeGuideButton_->setChecked(false);
+    setupHeading_->setText(solo ? "Connect to your Firo node" : "Connect to a mining pool");
+    setupIntro_->setText(solo ? "Enable RPC in firo.conf, restart Firo Core and let it finish syncing." :
+        "Enter your pool endpoint and payout account. A pool's SOLO endpoint also belongs here.");
+    acceptedLabel_->setText(solo ? "Blocks accepted" : "Accepted shares");
+    acceptedLabel_->setToolTip(solo ? "Blocks accepted by your node this session. Rewards still need confirmations before they can be spent." : "");
+    connectionTitle_->setText(solo ? "Node connection" : "Pool connection");
+    endpointLabel_->setText(solo ? "Node" : "Pool");
+    rewardLabel_->setText(solo ? "Reward address" : "Payout address");
+    workerLabel_->setVisible(!solo);
+    worker_->setVisible(!solo);
+    modeStatus_->setText(solo ? "FiroPoW  |  Mainnet  |  Solo" : "FiroPoW  |  Mainnet  |  Pool");
+    if (currentState_ == "Stopped")
+    {
+        start_->setText(solo ? "Start solo mining" : "Start pool mining");
+        clearReadings();
+    }
+    updateConnectionSummary();
 }
 
 void MainWindow::toggleMining()
@@ -839,8 +1048,7 @@ void MainWindow::toggleMining()
     updateConnectionSummary();
     clearReadings();
     chart_->reset();
-    if (controller_.start(config))
-        navigation_->setCurrentRow(0);
+    controller_.start(config);
 }
 
 void MainWindow::clearReadings()
@@ -848,7 +1056,7 @@ void MainWindow::clearReadings()
     hashrate_->setText("0.0 MH/s");
     gpuCount_->setText("No GPUs mining");
     accepted_->setText("0");
-    shareDetail_->setText("0 rejected · 0 failed");
+    shareDetail_->setText(soloMode_->isChecked() ? "This session · 0 rejected · 0 failed" : "0 rejected · 0 failed");
     power_->setText("Unavailable");
     powerDetail_->setText("Reported by devices");
     poolState_->setText("Not connected");
@@ -860,7 +1068,6 @@ void MainWindow::clearReadings()
         table->setRowCount(1);
         table->setSpan(0, 0, 1, 6);
         table->setItem(0, 0, new QTableWidgetItem("GPU details appear when mining starts"));
-        table->setRowHeight(0, 65);
     }
 }
 
@@ -869,16 +1076,27 @@ void MainWindow::setMiningState(const QString& state)
     currentState_ = state;
     state_->setText(state);
     const bool running = state != "Stopped";
-    start_->setText(running ? "Stop mining" : "Start mining");
+    start_->setText(state == "Checking node" ? "Cancel check" : running ? "Stop mining" :
+        soloMode_->isChecked() ? "Start solo mining" : "Start pool mining");
     start_->setEnabled(state != "Stopping");
-    for (auto* field : {poolInput_, walletInput_, workerInput_, passwordInput_})
+    for (auto* field : {poolInput_, walletInput_, workerInput_, passwordInput_, nodeInput_, rpcUserInput_, rpcPasswordInput_, rewardInput_})
         field->setEnabled(!running);
     backendInput_->setEnabled(!running);
+    poolMode_->setEnabled(!running);
+    soloMode_->setEnabled(!running);
+    testNode_->setEnabled(!running);
+    saveSetup_->setEnabled(!running);
     devicesInput_->setEnabled(!running && backendInput_->currentData().toString() != "auto");
     if (state == "Stopped")
     {
         clearReadings();
         runtime_->setText("Ready when you are");
+    }
+    else if (state == "Checking node")
+    {
+        navigation_->setCurrentRow(1);
+        runtime_->setText("Checking solo setup");
+        nodeStatus_->setText("Checking node, sync and reward address…");
     }
     else if (state == "Starting" || state == "Preparing GPUs")
         runtime_->setText("Waiting for miner statistics");
@@ -889,7 +1107,7 @@ void MainWindow::setMiningState(const QString& state)
         gpuCount_->setText("Waiting for statistics");
         poolState_->setText("Reconnecting");
         runtime_->setText("Waiting for fresh statistics");
-        lastActivity_->setText("Waiting for fresh share statistics");
+        lastActivity_->setText(soloMode_->isChecked() ? "Waiting for fresh block statistics" : "Waiting for fresh share statistics");
         for (auto* table : deviceTables_)
             if (table->columnSpan(0, 0) == 1)
                 for (int row = 0; row < table->rowCount(); ++row)
@@ -899,6 +1117,8 @@ void MainWindow::setMiningState(const QString& state)
     }
     if (tray_)
         tray_->setToolTip("Firominer - " + state.toLower());
+    if (state == "Starting")
+        navigation_->setCurrentRow(0);
 }
 
 void MainWindow::updateStatistics(const QJsonObject& statistics)
@@ -908,15 +1128,18 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
     const auto devices = statistics.value("devices").toArray();
     const bool connected = statistics.value("connection").toObject().value("connected").toBool();
     const auto count = shares.at(0).toInteger();
+    const bool solo = soloMode_->isChecked();
     accepted_->setText(QLocale().toString(count));
-    shareDetail_->setText(QString("%1 rejected · %2 failed").arg(shares.at(1).toInteger()).arg(shares.at(2).toInteger()));
+    shareDetail_->setText((solo ? "This session · " : QString()) +
+        QString("%1 rejected · %2 failed").arg(shares.at(1).toInteger()).arg(shares.at(2).toInteger()));
     lastActivity_->setText(count + shares.at(1).toInteger() + shares.at(2).toInteger() > 0 ?
-        QString("Last share · %1 seconds ago").arg(shares.at(3).toInteger()) : "Waiting for the first share");
+        QString(solo ? "Last block submission · %1 seconds ago" : "Last share · %1 seconds ago").arg(shares.at(3).toInteger()) :
+        solo ? (currentState_ == "Mining" ? "Mining normally · no block found yet" : "No block found this session") : "Waiting for the first share");
     if (!connected)
     {
         // A pool disconnect can leave the API's previous hashrate and sensors populated.
         setMiningState("Reconnecting");
-        gpuCount_->setText("Waiting for pool");
+        gpuCount_->setText(solo ? "Waiting for node" : "Waiting for pool");
         return;
     }
     const auto rate = hashValue(mining.value("hashrate"));
@@ -951,7 +1174,6 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
             sensor(sensors.at(1), "%", sensors.at(0).toDouble() > 0), sensor(sensors.at(2), " W"), status};
         for (auto* table : deviceTables_)
         {
-            table->setRowHeight(row, 58);
             for (int col = 0; col < values.size(); ++col)
             {
                 auto* item = new QTableWidgetItem(values[col]);
@@ -1053,8 +1275,18 @@ void MainWindow::showSettings()
     dialog.exec();
 }
 
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    const auto direction = width() < 1000 ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight;
+    metricsLayout_->setDirection(direction);
+    overviewLayout_->setDirection(direction);
+}
+
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    if (currentState_ == "Checking node")
+        controller_.stop();
     if (!controller_.isRunning())
     {
         if (!saveSettings())
