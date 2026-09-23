@@ -368,7 +368,10 @@ private slots:
                             if (input->isVisible())
                             {
                                 QVERIFY(input->width() >= 200);
-                                scroll->ensureWidgetVisible(input);
+                                // ensureWidgetVisible only guarantees a line edit's cursor is visible.
+                                // Check that its entire frame can be scrolled into view instead.
+                                const auto center = input->mapTo(scroll->widget(), input->rect().center());
+                                scroll->ensureVisible(center.x(), center.y(), input->width() / 2 + 1, input->height() / 2 + 1);
                                 QVERIFY(scroll->viewport()->rect().contains(QRect(input->mapTo(scroll->viewport(), QPoint()), input->size())));
                             }
                 }

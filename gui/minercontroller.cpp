@@ -11,6 +11,8 @@
 #include <QTcpServer>
 #include <QUrl>
 #include <QUuid>
+#include <cmath>
+#include <limits>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -138,7 +140,10 @@ MinerController::MinerController(QObject* parent) : QObject(parent)
     connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart)
         {
-            emit failure(tr("Could not launch the miner: %1").arg(m_process.errorString()));
+            const auto message = tr("Could not launch the miner: %1").arg(m_process.errorString());
+            if (!m_rpcPassword.isEmpty())
+                emit nodeChecked(false, message);
+            emit failure(message);
             complete();
         }
     });
@@ -384,9 +389,25 @@ void MinerController::requestNode(int stage)
         {
             // getblocktemplate validates the transparent reward address and refuses work
             // while Firo's blockchain or masternode sync is incomplete.
-            for (const auto* field : {"pprpcheader", "pprpcepoch", "height", "bits", "target"})
-                if (!result.contains(field) || result.value(field).isNull())
-                    error = tr("The node did not supply FiroPoW mining work. Use a current Firo Core node.");
+            static const QRegularExpression hash("\\A(?:0x)?[0-9a-fA-F]{64}\\z");
+            static const QRegularExpression bits("\\A(?:0x)?[0-9a-fA-F]{1,8}\\z");
+            const auto isUint32 = [](const QJsonValue& value) {
+                if (value.isDouble())
+                {
+                    const double number = value.toDouble();
+                    return number >= 0 && number <= (std::numeric_limits<quint32>::max)() &&
+                        std::floor(number) == number;
+                }
+                bool ok = false;
+                value.toString().toUInt(&ok);
+                static const QRegularExpression decimal("\\A[0-9]+\\z");
+                return ok && decimal.match(value.toString()).hasMatch();
+            };
+            if (!hash.match(result.value("pprpcheader").toString()).hasMatch() ||
+                !hash.match(result.value("target").toString()).hasMatch() ||
+                !bits.match(result.value("bits").toString()).hasMatch() ||
+                !isUint32(result.value("pprpcepoch")) || !isUint32(result.value("height")))
+                error = tr("The node did not supply valid FiroPoW mining work. Use a current Firo Core node.");
         }
         reply->deleteLater();
         m_nodeReply = nullptr;
@@ -404,10 +425,15 @@ void MinerController::finishNodeCheck(const QString& error)
     m_startAfterNodeCheck = false;
     m_nodeConfig = {};
     m_nodeBuffer.clear();
-    if (!launchAfterCheck || !launch(config))
+    if (!launchAfterCheck)
         setState(QStringLiteral("Stopped"));
     emit nodeChecked(error.isEmpty(), error.isEmpty() ?
         tr("Node ready · Mainnet · Synced · Reward address valid") : error);
+    if (launchAfterCheck && !launch(config))
+    {
+        setState(QStringLiteral("Stopped"));
+        emit nodeChecked(false, tr("Node check passed, but the miner could not start. See the startup error."));
+    }
 }
 
 void MinerController::stop()

@@ -35,6 +35,8 @@ public:
     QList<QJsonObject> requests;
     QList<QByteArray> authorizations;
     QList<QByteArray> targets;
+    QJsonObject work{{"pprpcheader", QString(64, '1')}, {"pprpcepoch", 769},
+        {"height", 1000001}, {"bits", "1e00ffff"}, {"target", QString(64, 'f')}};
 
     explicit NodeServer(const QString& mode = {})
     {
@@ -62,8 +64,7 @@ public:
                     const bool info = request.value("method") == QJsonValue("getblockchaininfo");
                     QJsonObject result = info ? QJsonObject{{"chain", mode == "network" ? "test" : "main"},
                         {"blocks", 1000000}, {"headers", mode == "sync" ? 1000001 : 1000000}} :
-                        QJsonObject{{"pprpcheader", QString(64, '1')}, {"pprpcepoch", 769},
-                            {"height", 1000001}, {"bits", "1e00ffff"}, {"target", QString(64, 'f')}};
+                        work;
                     if (mode == "incomplete" && !info)
                         result.remove("pprpcheader");
                     QJsonObject response{{"id", mode == "wrong-id" ? QJsonValue(-1) : request.value("id")},
@@ -191,10 +192,79 @@ private slots:
             QCOMPARE(node.requests.size(), 1);
     }
 
+    void rejectsMalformedMiningWork_data()
+    {
+        QTest::addColumn<QString>("field");
+        QTest::addColumn<QJsonValue>("value");
+        for (const auto* field : {"pprpcheader", "pprpcepoch", "height", "bits", "target"})
+        {
+            QTest::newRow(qPrintable(QString(field) + "-boolean")) << QString(field) << QJsonValue(true);
+            QTest::newRow(qPrintable(QString(field) + "-object")) << QString(field) << QJsonValue(QJsonObject{});
+            QTest::newRow(qPrintable(QString(field) + "-empty")) << QString(field) << QJsonValue("");
+        }
+        for (const auto* field : {"pprpcepoch", "height"})
+        {
+            QTest::newRow(qPrintable(QString(field) + "-negative")) << QString(field) << QJsonValue(-1);
+            QTest::newRow(qPrintable(QString(field) + "-fractional")) << QString(field) << QJsonValue(1.5);
+            QTest::newRow(qPrintable(QString(field) + "-overflow")) << QString(field) << QJsonValue(4294967296.);
+        }
+        QTest::newRow("short-header") << QString("pprpcheader") << QJsonValue("1234");
+        QTest::newRow("nonhex-target") << QString("target") << QJsonValue(QString(64, 'z'));
+        QTest::newRow("oversized-bits") << QString("bits") << QJsonValue("100000000");
+    }
+
+    void rejectsMalformedMiningWork()
+    {
+        QFETCH(QString, field);
+        QFETCH(QJsonValue, value);
+        NodeServer node;
+        QVERIFY(node.isListening());
+        node.work[field] = value;
+        MinerController controller;
+        QSignalSpy checked(&controller, &MinerController::nodeChecked);
+        QSignalSpy stats(&controller, &MinerController::statistics);
+        QVERIFY(controller.start(soloConfiguration(node.endpoint())));
+        QTRY_COMPARE_WITH_TIMEOUT(checked.count(), 1, 3000);
+        QVERIFY(!checked.first().first().toBool());
+        QVERIFY(checked.first().at(1).toString().contains("FiroPoW mining work"));
+        QVERIFY(!controller.isRunning());
+        QVERIFY(stats.isEmpty());
+    }
+
+    void soloLaunchFailureClearsReadiness()
+    {
+        NodeServer node;
+        QVERIFY(node.isListening());
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        auto config = soloConfiguration(node.endpoint());
+        config.executable = directory.filePath(QFileInfo(helperPath).fileName());
+        QVERIFY(QFile::copy(helperPath, config.executable));
+        MinerController controller;
+        QSignalSpy checked(&controller, &MinerController::nodeChecked);
+        QSignalSpy failed(&controller, &MinerController::failure);
+        QSignalSpy finished(&controller, &MinerController::finished);
+        QVERIFY(controller.start(config));
+        // The selected executable disappears while the asynchronous node check runs.
+        QVERIFY(QFile::remove(config.executable));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 3000);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(!checked.isEmpty());
+        QVERIFY(!checked.last().first().toBool());
+        QVERIFY(checked.last().at(1).toString().contains("Could not launch"));
+        QVERIFY(!controller.isRunning());
+    }
+
     void soloStartChecksNodeAndCanCancel()
     {
         NodeServer node;
         QVERIFY(node.isListening());
+        // The miner accepts decimal strings and optional 0x prefixes too.
+        node.work["height"] = "1000001";
+        node.work["pprpcepoch"] = "769";
+        node.work["pprpcheader"] = "0x" + QString(64, '1');
+        node.work["target"] = "0x" + QString(64, 'f');
+        node.work["bits"] = "0x1e00ffff";
         MinerController controller;
         QSignalSpy checked(&controller, &MinerController::nodeChecked);
         QSignalSpy stats(&controller, &MinerController::statistics);
