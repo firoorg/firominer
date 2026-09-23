@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QDialogButtonBox>
 #include <QFile>
+#include <QFontDatabase>
 #include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
@@ -69,6 +70,12 @@ class WindowTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase()
+    {
+        QVERIFY2(!QFontDatabase::families().isEmpty(),
+            "Layout tests need real fonts. Set QT_QPA_FONTDIR for the Windows offscreen plugin.");
+    }
+
     void init() { QSettings().clear(); }
 
     void soloDefaultsHelpAndSettingsStaySeparate()
