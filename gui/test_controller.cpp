@@ -6,9 +6,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTcpServer>
 #include <QTest>
+#include <QUrl>
 
 namespace
 {
@@ -24,6 +28,79 @@ MiningConfig configuration(const QString& mode = {})
     config.password = "private-password";
     return config;
 }
+
+class NodeServer : public QTcpServer
+{
+public:
+    QList<QJsonObject> requests;
+    QList<QByteArray> authorizations;
+    QList<QByteArray> targets;
+    QJsonObject work{{"pprpcheader", QString(64, '1')}, {"pprpcepoch", 769},
+        {"height", 1000001}, {"bits", "1e00ffff"}, {"target", QString(64, 'f')}};
+
+    explicit NodeServer(const QString& mode = {})
+    {
+        connect(this, &QTcpServer::newConnection, this, [this, mode] {
+            while (hasPendingConnections())
+            {
+                auto* socket = nextPendingConnection();
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                connect(socket, &QTcpSocket::readyRead, socket, [this, socket, mode] {
+                    const auto bytes = socket->property("buffer").toByteArray() + socket->readAll();
+                    socket->setProperty("buffer", bytes);
+                    const auto end = bytes.indexOf("\r\n\r\n");
+                    if (end < 0)
+                        return;
+                    const auto headers = QString::fromLatin1(bytes.left(end));
+                    const auto length = QRegularExpression("Content-Length: (\\d+)", QRegularExpression::CaseInsensitiveOption).match(headers).captured(1).toInt();
+                    if (bytes.size() < end + 4 + length)
+                        return;
+                    const auto request = QJsonDocument::fromJson(bytes.mid(end + 4, length)).object();
+                    requests.append(request);
+                    targets.append(bytes.left(bytes.indexOf("\r\n")).split(' ').value(1));
+                    authorizations.append(QRegularExpression("Authorization: ([^\\r\\n]+)", QRegularExpression::CaseInsensitiveOption).match(headers).captured(1).toLatin1());
+                    if (mode == "timeout")
+                        return;
+                    const bool info = request.value("method") == QJsonValue("getblockchaininfo");
+                    QJsonObject result = info ? QJsonObject{{"chain", mode == "network" ? "test" : "main"},
+                        {"blocks", 1000000}, {"headers", mode == "sync" ? 1000001 : 1000000}} :
+                        work;
+                    if (mode == "incomplete" && !info)
+                        result.remove("pprpcheader");
+                    QJsonObject response{{"id", mode == "wrong-id" ? QJsonValue(-1) : request.value("id")},
+                        {"result", result}, {"error", QJsonValue::Null}};
+                    if (!info && (mode == "reward" || mode == "masternode-sync" || mode == "peers"))
+                        response["error"] = QJsonObject{{"code", mode == "reward" ? -5 : mode == "peers" ? -9 : -10},
+                            {"message", "Remote error must not echo the RPC password"}};
+                    QByteArray body = QJsonDocument(response).toJson(QJsonDocument::Compact);
+                    if (mode == "malformed") body = "not json";
+                    if (mode == "oversized") body = QByteArray(16 * 1024 * 1024 + 1, 'x');
+                    const QByteArray status = mode == "auth" ? "401 Unauthorized" :
+                        mode == "forbidden" ? "403 Forbidden" :
+                        mode == "redirect" ? "302 Found" :
+                        response.value("error").isObject() ? "500 Internal Server Error" : "200 OK";
+                    socket->write("HTTP/1.1 " + status + "\r\nContent-Type: application/json\r\nConnection: close\r\n"
+                        "Location: " + endpoint().toLatin1() + "\r\nContent-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body);
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+        listen(QHostAddress::LocalHost, 0);
+    }
+
+    QString endpoint() const { return QString("http://127.0.0.1:%1").arg(serverPort()); }
+};
+
+MiningConfig soloConfiguration(const QString& endpoint)
+{
+    auto config = configuration();
+    config.solo = true;
+    config.nodeUrl = endpoint;
+    config.rpcUser = "miner.name";
+    config.rpcPassword = "rpc.secret+/@:%";
+    config.rewardAddress = "aTransparentRewardAddress";
+    return config;
+}
 }
 
 class ControllerTest : public QObject
@@ -31,6 +108,228 @@ class ControllerTest : public QObject
     Q_OBJECT
 
 private slots:
+    void soloArgumentsAndValidation()
+    {
+        auto config = soloConfiguration("getwork://127.0.0.1:8888");
+        QVERIFY(MinerController::validate(config).isEmpty());
+        auto args = MinerController::arguments(config, 3456, "api-secret");
+        QCOMPARE(args.value(args.indexOf("-P") + 1),
+            QString("getwork://miner%2Ename:rpc%2Esecret%2B%2F%40%3A%25@127.0.0.1:8888"));
+        QCOMPARE(args.value(args.indexOf("--reward-address") + 1), config.rewardAddress);
+        QVERIFY(!args.join(' ').contains(config.wallet + '.' + config.worker));
+        for (const auto& endpoint : {"https://127.0.0.1:8888", "stratum+tcp://127.0.0.1:8888",
+                 "http://miner:password@localhost:8888", "http://localhost:8888/%0a", "http://[::1]:8888"})
+        {
+            config.nodeUrl = endpoint;
+            QVERIFY(!MinerController::validate(config).isEmpty());
+        }
+        config = soloConfiguration("http://localhost:8888");
+        for (const auto& reward : {"", "--pool", "address with spaces", "address\n"})
+        {
+            config.rewardAddress = reward;
+            QVERIFY(!MinerController::validate(config).isEmpty());
+        }
+        config = soloConfiguration("http://localhost:8888");
+        config.rpcPassword.clear();
+        QVERIFY(!MinerController::validate(config).isEmpty());
+        config = soloConfiguration("http://localhost:8888");
+        config.rpcUser = "user:name";
+        QVERIFY(!MinerController::validate(config).isEmpty());
+    }
+
+    void checksNodeWithoutStartingMiner_data()
+    {
+        QTest::addColumn<QString>("mode");
+        QTest::addColumn<QString>("message");
+        QTest::newRow("ready") << "" << "Node ready";
+        QTest::newRow("blockchain-sync") << "sync" << "syncing";
+        QTest::newRow("masternode-sync") << "masternode-sync" << "syncing";
+        QTest::newRow("no-peers") << "peers" << "no network peers";
+        QTest::newRow("wrong-network") << "network" << "Network mismatch";
+        QTest::newRow("bad-login") << "auth" << "RPC login failed";
+        QTest::newRow("not-allowed") << "forbidden" << "rpcallowip";
+        QTest::newRow("offline") << "offline" << "Cannot reach the node";
+        QTest::newRow("invalid-or-spark-address") << "reward" << "transparent Mainnet";
+        QTest::newRow("not-firo") << "incomplete" << "FiroPoW mining work";
+        QTest::newRow("malformed") << "malformed" << "valid Firo RPC response";
+        QTest::newRow("wrong-id") << "wrong-id" << "valid Firo RPC response";
+        QTest::newRow("no-credential-redirect") << "redirect" << "redirected";
+        QTest::newRow("oversized") << "oversized" << "too large";
+        QTest::newRow("timeout") << "timeout" << "timed out";
+    }
+
+    void checksNodeWithoutStartingMiner()
+    {
+        QFETCH(QString, mode);
+        QFETCH(QString, message);
+        NodeServer node(mode);
+        QVERIFY(node.isListening());
+        auto config = soloConfiguration(node.endpoint());
+        if (mode == "offline")
+            node.close();
+        config.executable.clear(); // A node check does not need an installed miner or GPU.
+        MinerController controller;
+        QSignalSpy checked(&controller, &MinerController::nodeChecked);
+        QSignalSpy stats(&controller, &MinerController::statistics);
+        QVERIFY(controller.testNode(config));
+        QVERIFY(!controller.testNode(config));
+        QTRY_COMPARE_WITH_TIMEOUT(checked.count(), 1, 12000);
+        QCOMPARE(checked.first().first().toBool(), mode.isEmpty());
+        QVERIFY2(checked.first().at(1).toString().contains(message), qPrintable(checked.first().at(1).toString()));
+        QVERIFY(!checked.first().at(1).toString().contains(config.rpcPassword));
+        QVERIFY(!controller.isRunning());
+        QVERIFY(stats.isEmpty());
+        for (const auto& auth : node.authorizations)
+            QCOMPARE(auth, "Basic " + (config.rpcUser + ':' + config.rpcPassword).toUtf8().toBase64());
+        if (mode.isEmpty())
+        {
+            QCOMPARE(node.requests.size(), 2);
+            QCOMPARE(node.requests[0].value("method"), QJsonValue("getblockchaininfo"));
+            QCOMPARE(node.requests[1].value("method"), QJsonValue("getblocktemplate"));
+            QCOMPARE(node.requests[1].value("params").toArray(), (QJsonArray{QJsonObject{}, config.rewardAddress}));
+        }
+        if (mode == "redirect")
+            QCOMPARE(node.requests.size(), 1);
+    }
+
+    void rejectsMalformedMiningWork_data()
+    {
+        QTest::addColumn<QString>("field");
+        QTest::addColumn<QJsonValue>("value");
+        for (const auto* field : {"pprpcheader", "pprpcepoch", "height", "bits", "target"})
+        {
+            QTest::newRow(qPrintable(QString(field) + "-boolean")) << QString(field) << QJsonValue(true);
+            QTest::newRow(qPrintable(QString(field) + "-object")) << QString(field) << QJsonValue(QJsonObject{});
+            QTest::newRow(qPrintable(QString(field) + "-empty")) << QString(field) << QJsonValue("");
+        }
+        for (const auto* field : {"pprpcepoch", "height"})
+        {
+            QTest::newRow(qPrintable(QString(field) + "-negative")) << QString(field) << QJsonValue(-1);
+            QTest::newRow(qPrintable(QString(field) + "-fractional")) << QString(field) << QJsonValue(1.5);
+            QTest::newRow(qPrintable(QString(field) + "-overflow")) << QString(field) << QJsonValue(4294967296.);
+        }
+        QTest::newRow("short-header") << QString("pprpcheader") << QJsonValue("1234");
+        QTest::newRow("nonhex-target") << QString("target") << QJsonValue(QString(64, 'z'));
+        QTest::newRow("oversized-bits") << QString("bits") << QJsonValue("100000000");
+    }
+
+    void rejectsMalformedMiningWork()
+    {
+        QFETCH(QString, field);
+        QFETCH(QJsonValue, value);
+        NodeServer node;
+        QVERIFY(node.isListening());
+        node.work[field] = value;
+        MinerController controller;
+        QSignalSpy checked(&controller, &MinerController::nodeChecked);
+        QSignalSpy stats(&controller, &MinerController::statistics);
+        QVERIFY(controller.start(soloConfiguration(node.endpoint())));
+        QTRY_COMPARE_WITH_TIMEOUT(checked.count(), 1, 3000);
+        QVERIFY(!checked.first().first().toBool());
+        QVERIFY(checked.first().at(1).toString().contains("FiroPoW mining work"));
+        QVERIFY(!controller.isRunning());
+        QVERIFY(stats.isEmpty());
+    }
+
+    void soloLaunchFailureClearsReadiness()
+    {
+        NodeServer node;
+        QVERIFY(node.isListening());
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        auto config = soloConfiguration(node.endpoint());
+        config.executable = directory.filePath(QFileInfo(helperPath).fileName());
+        QVERIFY(QFile::copy(helperPath, config.executable));
+        MinerController controller;
+        QSignalSpy checked(&controller, &MinerController::nodeChecked);
+        QSignalSpy failed(&controller, &MinerController::failure);
+        QSignalSpy finished(&controller, &MinerController::finished);
+        QVERIFY(controller.start(config));
+        // The selected executable disappears while the asynchronous node check runs.
+        QVERIFY(QFile::remove(config.executable));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 3000);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(!checked.isEmpty());
+        QVERIFY(!checked.last().first().toBool());
+        QVERIFY(checked.last().at(1).toString().contains("Could not launch"));
+        QVERIFY(!controller.isRunning());
+    }
+
+    void soloStartChecksNodeAndCanCancel()
+    {
+        NodeServer node;
+        QVERIFY(node.isListening());
+        // The miner accepts decimal strings and optional 0x prefixes too.
+        node.work["height"] = "1000001";
+        node.work["pprpcepoch"] = "769";
+        node.work["pprpcheader"] = "0x" + QString(64, '1');
+        node.work["target"] = "0x" + QString(64, 'f');
+        node.work["bits"] = "0x1e00ffff";
+        MinerController controller;
+        QSignalSpy checked(&controller, &MinerController::nodeChecked);
+        QSignalSpy stats(&controller, &MinerController::statistics);
+        QSignalSpy finished(&controller, &MinerController::finished);
+        QSignalSpy logs(&controller, &MinerController::logLine);
+        const auto config = soloConfiguration(node.endpoint());
+        QVERIFY(controller.start(config));
+        QTRY_VERIFY_WITH_TIMEOUT(!stats.isEmpty(), 7000);
+        QCOMPARE(checked.count(), 1);
+        QVERIFY(checked.first().first().toBool());
+        QCOMPARE(node.requests.size(), 2);
+        for (const auto& line : logs)
+            QVERIFY(!line.first().toString().contains(config.rpcPassword));
+        controller.stop();
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
+
+        NodeServer waiting("timeout");
+        QVERIFY(controller.start(soloConfiguration(waiting.endpoint())));
+        controller.stop();
+        QCOMPARE(finished.count(), 2);
+        QVERIFY(!controller.isRunning());
+        QCOMPARE(checked.count(), 2);
+        QVERIFY(!checked.last().first().toBool());
+
+        NodeServer badReward("reward");
+        stats.clear();
+        QVERIFY(controller.start(soloConfiguration(badReward.endpoint())));
+        QTRY_COMPARE_WITH_TIMEOUT(checked.count(), 3, 3000);
+        QVERIFY(!controller.isRunning());
+        QVERIFY(stats.isEmpty());
+    }
+
+    void soloEndpointPathMatchesTheNodeCheck()
+    {
+        NodeServer node;
+        QVERIFY(node.isListening());
+        auto config = soloConfiguration(node.endpoint() + "/wallet/a%3Fb%23c%2Fd+e@f");
+        MinerController controller;
+        QSignalSpy checked(&controller, &MinerController::nodeChecked);
+        QVERIFY(controller.testNode(config));
+        QTRY_COMPARE_WITH_TIMEOUT(checked.count(), 1, 3000);
+        QVERIFY(checked.first().first().toBool());
+        const auto args = MinerController::arguments(config, 3456, "api-secret");
+        const QUrl minerUrl(args.value(args.indexOf("-P") + 1));
+        // PoolURI decodes once, then the miner sends Path() verbatim in HTTP.
+        const auto target = QByteArray::fromPercentEncoding(minerUrl.path(QUrl::FullyEncoded).toUtf8().replace('+', ' '));
+        QCOMPARE(node.targets.size(), 2);
+        QCOMPARE(target, node.targets.first());
+    }
+
+    void passwordRedactionDoesNotHideStartupFailure()
+    {
+        NodeServer node;
+        QVERIFY(node.isListening());
+        auto config = soloConfiguration(node.endpoint() + "/bind-failure");
+        config.rpcPassword = "port";
+        MinerController controller;
+        QSignalSpy failed(&controller, &MinerController::failure);
+        QSignalSpy finished(&controller, &MinerController::finished);
+        QVERIFY(controller.start(config));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(failed.first().first().toString().contains("statistics port"));
+    }
+
     void encodesCredentialsAndDeviceArguments()
     {
         auto config = configuration();

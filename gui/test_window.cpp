@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QDialogButtonBox>
 #include <QFile>
+#include <QFontDatabase>
 #include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
@@ -13,8 +14,10 @@
 #include <QSettings>
 #include <QScopeGuard>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QStatusBar>
 #include <QTableWidget>
+#include <QTcpServer>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -67,7 +70,104 @@ class WindowTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase()
+    {
+        QVERIFY2(!QFontDatabase::families().isEmpty(),
+            "Layout tests need real fonts. Set QT_QPA_FONTDIR for the Windows offscreen plugin.");
+    }
+
     void init() { QSettings().clear(); }
+
+    void soloDefaultsHelpAndSettingsStaySeparate()
+    {
+        MainWindow window;
+        window.resize(1120, 800);
+        window.show();
+        window.findChild<QListWidget*>("navigation")->setCurrentRow(1);
+        auto* pool = window.findChild<QLineEdit*>("poolInput");
+        auto* node = window.findChild<QLineEdit*>("nodeInput");
+        auto* rpcUser = window.findChild<QLineEdit*>("rpcUserInput");
+        auto* rpcPassword = window.findChild<QLineEdit*>("rpcPasswordInput");
+        auto* reward = window.findChild<QLineEdit*>("rewardInput");
+        auto* solo = window.findChild<QPushButton*>("soloMode");
+        auto* gpu = window.findChild<QComboBox*>("backendInput");
+        auto* guide = window.findChild<QPushButton*>("nodeGuideButton");
+        QVERIFY(!solo->isChecked());
+        QCOMPARE(node->text(), QString("http://127.0.0.1:8888"));
+        QCOMPARE(rpcUser->text(), QString("miner"));
+        QVERIFY(rpcPassword->text().isEmpty());
+        QVERIFY(reward->text().isEmpty());
+        QVERIFY(node->toolTip().contains("server=1"));
+        QVERIFY(node->toolTip().contains("rpcallowip=127.0.0.1"));
+        QVERIFY(rpcPassword->toolTip().contains("Restart Firo Core"));
+        QVERIFY(reward->toolTip().contains("Spark"));
+        QVERIFY(!node->isVisible());
+        pool->setText("stratum+tcp://pool.example:3333");
+        QTest::qWait(20);
+        const int poolGpuY = gpu->mapTo(&window, QPoint()).y();
+        solo->click();
+        QTest::qWait(20);
+        QVERIFY(node->isVisible());
+        QVERIFY(!pool->isVisible());
+        QVERIFY(!window.findChild<QLineEdit*>("devicesInput")->isVisible());
+        const int soloGpuY = gpu->mapTo(&window, QPoint()).y();
+        QVERIFY(soloGpuY > poolGpuY); // Hidden solo rows consume no space in pool mode.
+        guide->click();
+        QTest::qWait(20);
+        QVERIFY(gpu->mapTo(&window, QPoint()).y() > soloGpuY);
+        guide->click();
+        QTest::qWait(20);
+        QCOMPARE(gpu->mapTo(&window, QPoint()).y(), soloGpuY);
+        node->setText("http://127.0.0.1:8382");
+        reward->setText("solo-reward-address");
+        rpcPassword->setText("never-persist-rpc-password");
+        window.findChild<QPushButton*>("saveSetup")->click();
+        for (const auto& key : QSettings().allKeys())
+            QVERIFY(!QSettings().value(key).toString().contains("never-persist-rpc-password"));
+        window.findChild<QPushButton*>("poolMode")->click();
+        QCOMPARE(pool->text(), QString("stratum+tcp://pool.example:3333"));
+        solo->click();
+        QCOMPARE(rpcPassword->text(), QString("never-persist-rpc-password"));
+        MainWindow restored;
+        QVERIFY(restored.findChild<QPushButton*>("soloMode")->isChecked());
+        QCOMPARE(restored.findChild<QLineEdit*>("nodeInput")->text(), QString("http://127.0.0.1:8382"));
+        QCOMPARE(restored.findChild<QLineEdit*>("rewardInput")->text(), QString("solo-reward-address"));
+        QVERIFY(restored.findChild<QLineEdit*>("rpcPasswordInput")->text().isEmpty());
+        node->setText("http://user:secret@127.0.0.1:8888");
+        window.findChild<QPushButton*>("poolMode")->click();
+        window.findChild<QPushButton*>("saveSetup")->click();
+        QCOMPARE(QSettings().value("solo/endpoint").toString(), QString("http://127.0.0.1:8382"));
+        QVERIFY(solo->isChecked()); // Surface the invalid field even when its mode was hidden.
+        QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 1);
+    }
+
+    void soloControlsAndStatistics()
+    {
+        MainWindow window;
+        auto* solo = window.findChild<QPushButton*>("soloMode");
+        solo->click();
+        window.setMiningState("Checking node");
+        QVERIFY(!solo->isEnabled());
+        QVERIFY(!window.findChild<QPushButton*>("testNode")->isEnabled());
+        QVERIFY(!window.findChild<QLineEdit*>("rpcPasswordInput")->isEnabled());
+        QCOMPARE(window.findChild<QPushButton*>("startMining")->text(), QString("Cancel check"));
+        QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 1);
+        window.setMiningState("Mining");
+        auto stats = statistics();
+        auto mining = stats["mining"].toObject();
+        mining["shares"] = QJsonArray{0, 0, 0, 0};
+        stats["mining"] = mining;
+        window.updateStatistics(stats);
+        QCOMPARE(window.findChild<QLabel*>("acceptedLabel")->text(), QString("Blocks accepted"));
+        bool healthy = false;
+        for (auto* text : window.findChildren<QLabel*>())
+            healthy |= text->text() == "Mining normally · no block found yet";
+        QVERIFY(healthy);
+        window.setMiningState("Stopped");
+        QVERIFY(solo->isEnabled());
+        window.findChild<QPushButton*>("poolMode")->click();
+        QCOMPARE(window.findChild<QLabel*>("acceptedLabel")->text(), QString("Accepted shares"));
+    }
 
     void startsIdleAndRequiresConfiguration()
     {
@@ -79,6 +179,24 @@ private slots:
         QVERIFY(!window.findChild<QLabel*>("notice")->text().isEmpty());
         QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 1);
         QCOMPARE(window.findChild<QLabel*>("miningState")->text(), QString("Stopped"));
+    }
+
+    void closingDuringNodeCheckCancelsWithoutMiningPrompt()
+    {
+        QTcpServer node;
+        QVERIFY(node.listen(QHostAddress::LocalHost, 0));
+        MainWindow window;
+        window.show();
+        window.findChild<QPushButton*>("soloMode")->click();
+        window.findChild<QLineEdit*>("nodeInput")->setText(QString("http://127.0.0.1:%1").arg(node.serverPort()));
+        window.findChild<QLineEdit*>("rpcPasswordInput")->setText("session-secret");
+        window.findChild<QLineEdit*>("rewardInput")->setText("test-reward-address");
+        window.findChild<QPushButton*>("testNode")->click();
+        auto* controller = window.findChild<MinerController*>();
+        QVERIFY(controller->isRunning());
+        QVERIFY(window.close());
+        QVERIFY(!window.isVisible());
+        QVERIFY(!controller->isRunning());
     }
 
     void displaysActualUnitsAndClearsStoppedReadings()
@@ -182,6 +300,89 @@ private slots:
         shell->ensureWidgetVisible(start);
         const auto point = start->mapTo(shell->viewport(), start->rect().center());
         QVERIFY(shell->viewport()->rect().contains(point));
+    }
+
+    void layoutAtDifferentSizes_data()
+    {
+        QTest::addColumn<QSize>("size");
+        QTest::addColumn<QString>("theme");
+        QTest::addColumn<int>("fontSize");
+        QTest::newRow("small") << QSize(640, 480) << "light" << 0;
+        QTest::newRow("laptop") << QSize(800, 600) << "light" << 0;
+        QTest::newRow("before-reflow") << QSize(999, 700) << "light" << 0;
+        QTest::newRow("after-reflow") << QSize(1000, 700) << "light" << 0;
+        QTest::newRow("default") << QSize(1120, 800) << "light" << 0;
+        QTest::newRow("desktop") << QSize(1920, 1080) << "light" << 0;
+        QTest::newRow("small-dark") << QSize(640, 480) << "dark" << 0;
+        QTest::newRow("desktop-dark") << QSize(1920, 1080) << "dark" << 0;
+        QTest::newRow("large-text") << QSize(800, 600) << "light" << 18;
+    }
+
+    void layoutAtDifferentSizes()
+    {
+        QFETCH(QSize, size);
+        QFETCH(QString, theme);
+        QFETCH(int, fontSize);
+        QSettings().setValue("appearance/theme", theme);
+        const auto original = QApplication::font();
+        const auto restore = qScopeGuard([original] { QApplication::setFont(original); });
+        if (fontSize)
+        {
+            auto font = original;
+            font.setPointSize(fontSize);
+            QApplication::setFont(font);
+        }
+        MainWindow window;
+        window.resize(size.width() < 1000 ? QSize(1120, 800) : QSize(640, 480));
+        window.show();
+        window.resize(size); // Exercise reflow in both directions after showing the window.
+        window.findChild<QPushButton*>("soloMode")->click();
+        window.statusBar()->addPermanentWidget(new QLabel("Test fixture data"));
+        auto* navigation = window.findChild<QListWidget*>("navigation");
+        // Revisit setup in Pool mode and with the node guide expanded.
+        for (int state = 0; state < 6; ++state)
+        {
+            const int page = state < 4 ? state : 1;
+            if (state == 4)
+                window.findChild<QPushButton*>("poolMode")->click();
+            if (state == 5)
+            {
+                window.findChild<QPushButton*>("soloMode")->click();
+                window.findChild<QPushButton*>("nodeGuideButton")->click();
+            }
+            window.setMiningState(page == 0 || page == 2 ? "Mining" : "Stopped");
+            if (page == 0 || page == 2)
+                window.updateStatistics(statistics());
+            navigation->setCurrentRow(page);
+            QTest::qWait(30);
+            const auto directory = qEnvironmentVariable("FIROMINER_GUI_SCREENSHOT_DIR");
+            if (!directory.isEmpty())
+            {
+                QVERIFY(QDir().mkpath(directory));
+                QVERIFY(window.grab().save(QDir(directory).filePath(QString("%1-%2.png").arg(QTest::currentDataTag()).arg(state))));
+            }
+            QCOMPARE(window.size(), size);
+            auto* shell = window.findChild<QScrollArea*>("shellScroll");
+            QCOMPARE(shell->verticalScrollBar()->maximum(), 0);
+            auto* start = window.findChild<QPushButton*>("startMining");
+            QVERIFY(shell->viewport()->rect().contains(QRect(start->mapTo(shell->viewport(), QPoint()), start->size())));
+            for (auto* scroll : window.findChildren<QScrollArea*>())
+                if (scroll->isVisible())
+                {
+                    QCOMPARE(scroll->horizontalScrollBar()->maximum(), 0);
+                    if (page == 1 && scroll != shell)
+                        for (auto* input : scroll->findChildren<QLineEdit*>())
+                            if (input->isVisible())
+                            {
+                                QVERIFY(input->width() >= 200);
+                                // ensureWidgetVisible only guarantees a line edit's cursor is visible.
+                                // Check that its entire frame can be scrolled into view instead.
+                                const auto center = input->mapTo(scroll->widget(), input->rect().center());
+                                scroll->ensureVisible(center.x(), center.y(), input->width() / 2 + 1, input->height() / 2 + 1);
+                                QVERIFY(scroll->viewport()->rect().contains(QRect(input->mapTo(scroll->viewport(), QPoint()), input->size())));
+                            }
+                }
+        }
     }
 
     void systemPaletteChangesRemainReadable()
@@ -392,7 +593,7 @@ private slots:
             return;
         QVERIFY(QDir().mkpath(directory));
         MainWindow window;
-        window.resize(1400, 900);
+        window.resize(1120, 800);
         window.findChild<QLineEdit*>("poolInput")->setText("stratum+tcp://pool.example:3333");
         window.findChild<QLineEdit*>("walletInput")->setText("a7KpDesignPreviewAddress9mQ2");
         window.findChild<QLineEdit*>("workerInput")->setText("desktop-01");
@@ -424,6 +625,16 @@ private slots:
         window.findChild<QListWidget*>("navigation")->setCurrentRow(1);
         QTest::qWait(50);
         QVERIFY(window.grab().save(QDir(directory).filePath("setup.png")));
+        window.findChild<QPushButton*>("soloMode")->click();
+        QTest::qWait(50);
+        QVERIFY(window.grab().save(QDir(directory).filePath("solo-setup.png")));
+        window.findChild<QPushButton*>("nodeGuideButton")->click();
+        QTest::qWait(50);
+        QVERIFY(window.grab().save(QDir(directory).filePath("solo-config.png")));
+        window.findChild<QPushButton*>("nodeGuideButton")->click();
+        QVERIFY(chooseTheme(window, "dark", QDialogButtonBox::Save));
+        QTest::qWait(50);
+        QVERIFY(window.grab().save(QDir(directory).filePath("solo-dark.png")));
     }
 };
 
