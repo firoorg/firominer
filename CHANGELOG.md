@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 1.5.1
+
+### Added
+
+- Mainnet solo mining in the desktop launcher, with Firo node setup guidance, a node test before launch, and accepted-block and connection status.
+- Separate pool and solo settings; passwords remain in memory for the current GUI session.
+
+### Changed
+
+- Reflowed the launcher for smaller windows, larger text, and display scaling.
+- Expanded GUI tests for solo node checks, startup failures, responsive layouts, and Windows builds.
+
+### Fixed
+
+- Rejected malformed solo work before starting the miner and cleared node readiness when startup fails.
+
 ## 1.5.0
 
 ### Added
