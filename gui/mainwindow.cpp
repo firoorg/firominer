@@ -786,6 +786,9 @@ QWidget* MainWindow::setupPage()
     auto* addressNote = label("Transparent address required. Spark addresses are not supported for solo rewards.", "muted");
     addressNote->setWordWrap(true);
     soloForm->addRow("", addressNote);
+    coinbaseMessageInput_ = field(soloForm, "Coinbase message", "coinbaseMessageInput", "Optional, for example Zed",
+        "Public text embedded in blocks you mine. Up to 80 UTF-8 bytes. "
+        "Requires a Firo node with coinbase-message support. Explorer display depends on the explorer.");
     auto* check = new QHBoxLayout;
     check->setSpacing(10);
     testNode_ = button("Test node");
@@ -797,7 +800,7 @@ QWidget* MainWindow::setupPage()
     check->addWidget(nodeStatus_, 1);
     soloForm->addRow("", check);
     connect(testNode_, &QPushButton::clicked, this, [this] { controller_.testNode(configuration()); });
-    for (auto* input : {nodeInput_, rpcUserInput_, rpcPasswordInput_, rewardInput_})
+    for (auto* input : {nodeInput_, rpcUserInput_, rpcPasswordInput_, rewardInput_, coinbaseMessageInput_})
         connect(input, &QLineEdit::textChanged, this, [this] { nodeStatus_->setText("Connection not checked"); });
     body->addWidget(soloFields_);
     auto* gpu = new QWidget;
@@ -920,7 +923,7 @@ MiningConfig MainWindow::configuration() const
         backendInput_->currentData().toString(),
         backendInput_->currentData().toString() == "auto" ? QString() : devicesInput_->text().trimmed(),
         soloMode_->isChecked(), nodeInput_->text().trimmed(), rpcUserInput_->text(),
-        rpcPasswordInput_->text(), rewardInput_->text().trimmed()};
+        rpcPasswordInput_->text(), rewardInput_->text().trimmed(), coinbaseMessageInput_->text()};
 }
 
 void MainWindow::loadSettings()
@@ -942,6 +945,7 @@ void MainWindow::loadSettings()
     nodeInput_->setText(settings.value("solo/endpoint", "http://127.0.0.1:8888").toString());
     rpcUserInput_->setText(settings.value("solo/username", "miner").toString());
     rewardInput_->setText(settings.value("solo/rewardAddress").toString());
+    coinbaseMessageInput_->setText(settings.value("solo/coinbaseMessage").toString());
     backendInput_->setCurrentIndex(std::max(0, backendInput_->findData(settings.value("miner/backend", "auto").toString())));
     devicesInput_->setText(settings.value("miner/devices").toString());
     devicesInput_->setEnabled(backendInput_->currentData().toString() != "auto");
@@ -976,6 +980,7 @@ bool MainWindow::saveSettings()
     settings.setValue("solo/endpoint", nodeInput_->text().trimmed());
     settings.setValue("solo/username", rpcUserInput_->text());
     settings.setValue("solo/rewardAddress", rewardInput_->text().trimmed());
+    settings.setValue("solo/coinbaseMessage", coinbaseMessageInput_->text());
     settings.setValue("miner/backend", backendInput_->currentData());
     settings.setValue("miner/devices", devicesInput_->text().trimmed());
     settings.setValue("window/geometry", saveGeometry());
@@ -1079,7 +1084,7 @@ void MainWindow::setMiningState(const QString& state)
     start_->setText(state == "Checking node" ? "Cancel check" : running ? "Stop mining" :
         soloMode_->isChecked() ? "Start solo mining" : "Start pool mining");
     start_->setEnabled(state != "Stopping");
-    for (auto* field : {poolInput_, walletInput_, workerInput_, passwordInput_, nodeInput_, rpcUserInput_, rpcPasswordInput_, rewardInput_})
+    for (auto* field : {poolInput_, walletInput_, workerInput_, passwordInput_, nodeInput_, rpcUserInput_, rpcPasswordInput_, rewardInput_, coinbaseMessageInput_})
         field->setEnabled(!running);
     backendInput_->setEnabled(!running);
     poolMode_->setEnabled(!running);

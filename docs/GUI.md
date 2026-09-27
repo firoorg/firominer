@@ -61,6 +61,13 @@ and requires blockchain and masternode sync. It does not start mining. Starting
 solo mining repeats this check before launching the miner. Checks can be
 cancelled, time out after ten seconds per request, and never follow redirects.
 
+The optional **Coinbase message** field embeds public text in blocks you solo-mine.
+Enter the text directly, without wrapping it in quotes, up to 80 UTF-8 bytes.
+The message is saved for your next launch. **Test node** also checks that the node
+acknowledges it; use Firo Core 0.14.18.1 or another version with coinbase-message
+support. Leave it empty for nodes without this support. Explorers decide whether
+to display the message or recognize it as a miner name.
+
 In Solo mode the overview shows **Blocks accepted** and **Node connection**.
 Zero blocks is normal while mining: solo has no pool shares or periodic payouts.
 Accepted block rewards need confirmations before becoming spendable. Pool and

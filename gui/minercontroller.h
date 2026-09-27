@@ -22,6 +22,7 @@ struct MiningConfig
     QString rpcUser = QStringLiteral("miner");
     QString rpcPassword;
     QString rewardAddress;
+    QString coinbaseMessage;
 };
 
 class MinerController : public QObject

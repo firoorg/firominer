@@ -89,6 +89,7 @@ private slots:
         auto* rpcUser = window.findChild<QLineEdit*>("rpcUserInput");
         auto* rpcPassword = window.findChild<QLineEdit*>("rpcPasswordInput");
         auto* reward = window.findChild<QLineEdit*>("rewardInput");
+        auto* coinbase = window.findChild<QLineEdit*>("coinbaseMessageInput");
         auto* solo = window.findChild<QPushButton*>("soloMode");
         auto* gpu = window.findChild<QComboBox*>("backendInput");
         auto* guide = window.findChild<QPushButton*>("nodeGuideButton");
@@ -97,6 +98,8 @@ private slots:
         QCOMPARE(rpcUser->text(), QString("miner"));
         QVERIFY(rpcPassword->text().isEmpty());
         QVERIFY(reward->text().isEmpty());
+        QVERIFY(coinbase->text().isEmpty());
+        QVERIFY(!coinbase->isVisible());
         QVERIFY(node->toolTip().contains("server=1"));
         QVERIFY(node->toolTip().contains("rpcallowip=127.0.0.1"));
         QVERIFY(rpcPassword->toolTip().contains("Restart Firo Core"));
@@ -108,6 +111,7 @@ private slots:
         solo->click();
         QTest::qWait(20);
         QVERIFY(node->isVisible());
+        QVERIFY(coinbase->isVisible());
         QVERIFY(!pool->isVisible());
         QVERIFY(!window.findChild<QLineEdit*>("devicesInput")->isVisible());
         const int soloGpuY = gpu->mapTo(&window, QPoint()).y();
@@ -120,11 +124,16 @@ private slots:
         QCOMPARE(gpu->mapTo(&window, QPoint()).y(), soloGpuY);
         node->setText("http://127.0.0.1:8382");
         reward->setText("solo-reward-address");
+        const auto message = QString::fromUtf8(" Zed \"caf\xc3\xa9\" ");
+        window.findChild<QLabel*>("nodeStatus")->setText("Node ready");
+        coinbase->setText(message);
+        QCOMPARE(window.findChild<QLabel*>("nodeStatus")->text(), QString("Connection not checked"));
         rpcPassword->setText("never-persist-rpc-password");
         window.findChild<QPushButton*>("saveSetup")->click();
         for (const auto& key : QSettings().allKeys())
             QVERIFY(!QSettings().value(key).toString().contains("never-persist-rpc-password"));
         window.findChild<QPushButton*>("poolMode")->click();
+        QVERIFY(!coinbase->isVisible());
         QCOMPARE(pool->text(), QString("stratum+tcp://pool.example:3333"));
         solo->click();
         QCOMPARE(rpcPassword->text(), QString("never-persist-rpc-password"));
@@ -132,7 +141,11 @@ private slots:
         QVERIFY(restored.findChild<QPushButton*>("soloMode")->isChecked());
         QCOMPARE(restored.findChild<QLineEdit*>("nodeInput")->text(), QString("http://127.0.0.1:8382"));
         QCOMPARE(restored.findChild<QLineEdit*>("rewardInput")->text(), QString("solo-reward-address"));
+        QCOMPARE(restored.findChild<QLineEdit*>("coinbaseMessageInput")->text(), message);
         QVERIFY(restored.findChild<QLineEdit*>("rpcPasswordInput")->text().isEmpty());
+        coinbase->setText(QString(41, QChar(0xe9)));
+        window.findChild<QPushButton*>("testNode")->click();
+        QVERIFY(window.findChild<QLabel*>("nodeStatus")->text().contains("80 UTF-8 bytes"));
         node->setText("http://user:secret@127.0.0.1:8888");
         window.findChild<QPushButton*>("poolMode")->click();
         window.findChild<QPushButton*>("saveSetup")->click();
@@ -150,6 +163,7 @@ private slots:
         QVERIFY(!solo->isEnabled());
         QVERIFY(!window.findChild<QPushButton*>("testNode")->isEnabled());
         QVERIFY(!window.findChild<QLineEdit*>("rpcPasswordInput")->isEnabled());
+        QVERIFY(!window.findChild<QLineEdit*>("coinbaseMessageInput")->isEnabled());
         QCOMPARE(window.findChild<QPushButton*>("startMining")->text(), QString("Cancel check"));
         QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 1);
         window.setMiningState("Mining");
@@ -165,6 +179,7 @@ private slots:
         QVERIFY(healthy);
         window.setMiningState("Stopped");
         QVERIFY(solo->isEnabled());
+        QVERIFY(window.findChild<QLineEdit*>("coinbaseMessageInput")->isEnabled());
         window.findChild<QPushButton*>("poolMode")->click();
         QCOMPARE(window.findChild<QLabel*>("acceptedLabel")->text(), QString("Accepted shares"));
     }

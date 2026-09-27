@@ -137,6 +137,65 @@ private slots:
         QVERIFY(!MinerController::validate(config).isEmpty());
     }
 
+    void soloCoinbaseMessageArgumentsAndLimits()
+    {
+        auto config = soloConfiguration("http://localhost:8888");
+        const auto messageArgument = [&config] {
+            return MinerController::arguments(config, 3456, "api-secret").filter("--coinbase-message");
+        };
+        QVERIFY(messageArgument().isEmpty());
+        config.coinbaseMessage = QString::fromUtf8("--Zed \"caf\xc3\xa9\" \\ ");
+        QVERIFY(MinerController::validate(config).isEmpty());
+        QCOMPARE(messageArgument(), QStringList{"--coinbase-message=" + config.coinbaseMessage});
+        for (const auto& boundary : {QString(80, 'x'), QString(40, QChar(0xe9))})
+        {
+            config.coinbaseMessage = boundary;
+            QVERIFY(MinerController::validate(config).isEmpty());
+            config.coinbaseMessage += 'x';
+            QVERIFY(MinerController::validate(config).contains("80 UTF-8 bytes"));
+            MinerController controller;
+            QSignalSpy checked(&controller, &MinerController::nodeChecked);
+            QVERIFY(!controller.testNode(config));
+            QVERIFY(checked.first().at(1).toString().contains("80 UTF-8 bytes"));
+        }
+        config.coinbaseMessage = QString("Zed") + QChar::Null;
+        QVERIFY(MinerController::validate(config).contains("null character"));
+        config.solo = false;
+        QVERIFY(MinerController::validate(config).isEmpty());
+        QVERIFY(messageArgument().isEmpty());
+    }
+
+    void checksCoinbaseMessageAcknowledgement()
+    {
+        const auto message = QString::fromUtf8(" Zed \"caf\xc3\xa9\" ");
+        for (const auto& acknowledgement : {QJsonValue(QJsonValue::Undefined),
+                 QJsonValue("different"), QJsonValue(true), QJsonValue(message)})
+        {
+            NodeServer node;
+            QVERIFY(node.isListening());
+            node.work.insert("coinbase_message", acknowledgement);
+            auto config = soloConfiguration(node.endpoint());
+            config.coinbaseMessage = message;
+            MinerController controller;
+            QSignalSpy checked(&controller, &MinerController::nodeChecked);
+            QVERIFY(controller.testNode(config));
+            QTRY_COMPARE_WITH_TIMEOUT(checked.count(), 1, 3000);
+            const bool confirmed = acknowledgement == QJsonValue(message);
+            QCOMPARE(checked.first().first().toBool(), confirmed);
+            QCOMPARE(node.requests.last().value("params").toArray(),
+                (QJsonArray{QJsonObject{{"coinbase_message", message}}, config.rewardAddress}));
+            QVERIFY(!controller.isRunning());
+            if (!confirmed)
+            {
+                QVERIFY(checked.first().at(1).toString().contains("did not confirm the coinbase message"));
+                QVERIFY(controller.start(config));
+                QTRY_COMPARE_WITH_TIMEOUT(checked.count(), 2, 3000);
+                QVERIFY(!checked.last().first().toBool());
+                QVERIFY(!controller.isRunning());
+            }
+        }
+    }
+
     void checksNodeWithoutStartingMiner_data()
     {
         QTest::addColumn<QString>("mode");

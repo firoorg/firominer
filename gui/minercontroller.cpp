@@ -88,6 +88,10 @@ QString connectionError(const MiningConfig& config)
         if (config.rewardAddress.isEmpty() || config.rewardAddress.startsWith('-') ||
             config.rewardAddress.size() > 1024 || config.rewardAddress.contains(QRegularExpression("\\s")))
             return QObject::tr("Enter a transparent Firo reward address. Spark addresses cannot receive solo block rewards.");
+        if (config.coinbaseMessage.toUtf8().size() > 80)
+            return QObject::tr("Coinbase message must be at most 80 UTF-8 bytes.");
+        if (config.coinbaseMessage.contains(QChar::Null))
+            return QObject::tr("Coinbase message cannot contain a null character.");
     }
     else if (config.wallet.trimmed().isEmpty())
         return QObject::tr("Enter your wallet address or pool account.");
@@ -221,7 +225,11 @@ QStringList MinerController::arguments(const MiningConfig& config, quint16 port,
         QStringLiteral("127.0.0.1:-%1").arg(port), "--api-password", apiPassword,
         "-P", connectionArgument(config)};
     if (config.solo)
+    {
         args << "--reward-address" << config.rewardAddress;
+        if (!config.coinbaseMessage.isEmpty())
+            args << "--coinbase-message=" + config.coinbaseMessage;
+    }
     if (config.backend == "cuda")
         args << "--cuda";
     else if (config.backend == "opencl")
@@ -325,9 +333,12 @@ void MinerController::requestNode(int stage)
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
     request.setRawHeader("Authorization", "Basic " +
         (m_nodeConfig.rpcUser + ':' + m_nodeConfig.rpcPassword).toUtf8().toBase64());
+    QJsonObject templateRequest;
+    if (!m_nodeConfig.coinbaseMessage.isEmpty())
+        templateRequest["coinbase_message"] = m_nodeConfig.coinbaseMessage;
     const QJsonObject body{{"jsonrpc", "2.0"}, {"id", stage + 1},
         {"method", stage == 0 ? "getblockchaininfo" : "getblocktemplate"},
-        {"params", stage == 0 ? QJsonArray{} : QJsonArray{QJsonObject{}, m_nodeConfig.rewardAddress}}};
+        {"params", stage == 0 ? QJsonArray{} : QJsonArray{templateRequest, m_nodeConfig.rewardAddress}}};
     m_nodeBuffer.clear();
     auto* reply = m_nodeNetwork.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
     m_nodeReply = reply;
@@ -408,6 +419,9 @@ void MinerController::requestNode(int stage)
                 !bits.match(result.value("bits").toString()).hasMatch() ||
                 !isUint32(result.value("pprpcepoch")) || !isUint32(result.value("height")))
                 error = tr("The node did not supply valid FiroPoW mining work. Use a current Firo Core node.");
+            else if (!m_nodeConfig.coinbaseMessage.isEmpty() &&
+                result.value("coinbase_message") != QJsonValue(m_nodeConfig.coinbaseMessage))
+                error = tr("The node did not confirm the coinbase message. Update Firo Core to a version with coinbase-message support, or leave the message empty.");
         }
         reply->deleteLater();
         m_nodeReply = nullptr;
