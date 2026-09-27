@@ -45,12 +45,12 @@ selected only with `--cpu`; ordinary runs still select GPUs and prefer CUDA over
 OpenCL for devices supporting both.
 
 Verify the published archive checksum before unpacking, then verify the extracted
-files against `SHA256SUMS`. Releases provide `SHA256SUMS.txt` covering all Linux
+files against `SHA256SUMS`. Releases provide `SHA256SUMS-v*.txt` covering all Linux
 and Windows archives. Linux also has a `.sha256` file beside each archive. From
-the download directory, run `sha256sum --check --ignore-missing SHA256SUMS.txt`
+the download directory, run `sha256sum --check --ignore-missing SHA256SUMS-v*.txt`
 on Linux. In Windows PowerShell, compare
 `Get-FileHash .\firominer-windows-*.zip -Algorithm SHA256` with the corresponding
-entries in `SHA256SUMS.txt`. Run commands below from the extracted directory. On
+entries in `SHA256SUMS-v*.txt`. Run commands below from the extracted directory. On
 Windows PowerShell replace `./bin/firominer` with `.\bin\firominer.exe`.
 
 ## Startup and local GPU test
