@@ -147,7 +147,8 @@ private slots:
         config.coinbaseMessage = QString::fromUtf8("--Zed \"caf\xc3\xa9\" \\ ");
         QVERIFY(MinerController::validate(config).isEmpty());
         QCOMPARE(messageArgument(), QStringList{"--coinbase-message=" + config.coinbaseMessage});
-        for (const auto& boundary : {QString(80, 'x'), QString(40, QChar(0xe9))})
+        for (const auto& boundary : {QString(80, 'x'), QString(40, QChar(0xe9)),
+                 QString::fromUtf8("\xf0\x9f\x98\x80").repeated(20)})
         {
             config.coinbaseMessage = boundary;
             QVERIFY(MinerController::validate(config).isEmpty());
@@ -157,6 +158,15 @@ private slots:
             QSignalSpy checked(&controller, &MinerController::nodeChecked);
             QVERIFY(!controller.testNode(config));
             QVERIFY(checked.first().at(1).toString().contains("80 UTF-8 bytes"));
+        }
+        for (const auto surrogate : {0xd800, 0xdc00})
+        {
+            config.coinbaseMessage = QString(QChar(surrogate));
+            QVERIFY(MinerController::validate(config).contains("valid Unicode"));
+            MinerController controller;
+            QVERIFY(!controller.testNode(config));
+            QVERIFY(!controller.start(config));
+            QVERIFY(!controller.isRunning());
         }
         config.coinbaseMessage = QString("Zed") + QChar::Null;
         QVERIFY(MinerController::validate(config).contains("null character"));

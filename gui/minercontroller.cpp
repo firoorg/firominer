@@ -88,6 +88,8 @@ QString connectionError(const MiningConfig& config)
         if (config.rewardAddress.isEmpty() || config.rewardAddress.startsWith('-') ||
             config.rewardAddress.size() > 1024 || config.rewardAddress.contains(QRegularExpression("\\s")))
             return QObject::tr("Enter a transparent Firo reward address. Spark addresses cannot receive solo block rewards.");
+        if (!config.coinbaseMessage.isValidUtf16())
+            return QObject::tr("Coinbase message must contain valid Unicode text.");
         if (config.coinbaseMessage.toUtf8().size() > 80)
             return QObject::tr("Coinbase message must be at most 80 UTF-8 bytes.");
         if (config.coinbaseMessage.contains(QChar::Null))
