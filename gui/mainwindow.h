@@ -64,7 +64,7 @@ private:
     QBoxLayout *metricsLayout_, *overviewLayout_;
     QList<QTableWidget*> deviceTables_;
     QLineEdit *poolInput_, *walletInput_, *workerInput_, *passwordInput_, *devicesInput_;
-    QLineEdit *nodeInput_, *rpcUserInput_, *rpcPasswordInput_, *rewardInput_;
+    QLineEdit *nodeInput_, *rpcUserInput_, *rpcPasswordInput_, *rewardInput_, *coinbaseMessageInput_;
     QComboBox* backendInput_;
     QPlainTextEdit* log_;
     QSystemTrayIcon* tray_ = nullptr;
