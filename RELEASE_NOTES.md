@@ -1,11 +1,10 @@
-Firominer v1.5.1 adds Mainnet solo mining to the desktop launcher and improves its layout on smaller and scaled displays.
+Firominer v1.5.2 adds optional solo coinbase messages to the desktop launcher and includes the version number in release download filenames.
 
 ### Changes
 
-- Choose Pool or Solo in the desktop launcher. Solo connects directly to your own synced Mainnet Firo node and uses a transparent Firo reward address. Pool and solo settings are saved separately; passwords stay in memory for the current session.
-- Use the built-in node configuration guide and **Test node** action to check RPC access, network, sync status, reward address, and mining work before launching. Failed or cancelled checks do not start mining, and RPC credentials are kept out of logs.
-- Monitor accepted blocks and node connection status in Solo mode. Setup and overview panels reflow for smaller windows, larger text, and display scaling.
-- Expand GUI and controller tests for node failures, miner startup errors, responsive layouts, and Windows packaging.
+- Set an optional **Coinbase message** in the launcher's Solo settings. The message is saved for your next launch and embeds public text in blocks you mine. Enter it directly, without wrapping it in quotes, up to 80 UTF-8 bytes. Explorer display depends on the explorer.
+- **Test node** and the check before starting solo mining require the node to acknowledge the exact message. Use Firo Core 0.14.18.1 or another version with coinbase-message support, or leave the field empty for nodes without it. Invalid Unicode, null characters, and messages over the byte limit are rejected locally. Unicode coinbase messages on Windows require Windows 10 version 1903 or newer.
+- Identify downloads by version: all four archives and both Linux checksum sidecars now contain `-v1.5.2` in their names. The combined checksum file is `SHA256SUMS-v1.5.2.txt`. Internal package paths are unchanged.
 
 ### Downloads and compatibility
 
@@ -18,7 +17,7 @@ Packages target compatible Ubuntu 22.04 or newer x86-64 systems and Windows 10/1
 
 Extract the entire archive and keep its directory layout intact. Start `./bin/firominer-gui` on Linux or `bin\firominer-gui.exe` on Windows. The GUI supports Mainnet Stratum pool mining and direct solo mining against your own Firo node. Other networks and advanced options remain available through `./bin/firominer` or `.\bin\firominer.exe`. Windows packages also include the editable `bin\mine_firo.bat` launcher.
 
-See the included `docs/GUI.md` for launcher use and `docs/TESTING.md` for command-line examples and verification. `SHA256SUMS-v*.txt` covers all four downloadable archives, and each archive includes an internal manifest. Keep the bundled `sources/` directory and license notices with redistributed packages.
+See the included `docs/GUI.md` for launcher use and `docs/TESTING.md` for command-line examples and verification. `SHA256SUMS-v1.5.2.txt` covers all four downloadable archives, and each archive includes an internal manifest. Keep the bundled `sources/` directory and license notices with redistributed packages.
 
 ### Validation
 
@@ -26,4 +25,4 @@ Publication is gated on core tests, AddressSanitizer/UndefinedBehaviorSanitizer,
 
 The release workflow does not exercise physical GPU mining or accepted live-pool or solo blocks. Keep host solution verification enabled, and use `--cl-no-subgroup` if needed for driver compatibility.
 
-[Full changes since v1.5.0](https://github.com/firoorg/firominer/compare/v1.5.0...v1.5.1). Includes [#31](https://github.com/firoorg/firominer/pull/31).
+[Full changes since v1.5.1](https://github.com/firoorg/firominer/compare/v1.5.1...v1.5.2). Includes [#33](https://github.com/firoorg/firominer/pull/33) and [#34](https://github.com/firoorg/firominer/pull/34).
