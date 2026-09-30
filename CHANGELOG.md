@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 1.5.2
+
+### Added
+
+- Optional, saved coinbase messages in the desktop launcher's Solo settings. Messages are public, limited to 80 UTF-8 bytes, and require acknowledgement from a compatible Firo node before mining starts.
+
+### Changed
+
+- Included the release version in every downloadable archive, Linux checksum sidecar, and combined checksum filename.
+
+### Fixed
+
+- Rejected malformed Unicode, null characters, and oversized GUI coinbase messages before contacting the node or starting the miner.
+
 ## 1.5.1
 
 ### Added
