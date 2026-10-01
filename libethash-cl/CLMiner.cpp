@@ -345,6 +345,7 @@ void CLMiner::workLoop()
 
     uint64_t startNonce = 0;
     uint64_t currentNonce = 0;
+    uint64_t resumeNonce = 0;  // First nonce not yet launched for `current`
     uint64_t currentTarget = 0;
     bool nonceRangeExhausted = false;
 
@@ -496,7 +497,7 @@ void CLMiner::workLoop()
 
                 currentTarget = target;
 
-                startNonce = next.startNonce;
+                startNonce = continuesNonceRange(current, next) ? resumeNonce : next.startNonce;
 
                 // Update header constant buffer.
                 m_queue.enqueueWriteBuffer(m_header, CL_TRUE, 0, 32, next.header.data());
@@ -516,13 +517,15 @@ void CLMiner::workLoop()
 #endif
             }
 
-            const uint64_t remaining = next.nonceRange ? next.nonceRange - (startNonce - next.startNonce) : 0;
-            const uint32_t launchWorkSize = gpuBatchSize(
-                m_settings.globalWorkSize, m_settings.localWorkSize, currentTarget, remaining);
+            const uint64_t remaining = remainingNonces(next, startNonce);
+            // gpuBatchSize treats a zero range as unbounded, so a spent range launches nothing.
+            const uint32_t launchWorkSize = next.nonceRange && !remaining ? 0 :
+                gpuBatchSize(m_settings.globalWorkSize, m_settings.localWorkSize, currentTarget, remaining);
             if (!launchWorkSize)
             {
                 cllog << "Nonce range exhausted (smaller than an OpenCL work group), waiting for new work";
                 current = next;
+                resumeNonce = startNonce;
                 nonceRangeExhausted = true;
                 continue;
             }
@@ -545,6 +548,7 @@ void CLMiner::workLoop()
             currentNonce = startNonce;
             // Increase start nonce for following kernel execution.
             startNonce += launchWorkSize;
+            resumeNonce = startNonce;
             nonceRangeExhausted = next.nonceRange && startNonce - next.startNonce >= next.nonceRange;
             if (nonceRangeExhausted)
                 cllog << "Nonce range exhausted, waiting for new work";

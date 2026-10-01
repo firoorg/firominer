@@ -364,6 +364,23 @@ inline bool nonceInRange(WorkPackage const& work, uint64_t nonce) noexcept
     return !work.nonceRange || nonce - work.startNonce < work.nonceRange;
 }
 
+// A pool can resend a job with its header unchanged to apply a new share
+// target, and paused miners resume the same job. Continuing from the next
+// unscheduled nonce avoids re-hashing nonces whose shares would be duplicates.
+inline bool continuesNonceRange(WorkPackage const& current, WorkPackage const& next) noexcept
+{
+    return current && current.header == next.header && current.epoch == next.epoch &&
+           current.block == next.block && current.algo == next.algo &&
+           current.startNonce == next.startNonce && current.nonceRange == next.nonceRange;
+}
+
+// Nonces left in a bounded range from `nonce`; zero once the range is spent.
+inline uint64_t remainingNonces(WorkPackage const& work, uint64_t nonce) noexcept
+{
+    const uint64_t used = nonce - work.startNonce;
+    return used < work.nonceRange ? work.nonceRange - used : 0;
+}
+
 inline uint32_t gpuBatchSize(uint32_t requested, uint32_t groupSize, uint64_t target,
     uint64_t nonceRange = 0) noexcept
 {

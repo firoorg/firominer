@@ -136,6 +136,54 @@ int main()
         return 1;
     }
 
+    // A retargeted resend of the same job continues its nonce range; any other
+    // header, range or empty predecessor starts again from the assigned nonce.
+    WorkPackage sent;
+    sent.header = dev::h256(1u);
+    sent.epoch = 7;
+    sent.block = 9100;
+    sent.startNonce = UINT64_MAX - 4095;
+    sent.nonceRange = 4096;
+    sent.boundary = dev::h256(2u);
+    WorkPackage resent = sent;
+    resent.job = "retarget";
+    resent.boundary = dev::h256(3u);
+    resent.workGeneration = sent.workGeneration + 1;
+    WorkPackage nextJob = resent;
+    nextJob.header = dev::h256(4u);
+    WorkPackage otherRange = resent;
+    otherRange.startNonce = 0;
+    if (!continuesNonceRange(sent, resent) || continuesNonceRange(WorkPackage{}, resent) ||
+        continuesNonceRange(sent, nextJob) || continuesNonceRange(sent, otherRange) ||
+        remainingNonces(sent, sent.startNonce) != 4096 ||
+        remainingNonces(sent, sent.startNonce + 3584) != 512 ||
+        remainingNonces(sent, sent.startNonce + 4096) != 0 ||
+        remainingNonces(sent, sent.startNonce + 5000) != 0)
+    {
+        std::cerr << "resent work did not keep its nonce progress\n";
+        return 1;
+    }
+    // Resumed ranges need not divide into the new batch; whole launches still fit.
+    for (uint64_t used : {uint64_t{512}, uint64_t{1536}, uint64_t{3584}})
+    {
+        for (uint32_t streams : {1u, 2u, 3u})
+        {
+            const uint64_t left = remainingNonces(sent, sent.startNonce + used);
+            const uint64_t active = std::min<uint64_t>(streams, left / 512);
+            const auto batch = gpuBatchSize(4 * 512, 512, 0, left / active);
+            auto nonce = sent.startNonce + used;
+            for (uint64_t unscheduled = left; unscheduled >= batch; unscheduled -= batch)
+            {
+                if (!batch || !nonceInRange(sent, nonce) || !nonceInRange(sent, nonce + batch - 1))
+                {
+                    std::cerr << "resumed GPU launch left its nonce range\n";
+                    return 1;
+                }
+                nonce += batch;
+            }
+        }
+    }
+
     const auto beforeConstruction = std::chrono::steady_clock::now();
     TestMiner accounting{0, false};
     const auto afterConstruction = std::chrono::steady_clock::now();
