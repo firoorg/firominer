@@ -16,6 +16,13 @@ struct ApiTest
         ApiConnection connection(strand, 0, false, "");
         return connection.getMinerStatDetail();
     }
+
+    static std::string html()
+    {
+        boost::asio::io_context::strand strand(g_io_service);
+        ApiConnection connection(strand, 0, false, "");
+        return connection.getHttpMinerStatDetail();
+    }
 };
 
 namespace
@@ -129,6 +136,11 @@ int runTests()
         throw std::runtime_error("CPU lifecycle test did not create one miner");
     farm.Telemetry().farm.hashrate = 5.0e9f;
     farm.Telemetry().miners.front().hashrate = 5.0e9f;
+    const auto withDevice = ApiTest::statistics();
+    if (std::stoull(withDevice["devices"][0]["mining"]["hashrate"].asString(), nullptr, 16) !=
+            5000000000ULL ||
+        ApiTest::html().find("5.00 Gh") == std::string::npos)
+        throw std::runtime_error("per-device API hashrate was truncated to 32 bits");
     farm.accountSolution(0, SolutionAccountingEnum::Accepted);
     farm.stop();
     if (farm.Telemetry().miners.size() != 1 || farm.HashRate() != 0.0f ||
