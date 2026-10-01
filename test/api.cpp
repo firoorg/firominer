@@ -110,6 +110,8 @@ int runTests()
     std::map<std::string, DeviceDescriptor> devices;
     Farm farm(devices, {}, {}, {}, {});
     PoolManager manager({});
+    if (farm.get_segment_width() != 40)
+        throw std::runtime_error("default nonce segments are too narrow for Firo jobs");
     std::string password(500, 'a');
     password += 'X';
     ApiServer server("127.0.0.1", 0, password);

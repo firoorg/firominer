@@ -512,8 +512,8 @@ When searching for a valid nonce the miner has to find (at least) 1 of possible 
 This gives you an idea of numbers in play. Luckily a couple of factors come in our help: difficulty and time. We can imagine difficulty as a sort of judge who determines how many of those possible solutions are valid. And the block time which allows the miner to stay longer on a sequence of numbers to find the solution.
 This all said it's however impossible for any miner (no matter if CPU or GPU or even ASIC) to cover the most part of this huge range in reasonable amount of time. So we need to resign to examine and test only a small fraction of this range.
 
-firominer, at start, randomly chooses a scramble_nonce, a random number picked in the 2^64 range to start checking nonces from. In addition firominer gives each GPU a unique, non overlapping, range of nonces called _segment_. Segments ensure no GPU does the same job of another GPU thus avoiding two GPU find the same result.
-To accomplish this each segment has a range 2^40 nonces by default. If you want to check which is the scramble_nonce and which are the segments assigned to each GPU you can issue this method:
+firominer, at start, randomly chooses a scramble_nonce, a random number picked in the 2^64 range to start checking nonces from. Each GPU starts 2^40 nonces after the previous one by default. This spacing avoids overlapping work for about five hours at 60 MH/s per device. Ordinary jobs have no hard segment limit, so longer unchanged jobs can eventually overlap. Pool extranonce jobs use bounded segments.
+If you want to check the scramble nonce and the spacing assigned to each GPU, issue this method:
 
 ```js
 {
@@ -531,7 +531,7 @@ and expect a result like this:
   "jsonrpc": "2.0",
   "result": {
     "device_count": 6,                          // How many devices are mining
-    "device_width": 32,                         // The width (as exponent of 2) of each device segment
+    "device_width": 40,                         // The width (as exponent of 2) of each device segment
     "start_nonce": "0xd3719cef9dd02322"         // The start nonce of the segment
   }
 }
