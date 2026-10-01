@@ -8,6 +8,23 @@
 boost::asio::io_context g_io_service;
 bool g_exitOnError = false;
 
+struct ApiTest
+{
+    static Json::Value statistics()
+    {
+        boost::asio::io_context::strand strand(g_io_service);
+        ApiConnection connection(strand, 0, false, "");
+        return connection.getMinerStatDetail();
+    }
+
+    static std::string html()
+    {
+        boost::asio::io_context::strand strand(g_io_service);
+        ApiConnection connection(strand, 0, false, "");
+        return connection.getHttpMinerStatDetail();
+    }
+};
+
 namespace
 {
 using namespace std::chrono_literals;
@@ -110,6 +127,42 @@ int runTests()
     std::map<std::string, DeviceDescriptor> devices;
     Farm farm(devices, {}, {}, {}, {});
     PoolManager manager({});
+    if (farm.get_segment_width() != 40)
+        throw std::runtime_error("default nonce segments are too narrow for Firo jobs");
+#if ETH_ETHASHCPU
+    devices["test-cpu"].subscriptionType = DeviceSubscriptionTypeEnum::Cpu;
+    farm.start();
+    if (farm.getMinersCount() != 1 || farm.Telemetry().miners.size() != 1)
+        throw std::runtime_error("CPU lifecycle test did not create one miner");
+    farm.Telemetry().farm.hashrate = 5.0e9f;
+    farm.Telemetry().miners.front().hashrate = 5.0e9f;
+    const auto withDevice = ApiTest::statistics();
+    if (std::stoull(withDevice["devices"][0]["mining"]["hashrate"].asString(), nullptr, 16) !=
+            5000000000ULL ||
+        ApiTest::html().find("5.00 Gh") == std::string::npos)
+        throw std::runtime_error("per-device API hashrate was truncated to 32 bits");
+    farm.accountSolution(0, SolutionAccountingEnum::Accepted);
+    farm.stop();
+    if (farm.Telemetry().miners.size() != 1 || farm.HashRate() != 0.0f ||
+        farm.Telemetry().miners.front().hashrate != 0.0f)
+        throw std::runtime_error("stopped farm retained its hashrate");
+    // Pending shares keep their device account after the worker stops.
+    farm.accountSolution(0, SolutionAccountingEnum::Rejected);
+    farm.restart();
+    if (farm.getMinersCount() != 1 || farm.Telemetry().miners.size() != 1 ||
+        farm.getSolutions(0).accepted != 1 || farm.getSolutions(0).rejected != 1)
+        throw std::runtime_error("restart duplicated device rows or lost cumulative shares");
+    farm.stop();
+    // Restore the empty-device fixture used by the API checks.
+    devices.clear();
+    farm.Telemetry().miners.clear();
+    farm.Telemetry().farm.solutions = {};
+#endif
+    // Check serialization synchronously, before the collector's I/O runner starts.
+    farm.Telemetry().farm.hashrate = 5.0e9f;
+    const auto statistics = ApiTest::statistics();
+    if (std::stoull(statistics["mining"]["hashrate"].asString(), nullptr, 16) != 5000000000ULL)
+        throw std::runtime_error("detailed API truncated the farm hashrate to 32 bits");
     std::string password(500, 'a');
     password += 'X';
     ApiServer server("127.0.0.1", 0, password);

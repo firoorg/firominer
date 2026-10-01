@@ -288,12 +288,10 @@ private:
 
     // StartNonce (non-NiceHash Mode) and
     // segment width assigned to each GPU as exponent of 2
-    // considering an average block time of 15 seconds
-    // a single device GPU should need a speed of 286 Mh/s
-    // before it consumes the whole 2^32 segment
+    // 2^40 spacing avoids overlapping work for over five hours at 60 MH/s.
     uint64_t m_nonce_scrambler;
-    unsigned int m_nonce_segment_with = 32;
-    unsigned int m_configured_nonce_segment_width = 32;
+    unsigned int m_nonce_segment_with = 40;
+    unsigned int m_configured_nonce_segment_width = 40;
 
     // Wrappers for hardware monitoring libraries and their mappers
     wrap_nvml_handle* nvmlh = nullptr;

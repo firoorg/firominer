@@ -41,6 +41,7 @@ public:
 
 private:
     friend class ApiServer;
+    friend struct ApiTest;
 
     static constexpr std::size_t c_maxRequestSize = 64 * 1024;
 
