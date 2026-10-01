@@ -579,7 +579,7 @@ void PoolManager::submithrtimer_elapsed(const boost::system::error_code& ec)
         if (m_running.load(std::memory_order_relaxed))
         {
             if (p_client && p_client->isConnected())
-                p_client->submitHashrate((uint32_t)Farm::f().HashRate(), m_Settings.hashRateId);
+                p_client->submitHashrate(uint64_t(Farm::f().HashRate()), m_Settings.hashRateId);
 
             // Resubmit actor
             m_submithrtimer.expires_from_now(boost::posix_time::seconds(m_Settings.hashRateInterval));

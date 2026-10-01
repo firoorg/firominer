@@ -112,6 +112,32 @@ int runTests()
     PoolManager manager({});
     if (farm.get_segment_width() != 40)
         throw std::runtime_error("default nonce segments are too narrow for Firo jobs");
+#if ETH_ETHASHCPU
+    devices["test-cpu"].subscriptionType = DeviceSubscriptionTypeEnum::Cpu;
+    farm.start();
+    if (farm.getMinersCount() != 1 || farm.Telemetry().miners.size() != 1)
+        throw std::runtime_error("CPU lifecycle test did not create one miner");
+    farm.Telemetry().farm.hashrate = 5.0e9f;
+    farm.Telemetry().miners.front().hashrate = 5.0e9f;
+    farm.accountSolution(0, SolutionAccountingEnum::Accepted);
+    farm.stop();
+    if (farm.Telemetry().miners.size() != 1 || farm.HashRate() != 0.0f ||
+        farm.Telemetry().miners.front().hashrate != 0.0f)
+        throw std::runtime_error("stopped farm retained its hashrate");
+    // Pending shares keep their device account after the worker stops.
+    farm.accountSolution(0, SolutionAccountingEnum::Rejected);
+    farm.restart();
+    if (farm.getMinersCount() != 1 || farm.Telemetry().miners.size() != 1 ||
+        farm.getSolutions(0).accepted != 1 || farm.getSolutions(0).rejected != 1)
+        throw std::runtime_error("restart duplicated device rows or lost cumulative shares");
+    farm.stop();
+    // Restore the empty-device fixture used by the API checks.
+    devices.clear();
+    farm.Telemetry().miners.clear();
+    farm.Telemetry().farm.solutions = {};
+#endif
+    // Seed before the I/O runner starts; the first statistics request precedes collection.
+    farm.Telemetry().farm.hashrate = 5.0e9f;
     std::string password(500, 'a');
     password += 'X';
     ApiServer server("127.0.0.1", 0, password);
@@ -189,6 +215,11 @@ int runTests()
         boost::asio::write(json, boost::asio::buffer(request));
         return readLine(json, std::chrono::steady_clock::now() + 5s);
     };
+    Json::Value statistics;
+    Json::Reader statisticsReader;
+    if (!statisticsReader.parse(call("miner_getstatdetail"), statistics) ||
+        std::stoull(statistics["result"]["mining"]["hashrate"].asString(), nullptr, 16) != 5000000000ULL)
+        throw std::runtime_error("detailed API truncated the farm hashrate to 32 bits");
     if (call("miner_setscramblerinfo", "{\"noncescrambler\":\"0xfedcba9876543210\"}")
                 .find("\"result\":true") == std::string::npos ||
         call("miner_getscramblerinfo").find("0xfedcba9876543210") == std::string::npos ||

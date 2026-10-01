@@ -507,11 +507,9 @@ public:
     void resume(MinerPauseEnum fromwhat);
 
     /**
-     * @brief Retrieves currrently collected hashrate
+     * @brief Samples completed hashes since the previous collection. Single collector only.
      */
     float RetrieveHashRate() noexcept;
-
-    void TriggerHashRateUpdate() noexcept;
 
 protected:
     /**
@@ -564,9 +562,7 @@ private:
     uint64_t m_workGeneration = 0;
 
     std::chrono::steady_clock::time_point m_hashTime = std::chrono::steady_clock::now();
-    std::atomic<float> m_hashRate = {0.0};
-    uint64_t m_hashCount = 0;
-    std::atomic<bool> m_hashRateUpdate = {false};
+    std::atomic<uint64_t> m_hashCount = {0};
 };
 
 }  // namespace dev::eth

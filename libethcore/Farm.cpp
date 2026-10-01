@@ -310,7 +310,8 @@ bool Farm::start()
 #endif
             if (minerTelemetry.prefix.empty())
                 continue;
-            m_telemetry.miners.push_back(minerTelemetry);
+            if (m_telemetry.miners.size() < m_miners.size())
+                m_telemetry.miners.push_back(minerTelemetry);
             m_miners.back()->startWorking();
         }
 
@@ -347,6 +348,9 @@ void Farm::stop()
             }
 
             m_miners.clear();
+            for (auto& miner : m_telemetry.miners)
+                miner.hashrate = 0.0f;
+            m_telemetry.farm.hashrate = 0.0f;
             m_isMining.store(false, std::memory_order_relaxed);
         }
     }
@@ -588,7 +592,8 @@ void Farm::collectData(const boost::system::error_code& ec)
     for (auto const& miner : m_miners)
     {
         int minerIdx = miner->Index();
-        float hr = (miner->paused() ? 0.0f : miner->RetrieveHashRate());
+        const float sampledRate = miner->RetrieveHashRate();
+        float hr = (miner->paused() ? 0.0f : sampledRate);
         farm_hr += hr;
         m_telemetry.miners.at(minerIdx).hashrate = hr;
         m_telemetry.miners.at(minerIdx).paused = miner->paused();
@@ -692,9 +697,8 @@ void Farm::collectData(const boost::system::error_code& ec)
             m_telemetry.miners.at(minerIdx).sensors.fanP = fanpcnt;
             m_telemetry.miners.at(minerIdx).sensors.powerW = powerW / ((double)1000.0);
         }
-        m_telemetry.farm.hashrate = farm_hr;
-        miner->TriggerHashRateUpdate();
     }
+    m_telemetry.farm.hashrate = farm_hr;
 
     // Resubmit timer for another loop
     m_collectTimer.expires_from_now(boost::posix_time::milliseconds(m_collectInterval));

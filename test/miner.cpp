@@ -142,16 +142,38 @@ int main()
     accounting.recordHashes(1024, 2);
     accounting.recordHashes(64, 4);
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    accounting.TriggerHashRateUpdate();
-    const auto beforeUpdate = std::chrono::steady_clock::now();
     accounting.recordHashes(32, 1);
+    const auto beforeUpdate = std::chrono::steady_clock::now();
+    const float rate = accounting.RetrieveHashRate();
     const auto afterUpdate = std::chrono::steady_clock::now();
     const auto minUs = std::chrono::duration_cast<std::chrono::microseconds>(beforeUpdate - afterConstruction).count();
     const auto maxUs = std::chrono::duration_cast<std::chrono::microseconds>(afterUpdate - beforeConstruction).count();
-    const float rate = accounting.RetrieveHashRate();
     if (rate < 2336.0e6f / (maxUs + 1) * 0.999f || rate > 2336.0e6f / minUs * 1.001f)
     {
         std::cerr << "hashrate did not accumulate hashes across different batch sizes\n";
+        return 1;
+    }
+    const auto beforeIdleSample = std::chrono::steady_clock::now();
+    if (accounting.RetrieveHashRate() != 0.0f)
+    {
+        std::cerr << "idle miner retained its previous hashrate\n";
+        return 1;
+    }
+    const auto afterIdleSample = std::chrono::steady_clock::now();
+    // A new sample must count only its own completed batches, including products
+    // above 32 bits. Collection must work without a callback from the backend.
+    accounting.recordHashes(UINT32_MAX, 2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const auto beforeWideSample = std::chrono::steady_clock::now();
+    const float wideRate = accounting.RetrieveHashRate();
+    const auto afterWideSample = std::chrono::steady_clock::now();
+    const auto minWideUs = std::chrono::duration_cast<std::chrono::microseconds>(beforeWideSample - afterIdleSample).count();
+    const auto maxWideUs = std::chrono::duration_cast<std::chrono::microseconds>(afterWideSample - beforeIdleSample).count();
+    const double wideHashes = uint64_t{UINT32_MAX} * 2;
+    if (wideRate < wideHashes * 1.0e6 / (maxWideUs + 1) * 0.999 ||
+        wideRate > wideHashes * 1.0e6 / minWideUs * 1.001 || accounting.RetrieveHashRate() != 0.0f)
+    {
+        std::cerr << "hashrate truncated or double-counted completed hashes\n";
         return 1;
     }
 

@@ -161,18 +161,12 @@ void Miner::resume(MinerPauseEnum fromwhat)
 
 float Miner::RetrieveHashRate() noexcept
 {
-    return m_hashRate.load(std::memory_order_relaxed);
-}
-
-void Miner::TriggerHashRateUpdate() noexcept
-{
-    bool b = false;
-    if (m_hashRateUpdate.compare_exchange_strong(b, true, std::memory_order_relaxed))
-        return;
-    // GPU didn't respond to last trigger, assume it's dead.
-    // This can happen on CUDA if:
-    //   runtime of --cuda-grid-size * --cuda-streams exceeds time of m_collectInterval
-    m_hashRate = 0.0;
+    using namespace std::chrono;
+    const auto now = steady_clock::now();
+    const auto hashes = m_hashCount.exchange(0, std::memory_order_relaxed);
+    const auto us = duration_cast<microseconds>(now - m_hashTime).count();
+    m_hashTime = now;
+    return us ? static_cast<float>(static_cast<double>(hashes) * 1.0e6 / us) : 0.0f;
 }
 
 bool Miner::initEpoch(WorkPackage const& _work)
@@ -195,18 +189,7 @@ WorkPackage Miner::work() const
 
 void Miner::updateHashRate(uint32_t _groupSize, uint32_t _increment) noexcept
 {
-    m_hashCount += uint64_t{_groupSize} * _increment;
-    bool b = true;
-    if (!m_hashRateUpdate.compare_exchange_strong(b, false, std::memory_order_relaxed))
-        return;
-    using namespace std::chrono;
-    auto t = steady_clock::now();
-    auto us = duration_cast<microseconds>(t - m_hashTime).count();
-    m_hashTime = t;
-
-    m_hashRate.store(
-        us ? (float(m_hashCount) * 1.0e6f) / us : 0.0f, std::memory_order_relaxed);
-    m_hashCount = 0;
+    m_hashCount.fetch_add(uint64_t{_groupSize} * _increment, std::memory_order_relaxed);
 }
 
 bool Miner::dropThreadPriority()

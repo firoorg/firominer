@@ -1168,7 +1168,7 @@ Json::Value ApiConnection::getMinerStatDetailPerMiner(
     mininginfo["segment"] = jsegment;
 
     /* Hash & Share infos */
-    mininginfo["hashrate"] = toHex((uint32_t)_t.miners.at(_index).hashrate, HexPrefix::Add);
+    mininginfo["hashrate"] = toHex(uint64_t(_t.miners.at(_index).hashrate), HexPrefix::Add);
 
     jRes["hardware"] = hwinfo;
     jRes["mining"] = mininginfo;
@@ -1240,7 +1240,7 @@ std::string ApiConnection::getHttpMinerStatDetail()
     for (Json::Value::ArrayIndex i = 0; i != jStat["devices"].size(); i++)
     {
         Json::Value device = jStat["devices"][i];
-        double hashrate = std::stoul(device["mining"]["hashrate"].asString(), nullptr, 16);
+        double hashrate = std::stoull(device["mining"]["hashrate"].asString(), nullptr, 16);
         double power = device["hardware"]["sensors"][2].asDouble();
         unsigned int solutions = device["mining"]["shares"][0].asUInt();
         total_hashrate += hashrate;
@@ -1326,7 +1326,7 @@ Json::Value ApiConnection::getMinerStatDetail()
     Json::Value mininginfo;
     Json::Value sharesinfo = Json::Value(Json::arrayValue);
 
-    mininginfo["hashrate"] = toHex(uint32_t(t.farm.hashrate), HexPrefix::Add);
+    mininginfo["hashrate"] = toHex(uint64_t(t.farm.hashrate), HexPrefix::Add);
     mininginfo["epoch"] = PoolManager::p().getCurrentEpoch();
     mininginfo["epoch_changes"] = PoolManager::p().getEpochChanges();
     mininginfo["difficulty"] = PoolManager::p().getCurrentDifficulty();
