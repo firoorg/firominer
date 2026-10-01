@@ -8,6 +8,16 @@
 boost::asio::io_context g_io_service;
 bool g_exitOnError = false;
 
+struct ApiTest
+{
+    static Json::Value statistics()
+    {
+        boost::asio::io_context::strand strand(g_io_service);
+        ApiConnection connection(strand, 0, false, "");
+        return connection.getMinerStatDetail();
+    }
+};
+
 namespace
 {
 using namespace std::chrono_literals;
@@ -136,8 +146,11 @@ int runTests()
     farm.Telemetry().miners.clear();
     farm.Telemetry().farm.solutions = {};
 #endif
-    // Seed before the I/O runner starts; the first statistics request precedes collection.
+    // Check serialization synchronously, before the collector's I/O runner starts.
     farm.Telemetry().farm.hashrate = 5.0e9f;
+    const auto statistics = ApiTest::statistics();
+    if (std::stoull(statistics["mining"]["hashrate"].asString(), nullptr, 16) != 5000000000ULL)
+        throw std::runtime_error("detailed API truncated the farm hashrate to 32 bits");
     std::string password(500, 'a');
     password += 'X';
     ApiServer server("127.0.0.1", 0, password);
@@ -215,11 +228,6 @@ int runTests()
         boost::asio::write(json, boost::asio::buffer(request));
         return readLine(json, std::chrono::steady_clock::now() + 5s);
     };
-    Json::Value statistics;
-    Json::Reader statisticsReader;
-    if (!statisticsReader.parse(call("miner_getstatdetail"), statistics) ||
-        std::stoull(statistics["result"]["mining"]["hashrate"].asString(), nullptr, 16) != 5000000000ULL)
-        throw std::runtime_error("detailed API truncated the farm hashrate to 32 bits");
     if (call("miner_setscramblerinfo", "{\"noncescrambler\":\"0xfedcba9876543210\"}")
                 .find("\"result\":true") == std::string::npos ||
         call("miner_getscramblerinfo").find("0xfedcba9876543210") == std::string::npos ||

@@ -592,8 +592,7 @@ void Farm::collectData(const boost::system::error_code& ec)
     for (auto const& miner : m_miners)
     {
         int minerIdx = miner->Index();
-        const float sampledRate = miner->RetrieveHashRate();
-        float hr = (miner->paused() ? 0.0f : sampledRate);
+        float hr = (miner->paused() ? 0.0f : miner->RetrieveHashRate());
         farm_hr += hr;
         m_telemetry.miners.at(minerIdx).hashrate = hr;
         m_telemetry.miners.at(minerIdx).paused = miner->paused();
@@ -697,6 +696,7 @@ void Farm::collectData(const boost::system::error_code& ec)
             m_telemetry.miners.at(minerIdx).sensors.fanP = fanpcnt;
             m_telemetry.miners.at(minerIdx).sensors.powerW = powerW / ((double)1000.0);
         }
+        miner->TriggerHashRateUpdate();
     }
     m_telemetry.farm.hashrate = farm_hr;
 
