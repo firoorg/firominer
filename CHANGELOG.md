@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 1.5.3
+
+### Changed
+
+- Widened default GPU nonce spacing from 2^32 to 2^40 to reduce overlapping work on long unchanged jobs. Ordinary jobs remain unbounded and can eventually overlap.
+
+### Fixed
+
+- Continued CUDA and OpenCL nonce progress when a pool resends the same work with a new share target or mining resumes after a pause.
+- Kept resumed GPU launches within bounded nonce ranges and searched remaining whole CUDA blocks with smaller launches.
+- Preserved device telemetry rows and cumulative share counters across miner stop/start cycles within the same process, and cleared stopped hashrates.
+- Used 64-bit hashrate conversions in JSON and HTTP statistics and pool hashrate submissions.
+
 ## 1.5.2
 
 ### Added

@@ -32,7 +32,7 @@ HunterGate(
 
 
 project(firominer)
-set(PROJECT_VERSION 1.5.2)
+set(PROJECT_VERSION 1.5.3)
 
 include(CTest)
 find_package(Threads REQUIRED)
