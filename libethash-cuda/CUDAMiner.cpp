@@ -294,8 +294,7 @@ void CUDAMiner::workLoop()
             }
             if (!w.epochContext || !w.epoch || !w.block)
                 continue;
-            if (nonceRangeExhausted &&
-                (current.workGeneration == w.workGeneration || continuesNonceRange(current, w)))
+            if (nonceRangeExhausted && current.workGeneration == w.workGeneration)
                 continue;
             m_epochContext = w.epochContext;
             if (w.epoch.has_value() && old_epoch != static_cast<int>(w.epoch.value()))
@@ -797,6 +796,9 @@ bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t& nonce, 
     }
 
     nonce = next_nonce;
+    // Every stream has drained; search a remainder of at least one block with smaller launches.
+    if (!stop_relaunch && !shouldStop() && w.nonceRange && unscheduled >= m_settings.blockSize)
+        return search(header, target, nonce, w);
     const bool exhausted = !stop_relaunch && !shouldStop() && w.nonceRange && unscheduled < launch_batch_size;
     if (exhausted)
         cudalog << "Nonce range exhausted, waiting for new work";

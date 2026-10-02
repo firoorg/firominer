@@ -163,23 +163,32 @@ int main()
         std::cerr << "resent work did not keep its nonce progress\n";
         return 1;
     }
-    // Resumed ranges need not divide into the new batch; whole launches still fit.
+    // Resumed ranges need not divide into the new batch: CUDA launches whole
+    // batches that fit, then searches any remaining blocks with smaller launches.
     for (uint64_t used : {uint64_t{512}, uint64_t{1536}, uint64_t{3584}})
     {
         for (uint32_t streams : {1u, 2u, 3u})
         {
-            const uint64_t left = remainingNonces(sent, sent.startNonce + used);
-            const uint64_t active = std::min<uint64_t>(streams, left / 512);
-            const auto batch = gpuBatchSize(4 * 512, 512, 0, left / active);
             auto nonce = sent.startNonce + used;
-            for (uint64_t unscheduled = left; unscheduled >= batch; unscheduled -= batch)
+            uint64_t unscheduled = remainingNonces(sent, nonce);
+            while (unscheduled >= 512)
             {
-                if (!batch || !nonceInRange(sent, nonce) || !nonceInRange(sent, nonce + batch - 1))
+                const uint64_t active = std::min<uint64_t>(streams, unscheduled / 512);
+                const auto batch = gpuBatchSize(4 * 512, 512, 0, unscheduled / active);
+                for (; unscheduled >= batch; unscheduled -= batch)
                 {
-                    std::cerr << "resumed GPU launch left its nonce range\n";
-                    return 1;
+                    if (!batch || !nonceInRange(sent, nonce) || !nonceInRange(sent, nonce + batch - 1))
+                    {
+                        std::cerr << "resumed GPU launch left its nonce range\n";
+                        return 1;
+                    }
+                    nonce += batch;
                 }
-                nonce += batch;
+            }
+            if (nonce - sent.startNonce != sent.nonceRange)
+            {
+                std::cerr << "resumed GPU launches did not finish the nonce range\n";
+                return 1;
             }
         }
     }
