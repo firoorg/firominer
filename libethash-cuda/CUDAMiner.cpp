@@ -249,6 +249,7 @@ void CUDAMiner::workLoop()
     WorkPackage current;
     current.header = h256();
     bool nonceRangeExhausted = false;
+    uint64_t nextNonce = 0;  // First nonce not yet scheduled for `current`
     uint64_t old_period_seed = -1;
     uint64_t old_dag_elements = 0;
     int old_epoch = -1;
@@ -360,11 +361,13 @@ void CUDAMiner::workLoop()
 
             // Persist most recent job.
             // Job's differences should be handled at higher level
+            if (!continuesNonceRange(current, w))
+                nextNonce = w.startNonce;
             current = w;
             uint64_t upper64OfBoundary = (uint64_t)(u64)((u256)w.get_boundary() >> 192);
 
             // Eventually start searching
-            nonceRangeExhausted = search(current.header.data(), upper64OfBoundary, current.startNonce, w);
+            nonceRangeExhausted = search(current.header.data(), upper64OfBoundary, nextNonce, w);
         }
 
         cleanup();
@@ -631,31 +634,33 @@ void CUDAMiner::compileKernel(uint64_t period_seed, uint64_t dag_elms, CUmodule&
     cudalog << "Pre-compiled period " << period_seed << " CUDA ProgPow kernel for compute_" << compileArch;
 }
 
-bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_nonce, const dev::eth::WorkPackage& w)
+bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t& nonce, const dev::eth::WorkPackage& w)
 {
     hash32_t current_header;
     memcpy(&current_header, header, sizeof(current_header));
     hash64_t* dag = m_device_dag;
 
     uint32_t active_streams = m_settings.streams;
+    // Bounded ranges launch only whole batches that fit; a resumed range can
+    // end in a remainder smaller than one batch.
+    uint64_t unscheduled = remainingNonces(w, nonce);
     if (w.nonceRange)
     {
-        if (w.nonceRange < m_settings.blockSize)
+        if (unscheduled < m_settings.blockSize)
         {
             cudalog << "Nonce range exhausted (smaller than a CUDA block), waiting for new work";
             return true;
         }
 
         active_streams = static_cast<uint32_t>(
-            std::min<uint64_t>(active_streams, w.nonceRange / m_settings.blockSize));
+            std::min<uint64_t>(active_streams, unscheduled / m_settings.blockSize));
     }
     const uint32_t launch_batch_size = gpuBatchSize(m_settings.gridSize * m_settings.blockSize,
-        m_settings.blockSize, target, w.nonceRange ? w.nonceRange / active_streams : 0);
+        m_settings.blockSize, target, w.nonceRange ? unscheduled / active_streams : 0);
     const uint32_t launch_grid_size = launch_batch_size / m_settings.blockSize;
     std::vector<uint64_t> launched_nonce(active_streams);
     std::vector<bool> stream_active(active_streams, true);
-    uint64_t next_nonce = start_nonce;
-    uint64_t scheduled_hashes = 0;
+    uint64_t next_nonce = nonce;
 
     auto search_start = std::chrono::steady_clock::now();
 
@@ -680,7 +685,7 @@ bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
             args, 0));                                         // arguments
         next_nonce += launch_batch_size;
         if (w.nonceRange)
-            scheduled_hashes += launch_batch_size;
+            unscheduled -= launch_batch_size;
     }
 
     // Process stream batches until new work arrives or a bounded Stratum
@@ -740,7 +745,7 @@ bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
 
             // restart the stream on the next batch of nonces
             // unless we are done for this round.
-            if (!stop_relaunch && (!w.nonceRange || scheduled_hashes < w.nonceRange))
+            if (!stop_relaunch && (!w.nonceRange || unscheduled >= launch_batch_size))
             {
                 launched_nonce[current_index] = next_nonce;
                 volatile Search_results* Buffer = &buffer;
@@ -755,7 +760,7 @@ bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
                     args, 0));                                         // arguments
                 next_nonce += launch_batch_size;
                 if (w.nonceRange)
-                    scheduled_hashes += launch_batch_size;
+                    unscheduled -= launch_batch_size;
             }
             else
             {
@@ -790,7 +795,11 @@ bool CUDAMiner::search(uint8_t const* header, uint64_t target, uint64_t start_no
         }
     }
 
-    const bool exhausted = !stop_relaunch && !shouldStop() && w.nonceRange && scheduled_hashes >= w.nonceRange;
+    nonce = next_nonce;
+    // Every stream has drained; search a remainder of at least one block with smaller launches.
+    if (!stop_relaunch && !shouldStop() && w.nonceRange && unscheduled >= m_settings.blockSize)
+        return search(header, target, nonce, w);
+    const bool exhausted = !stop_relaunch && !shouldStop() && w.nonceRange && unscheduled < launch_batch_size;
     if (exhausted)
         cudalog << "Nonce range exhausted, waiting for new work";
 

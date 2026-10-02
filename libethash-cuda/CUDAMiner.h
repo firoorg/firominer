@@ -38,8 +38,9 @@ public:
     static int getNumDevices();
     static void enumDevices(std::map<std::string, DeviceDescriptor>& _DevicesCollection);
 
+    // Searches from `nonce` and leaves it at the first nonce not yet scheduled.
     bool search(
-        uint8_t const* header, uint64_t target, uint64_t _startN, const dev::eth::WorkPackage& w);
+        uint8_t const* header, uint64_t target, uint64_t& nonce, const dev::eth::WorkPackage& w);
 
 protected:
     bool initDevice() override;
