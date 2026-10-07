@@ -485,7 +485,7 @@ private slots:
         QTest::newRow("normal") << "" << "Mining";
         QTest::newRow("fragmented") << "/fragmented" << "Mining";
         QTest::newRow("paused") << "/paused" << "Paused";
-        QTest::newRow("disconnected") << "/disconnected" << "Reconnecting";
+        QTest::newRow("disconnected") << "/disconnected" << "Connecting";
     }
 
     void readsAuthenticatedStatistics()

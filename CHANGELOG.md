@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- Desktop launcher overview states for first launch, ready (with the last session's runtime, accepted shares and average hashrate), starting, reconnecting and stopping.
+- Desktop launcher overview states for first launch, ready (with the last session's runtime, accepted shares and average hashrate), starting, connecting, reconnecting and stopping.
 - A card for each GPU on the overview, with recent hashrate, temperature, fan, power and accepted shares.
 - An icon-only launcher sidebar for narrow windows.
 

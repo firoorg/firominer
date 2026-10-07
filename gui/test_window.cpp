@@ -314,7 +314,7 @@ private slots:
         QCOMPARE(table->item(1, 2)->text(), QString::fromUtf8("65°C"));
         QCOMPARE(table->item(1, 5)->text(), QString("Mining"));
         QVERIFY(!window.findChild<QLineEdit*>("poolInput")->isEnabled());
-        // While stopping, nothing on the page still claims to be mining.
+        // While stopping, the GPUs and the pool no longer read as mining or connected.
         window.setMiningState("Stopping");
         QCOMPARE(cardText(gpuCards(window)[0], "gpuStatus"), QString("Stopping"));
         QVERIFY(window.findChild<QLabel*>("gpuSummary")->text().isEmpty());
@@ -368,20 +368,22 @@ private slots:
     void disconnectedStatisticsDoNotRestoreStaleReadings()
     {
         MainWindow window;
-        // Before the first reading the miner is still connecting, so nothing has been lost.
+        // Before its first connection the miner is connecting, so nothing has been lost.
         window.setMiningState("Starting");
         auto connecting = statistics();
         connecting["connection"] = QJsonObject{{"connected", false}};
-        window.setMiningState("Reconnecting");
+        window.setMiningState("Connecting");
         window.updateStatistics(connecting);
         QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString::fromUtf8("Connecting to the pool…"));
         QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Connecting"));
         QCOMPARE(window.findChild<QLabel*>("miningState")->text(), QString("Connecting"));
+        QCOMPARE(window.findChild<QLabel*>("miningRuntime")->text(), QString::fromUtf8("Starting up…"));
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
         // Losing the miner's own statistics does not blame the pool.
         window.setMiningState("Reconnecting");
         QVERIFY(window.findChild<QLabel*>("heroDetail")->text().startsWith("Waiting for the miner"));
+        QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Waiting"));
         auto disconnected = statistics();
         disconnected["connection"] = QJsonObject{{"connected", false}};
         window.setMiningState("Reconnecting");

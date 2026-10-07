@@ -295,6 +295,7 @@ bool MinerController::launch(const MiningConfig& config)
 #endif
     m_stopping = false;
     m_hadStats = false;
+    m_wasConnected = false;
     m_logBuffer.clear();
     m_discardLogLine = false;
     resetConnection();
@@ -577,7 +578,10 @@ void MinerController::readApi()
         for (const auto& device : devices)
             allPaused = allPaused && device.toObject().value("mining").toObject().value("paused").toBool();
         const auto hashrate = stats.value("mining").toObject().value("hashrate").toString().toULongLong(nullptr, 16);
-        setState(!stats.value("connection").toObject().value("connected").toBool() ? "Reconnecting" :
+        const bool connected = stats.value("connection").toObject().value("connected").toBool();
+        m_wasConnected = m_wasConnected || connected;
+        // Until its first pool or node connection the miner is connecting, not reconnecting.
+        setState(!connected ? (m_wasConnected ? "Reconnecting" : "Connecting") :
             allPaused ? "Paused" : hashrate ? "Mining" : "Preparing GPUs");
         emit statistics(stats);
     }

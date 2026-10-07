@@ -2371,11 +2371,9 @@ void MainWindow::updateOverview()
     const bool ready = stopped && setupError.isEmpty();
     const bool needsPassword = stopped && !ready && needsRpcPassword();
 
-    // The controller reports Reconnecting before the first connection too; nothing was lost yet.
-    const QString status = state == "Reconnecting" && !hasReadings_ ? QStringLiteral("Connecting") : state;
-    state_->setStatus(status, state == "Mining" ? Tone::Positive : stopped || state == "Stopping" ? Tone::Neutral : Tone::Warning);
+    state_->setStatus(state, state == "Mining" ? Tone::Positive : stopped || state == "Stopping" ? Tone::Neutral : Tone::Warning);
     if (tray_)
-        tray_->setToolTip("Firominer - " + status.toLower());
+        tray_->setToolTip("Firominer - " + state.toLower());
     auto setStart = [this](const QString& text, const char* role, const char* glyph) {
         start_->setText(text);
         const bool changed = start_->property("role").toString() != role || start_->property("glyph").toString() != glyph;
@@ -2432,10 +2430,11 @@ void MainWindow::updateOverview()
     else
     {
         heroCaption_->setText("Total hashrate");
-        // Before its first reading the miner is still connecting, so nothing has been lost yet.
-        if (state == "Reconnecting")
-            gpuCount_->setText(!hasReadings_ ? QString::fromUtf8("Connecting to the %1…").arg(solo ? "node" : "pool") :
-                connectionLost_ ? QString("%1 connection lost. Retrying automatically; your GPUs stay ready.").arg(solo ? "Node" : "Pool") :
+        if (state == "Connecting")
+            gpuCount_->setText(QString::fromUtf8("Connecting to the %1…").arg(solo ? "node" : "pool"));
+        else if (state == "Reconnecting")
+            gpuCount_->setText(connectionLost_ ?
+                QString("%1 connection lost. Retrying automatically; your GPUs stay ready.").arg(solo ? "Node" : "Pool") :
                 QString("Waiting for the miner's statistics. Retrying automatically."));
         else if (state == "Stopping")
             gpuCount_->setText(QString::fromUtf8("Stopping the miner…"));
@@ -2459,13 +2458,13 @@ void MainWindow::updateOverview()
         setValue(sessionAverage_, lastSession_.average > 0 ? QString::number(lastSession_.average, 'f', 1) : dash());
     }
 
-    chart_->setDimmed(!hasReadings_);
+    chart_->setDimmed(!hasReadings_ || state == "Stopping");
     chartSubtitle_->setText(hasReadings_ ? "MH/s · this session" : chart_->isEmpty() ? "MH/s · appears when mining starts" : "MH/s · last session");
 
     if (connected)
         poolState_->setStatus("Connected", Tone::Positive);
-    else if (state == "Reconnecting" && hasReadings_)
-        poolState_->setStatus("Reconnecting", Tone::Warning);
+    else if (state == "Reconnecting")
+        poolState_->setStatus(connectionLost_ ? "Reconnecting" : "Waiting", Tone::Warning);
     else if (state == "Stopping")
         poolState_->setStatus("Disconnecting", Tone::Neutral);
     else if (!stopped)
@@ -2497,7 +2496,10 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
     if (!connected)
     {
         // A pool disconnect can leave the API's previous hashrate and sensors populated.
-        setMiningState("Reconnecting");
+        if (hasReadings_)
+            setMiningState("Reconnecting");
+        else
+            updateOverview();
         return;
     }
     // The chart keeps the last session, dimmed, until this one's first reading replaces it.
