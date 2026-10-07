@@ -1,5 +1,9 @@
 <RCC>
   <qresource prefix="/">
     <file alias="firominer.ico">../firominer/firominer.ico</file>
+    <file alias="fonts/SairaSemiCondensed-Bold.ttf">fonts/Saira_SemiCondensed-Bold.ttf</file>
+    <file alias="fonts/SairaSemiCondensed-Light.ttf">fonts/Saira_SemiCondensed-Light.ttf</file>
+    <file alias="fonts/SourceSansPro-Regular.ttf">fonts/SourceSansPro-Regular.ttf</file>
+    <file alias="fonts/SourceSansPro-Bold.ttf">fonts/SourceSansPro-Bold.ttf</file>
   </qresource>
 </RCC>
