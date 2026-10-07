@@ -215,7 +215,7 @@ private slots:
         window.updateStatistics(stats);
         bool rejected = false;
         for (auto* text : window.findChildren<QLabel*>())
-            rejected |= text->text() == "Not accepted by your node";
+            rejected |= text->text() == "Found, but not accepted";
         QVERIFY(rejected);
         window.setMiningState("Stopped");
         QVERIFY(solo->isEnabled());
@@ -368,6 +368,14 @@ private slots:
     void disconnectedStatisticsDoNotRestoreStaleReadings()
     {
         MainWindow window;
+        // Before the first reading the miner is still connecting, so nothing has been lost.
+        window.setMiningState("Starting");
+        auto connecting = statistics();
+        connecting["connection"] = QJsonObject{{"connected", false}};
+        window.setMiningState("Reconnecting");
+        window.updateStatistics(connecting);
+        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString::fromUtf8("Connecting to the pool…"));
+        QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Connecting"));
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
         // Losing the miner's own statistics does not blame the pool.
@@ -419,17 +427,21 @@ private slots:
         QCOMPARE(window.findChild<QLabel*>("sessionAccepted")->text(), QLocale().toString(1248));
         // The average covers every reading, not just the chart's latest point.
         QCOMPARE(window.findChild<QLabel*>("sessionAverage")->text(), QString("81.4"));
-        // A session that never reported its runtime keeps the previous one.
+        {
+            MainWindow reopened;
+            QCOMPARE(reopened.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
+            QVERIFY(!reopened.findChild<QWidget*>("lastSession")->isHidden());
+        }
+        // Every session with readings is remembered, so the chart and the totals describe the same one.
         auto instant = statistics();
         instant["host"] = QJsonObject{{"runtime", 0}};
         window.setMiningState("Mining");
         window.updateStatistics(instant);
         window.setMiningState("Stopped");
-        QCOMPARE(window.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
-        QVERIFY(!window.findChild<QWidget*>("lastSession")->isHidden());
+        const auto noRuntime = QString("0") + QChar(0x00a0) + "s";
+        QCOMPARE(window.findChild<QLabel*>("sessionRuntime")->text(), noRuntime);
         MainWindow restored;
-        QCOMPARE(restored.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
-        QVERIFY(!restored.findChild<QWidget*>("lastSession")->isHidden());
+        QCOMPARE(restored.findChild<QLabel*>("sessionRuntime")->text(), noRuntime);
         // An unusable setup returns to guidance that names what to fix.
         restored.findChild<QLineEdit*>("poolInput")->setText("pool.example");
         QCOMPARE(restored.findChild<QLabel*>("heroTitle")->text(), QString("Set up mining"));

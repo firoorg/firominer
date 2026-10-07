@@ -2135,7 +2135,7 @@ void MainWindow::loadSettings()
     lastSession_.average = settings.value("session/average", 0).toDouble();
     lastSession_.ended = settings.value("session/ended").toDateTime();
     lastSession_.solo = settings.value("session/solo", false).toBool();
-    hasSession_ = lastSession_.runtime > 0 && lastSession_.ended.isValid();
+    hasSession_ = lastSession_.ended.isValid();
     soloMode_->setChecked(settings.value("mining/solo", false).toBool());
     poolMode_->setChecked(!soloMode_->isChecked());
     restoreGeometry(settings.value("window/geometry").toByteArray());
@@ -2190,9 +2190,6 @@ bool MainWindow::saveSettings()
 
 void MainWindow::recordSession()
 {
-    // A session that never reported its runtime keeps the previous one, as saved.
-    if (runtimeSeconds_ <= 0)
-        return;
     lastSession_.runtime = runtimeSeconds_;
     lastSession_.accepted = acceptedCount_;
     lastSession_.rejected = rejectedCount_;
@@ -2433,9 +2430,10 @@ void MainWindow::updateOverview()
     else
     {
         heroCaption_->setText("Total hashrate");
+        // Before its first reading the miner is still connecting, so nothing has been lost yet.
         if (state == "Reconnecting")
-            gpuCount_->setText(connectionLost_ ?
-                QString("%1 connection lost. Retrying automatically; your GPUs stay ready.").arg(solo ? "Node" : "Pool") :
+            gpuCount_->setText(!hasReadings_ ? QString::fromUtf8("Connecting to the %1…").arg(solo ? "node" : "pool") :
+                connectionLost_ ? QString("%1 connection lost. Retrying automatically; your GPUs stay ready.").arg(solo ? "Node" : "Pool") :
                 QString("Waiting for the miner's statistics. Retrying automatically."));
         else if (state == "Stopping")
             gpuCount_->setText(QString::fromUtf8("Stopping the miner…"));
@@ -2464,7 +2462,7 @@ void MainWindow::updateOverview()
 
     if (connected)
         poolState_->setStatus("Connected", Tone::Positive);
-    else if (state == "Reconnecting")
+    else if (state == "Reconnecting" && hasReadings_)
         poolState_->setStatus("Reconnecting", Tone::Warning);
     else if (state == "Stopping")
         poolState_->setStatus("Disconnecting", Tone::Neutral);
@@ -2490,7 +2488,7 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
     acceptedCount_ = shares.at(0).toInteger();
     rejectedCount_ = shares.at(1).toInteger();
     const auto failed = shares.at(2).toInteger();
-    connectionLost_ = !connected;
+    connectionLost_ = !connected && hasReadings_;
     const qint64 lastSubmission = acceptedCount_ + rejectedCount_ + failed > 0 ? shares.at(3).toInteger() : -1;
     accepted_->setText(QLocale().toString(acceptedCount_));
     shareDetail_->setText((solo ? "This session · " : QString()) + QString("%1 rejected · %2 failed").arg(rejectedCount_).arg(failed));
@@ -2518,7 +2516,7 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         solo ? QStringLiteral("None yet") : dash());
     if (solo)
         lastShareDetail_->setText(acceptedCount_ > 0 ? QString("%1 found this session").arg(acceptedCount_ == 1 ? "1 block" : QLocale().toString(acceptedCount_) + " blocks") :
-            lastSubmission >= 0 ? QStringLiteral("Not accepted by your node") :
+            lastSubmission >= 0 ? QStringLiteral("Found, but not accepted") :
             currentState_ == "Mining" ? "Mining normally · no block found yet" : "No block found this session");
     else
         lastShareDetail_->setText(acceptedCount_ > 0 && runtimeSeconds_ > 0 ?
