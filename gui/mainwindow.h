@@ -122,7 +122,7 @@ private:
     QString appearance_ = QStringLiteral("light");
     QString currentState_ = QStringLiteral("Stopped");
     qint64 acceptedCount_ = 0, rejectedCount_ = 0, runtimeSeconds_ = 0;
-    //! Sum and count of this session's hashing readings, for its average.
+    //! Sum and count of this session's connected readings, for its average.
     double rateSum_ = 0;
     qint64 rateSamples_ = 0;
     int activeGpus_ = 0, totalGpus_ = 0;

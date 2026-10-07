@@ -423,13 +423,14 @@ private slots:
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
         window.updateStatistics(withHashrate(statistics(), 50));
+        window.updateStatistics(withHashrate(statistics(), 0));
         window.setMiningState("Stopping");
         window.setMiningState("Stopped");
         QVERIFY(!window.findChild<QWidget*>("lastSession")->isHidden());
         QCOMPARE(window.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
         QCOMPARE(window.findChild<QLabel*>("sessionAccepted")->text(), QLocale().toString(1248));
-        // The average covers every reading, not just the chart's latest point.
-        QCOMPARE(window.findChild<QLabel*>("sessionAverage")->text(), QString("81.4"));
+        // The average covers every connected reading, including paused ones, not just the chart's latest point.
+        QCOMPARE(window.findChild<QLabel*>("sessionAverage")->text(), QString("54.3"));
         {
             MainWindow reopened;
             QCOMPARE(reopened.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
@@ -513,7 +514,7 @@ private slots:
         window.updateStatistics(paused);
         QCOMPARE(pool->text(), QString("Connected"));
         QCOMPARE(runtime->text(), "Running " + fixtureRuntime);
-        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString("0 of 1 GPU mining"));
+        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString("0 of 1 GPU mining · session average 0.0 MH/s"));
         // Hashrate can drop to zero while connected, for example while a GPU rebuilds its DAG.
         window.setMiningState("Preparing GPUs");
         QCOMPARE(pool->text(), QString("Connected"));

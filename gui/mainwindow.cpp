@@ -1026,11 +1026,8 @@ protected:
             segment << p;
             previousTime = point.x();
             last = p;
-            if (point.y() > 0)
-            {
-                sum += point.y();
-                ++count;
-            }
+            sum += point.y();
+            ++count;
         }
         closeSegment();
         painter.setClipRect(plot.adjusted(-6, -6, 6, 6));
@@ -2455,7 +2452,7 @@ void MainWindow::updateOverview()
         sessionAcceptedLabel_->setText(lastSession_.solo ? "Blocks" : "Accepted");
         sessionAccepted_->setText(QLocale().toString(lastSession_.accepted));
         sessionRejected_->setText(QString("%1 rejected").arg(QLocale().toString(lastSession_.rejected)));
-        setValue(sessionAverage_, lastSession_.average > 0 ? QString::number(lastSession_.average, 'f', 1) : dash());
+        setValue(sessionAverage_, QString::number(lastSession_.average, 'f', 1));
     }
 
     chart_->setDimmed(!hasReadings_ || state == "Stopping");
@@ -2510,12 +2507,10 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
     const auto rate = hashValue(mining.value("hashrate"));
     setValue(hashrate_, QString::number(rate, 'f', 1));
     chart_->add(rate);
-    // The chart keeps only six hours, so the session average sums every hashing reading itself.
-    if (rate > 0)
-    {
-        rateSum_ += rate;
-        ++rateSamples_;
-    }
+    // The chart keeps only six hours, so the session sums its readings itself. Paused and
+    // preparing readings count too, so the average reflects what the session actually mined.
+    rateSum_ += rate;
+    ++rateSamples_;
     setValue(lastShare_, lastSubmission >= 0 ? durationText(lastSubmission) + " ago" :
         solo ? QStringLiteral("None yet") : dash());
     if (solo)
