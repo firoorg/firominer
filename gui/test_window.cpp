@@ -314,6 +314,12 @@ private slots:
         QCOMPARE(table->item(1, 2)->text(), QString::fromUtf8("65°C"));
         QCOMPARE(table->item(1, 5)->text(), QString("Mining"));
         QVERIFY(!window.findChild<QLineEdit*>("poolInput")->isEnabled());
+        // While stopping, nothing on the page still claims to be mining.
+        window.setMiningState("Stopping");
+        QCOMPARE(cardText(gpuCards(window)[0], "gpuStatus"), QString("Stopping"));
+        QVERIFY(window.findChild<QLabel*>("gpuSummary")->text().isEmpty());
+        QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Disconnecting"));
+        QCOMPARE(table->item(0, 5)->text(), QString("Stopping"));
         window.setMiningState("Stopped");
         QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("0.0"));
         QCOMPARE(window.findChild<QLabel*>("totalPower")->text(), dash);
@@ -429,6 +435,18 @@ private slots:
         QCOMPARE(restored.findChild<QLabel*>("heroTitle")->text(), QString("Set up mining"));
         QVERIFY(restored.findChild<QLabel*>("heroDetail")->text().contains("Stratum"));
         QCOMPARE(restored.findChild<QPushButton*>("startMining")->text(), QString("Set up mining"));
+    }
+
+    void quittingWhileMiningRemembersTheSession()
+    {
+        {
+            MainWindow window;
+            window.setMiningState("Mining");
+            window.updateStatistics(statistics());
+        }
+        MainWindow restored;
+        QVERIFY(!restored.findChild<QWidget*>("lastSession")->isHidden());
+        QCOMPARE(restored.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
     }
 
     void freshSoloSetupGivesDirections()

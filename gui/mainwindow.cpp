@@ -1215,6 +1215,11 @@ public:
         status_->setToolTip("Waiting for fresh statistics");
         setSensors({}, {}, {});
     }
+    void setStopping()
+    {
+        status_->setStatus("Stopping", Tone::Neutral);
+        status_->setToolTip(QString());
+    }
     void addRate(double rate) { spark_->add(rate); }
     void refreshIcons()
     {
@@ -1324,6 +1329,9 @@ void MainWindow::installBrandFonts()
 
 MainWindow::~MainWindow()
 {
+    // Quitting mid-session, for example at logout, still remembers it.
+    if (hasReadings_)
+        recordSession();
     // The pages' widgets hold references to colors_, so delete them while it is still alive.
     delete centralWidget();
 }
@@ -2337,6 +2345,16 @@ void MainWindow::setMiningState(const QString& state)
                         if (auto* item = table->item(row, col))
                             item->setText(col == 5 ? "Waiting for statistics" : "Unavailable");
     }
+    else if (state == "Stopping")
+    {
+        for (int i = 0; i < gpuGrid_->count(); ++i)
+            gpuGrid_->card(i)->setStopping();
+        for (auto* table : deviceTables_)
+            if (table->columnSpan(0, 0) == 1)
+                for (int row = 0; row < table->rowCount(); ++row)
+                    if (auto* item = table->item(row, 5))
+                        item->setText("Stopping");
+    }
     if (tray_)
         tray_->setToolTip("Firominer - " + state.toLower());
     if (state == "Starting")
@@ -2448,12 +2466,14 @@ void MainWindow::updateOverview()
         poolState_->setStatus("Connected", Tone::Positive);
     else if (state == "Reconnecting")
         poolState_->setStatus("Reconnecting", Tone::Warning);
-    else if (!stopped && state != "Stopping")
+    else if (state == "Stopping")
+        poolState_->setStatus("Disconnecting", Tone::Neutral);
+    else if (!stopped)
         poolState_->setStatus("Connecting", Tone::Warning);
     else
         poolState_->setStatus("Not connected", Tone::Neutral);
 
-    gpuSummary_->setText(gpuGrid_->count() && state != "Reconnecting" ?
+    gpuSummary_->setText(state == "Stopping" ? QString() : gpuGrid_->count() && state != "Reconnecting" ?
         QString::fromUtf8("· %1 of %2 mining").arg(activeGpus_).arg(totalGpus_) :
         live ? QString::fromUtf8("· waiting for statistics") : QString());
     gpuGrid_->setVisible(gpuGrid_->count() > 0);
