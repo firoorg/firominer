@@ -12,8 +12,11 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGridLayout>
+#include <QHash>
 #include <QHeaderView>
 #include <QHostInfo>
 #include <QJsonArray>
@@ -27,21 +30,27 @@
 #include <QPainterPath>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QScreen>
 #include <QSettings>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
 #include <QStyleHints>
+#include <QStyleOption>
 #include <QSystemTrayIcon>
 #include <QTableWidget>
 #include <QTimer>
 #include <QToolButton>
 #include <QToolTip>
+#include <QTransform>
+#include <QtMath>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
 #include <QAccessibilityHints>
 #elif defined(Q_OS_WIN)
@@ -51,8 +60,29 @@
 #include <windows.h>
 #endif
 
+//! Colors for one appearance. The branded themes share the Firo Core wallet's tokens:
+//! one warm neutral ramp tinted toward the wine, teal for healthy states, gold for pending
+//! ones and red for errors only. The native theme maps the same roles onto the platform palette.
+struct GuiTheme
+{
+    bool branded = true;
+    QColor bg, panel, panelSoft, border, ink, inkSoft, inkFaint, wine, wineDeep, wineTint, wineText;
+    QColor teal, tealTint, tealText, error, errorTint, gold, goldTint, hover, fieldBorder;
+    QColor heroStart, heroEnd, chartLine;
+};
+
 namespace
 {
+enum class Tone { Neutral, Positive, Warning, Danger };
+enum class Glyph { Overview, Setup, Gpu, Activity, Settings, Help, Play, Stop, Copy, Temperature, Fan, Power };
+
+// The Firo symbol from firominer.svg, in its 520-unit square.
+const char* const firoSymbol[] = {
+    "M155.6,370.7c5.9,0,11.2-3.2,14-8.4l37.3-70.6h-57.5c-8.7,0-15.8-7.1-15.8-15.8v-31.6c0-8.7,7.1-15.8,15.8-15.8h90.9"
+    "l70.6-133.9c2.7-5.2,8.1-8.4,14-8.4h118.8C397.5,37.4,332.3,7,260,7C120.3,7,7,120.3,7,260c0,39.7,9.2,77.3,25.5,110.7H155.6z",
+    "M364.4,149.3c-5.9,0-11.2,3.2-14,8.4l-37.3,70.6h57.5c8.7,0,15.8,7.1,15.8,15.8v31.6c0,8.7-7.1,15.8-15.8,15.8h-90.9"
+    "l-70.6,133.9c-2.7,5.2-8.1,8.4-14,8.4H76.4C122.5,482.6,187.7,513,260,513c139.7,0,253-113.3,253-253c0-39.7-9.2-77.3-25.5-110.7H364.4z"};
+
 bool highContrastEnabled()
 {
     bool highContrast = false;
@@ -67,12 +97,548 @@ bool highContrastEnabled()
     return highContrast;
 }
 
+GuiTheme brandTheme(bool dark)
+{
+    GuiTheme theme;
+    auto set = [dark](QColor& color, const char* light, const char* darkColor) { color = QColor(dark ? darkColor : light); };
+    set(theme.bg, "#F5F3F4", "#0F0C10");
+    set(theme.panel, "#FFFFFF", "#18141A");
+    set(theme.panelSoft, "#F8F6F7", "#211B23");
+    set(theme.border, "#E8E3E6", "#2E2730");
+    set(theme.ink, "#1A1216", "#F5F0F3");
+    set(theme.inkSoft, "#554B51", "#C2B8BF");
+    set(theme.inkFaint, "#776C73", "#958A92");
+    set(theme.wine, "#9B1C2E", "#C8304F");
+    set(theme.wineDeep, "#7E1726", "#A62742");
+    set(theme.wineTint, "#FBEEF0", "#24E84868");
+    set(theme.wineText, "#9B1C2E", "#F27A93");
+    set(theme.teal, "#1E7D6F", "#4CC2AD");
+    set(theme.tealTint, "#E5F4F0", "#244CC2AD");
+    set(theme.tealText, "#176A5E", "#4CC2AD");
+    set(theme.error, "#CC2F26", "#FF7B6E");
+    set(theme.errorTint, "#FDECEA", "#24FF7B6E");
+    set(theme.gold, "#96560C", "#EBB15E");
+    set(theme.goldTint, "#FCF1E1", "#24EBB15E");
+    set(theme.hover, "#F0ECEE", "#2A232C");
+    set(theme.fieldBorder, "#CFC6CB", "#463C48");
+    set(theme.heroStart, "#9B1C2E", "#86182A");
+    set(theme.heroEnd, "#5E0F1D", "#3F0A15");
+    theme.chartLine = theme.wineText;
+    return theme;
+}
+
+// System and high-contrast appearances keep the platform's colors.
+GuiTheme nativeTheme(const QPalette& palette)
+{
+    GuiTheme theme;
+    theme.branded = false;
+    theme.bg = palette.color(QPalette::Window);
+    theme.panel = palette.color(QPalette::Base);
+    theme.panelSoft = theme.hover = palette.color(QPalette::AlternateBase);
+    theme.border = theme.fieldBorder = palette.color(QPalette::Mid);
+    theme.ink = theme.inkSoft = theme.inkFaint = palette.color(QPalette::WindowText);
+    theme.error = theme.gold = theme.ink;
+    theme.wine = theme.wineDeep = theme.wineText = theme.chartLine = palette.color(QPalette::Highlight);
+    theme.teal = theme.tealText = theme.wine;
+    theme.wineTint = theme.tealTint = theme.errorTint = theme.goldTint = Qt::transparent;
+    theme.heroStart = theme.heroEnd = theme.panel;
+    return theme;
+}
+
+QString css(const QColor& color)
+{
+    return color.alpha() == 255 ? color.name() :
+        QString("rgba(%1, %2, %3, %4)").arg(color.red()).arg(color.green()).arg(color.blue()).arg(color.alpha());
+}
+
+QString displayFamily();
+
+QString brandedSheet(const GuiTheme& theme)
+{
+    QString sheet = R"(
+        QMainWindow, QWidget#workspace, QScrollArea, QScrollArea > QWidget > QWidget, QDialog, QMessageBox { background: $BG; }
+        QWidget { color: $INK; }
+        QLabel { background: transparent; }
+        QLabel[role="muted"] { color: $INK_SOFT; }
+        QLabel[role="faint"], QLabel[role="caption"] { color: $INK_FAINT; }
+        QLabel[role="title"] { font-family: "$DISPLAY"; font-size: 32px; font-weight: 700; }
+        QLabel[role="brand"] { font-family: "$DISPLAY"; font-size: 23px; font-weight: 700; }
+        QLabel[role="section"] { font-size: 17px; font-weight: 700; }
+        QLabel[role="strong"] { font-weight: 700; }
+        QLabel[role="pill"] { font-size: 13px; font-weight: 700; }
+        QLabel[role="code"] { background: $PANEL_SOFT; border: 1px solid $BORDER; border-radius: 10px; padding: 10px 12px; }
+        QLabel[role="badge"] { background: $WINE_TINT; border-radius: 10px; }
+        QLabel[role="gpuRate"] { font-family: "$DISPLAY"; font-size: 30px; font-weight: 700; }
+        QLabel[role="unit"] { font-family: "$DISPLAY"; font-size: 17px; font-weight: 300; color: $INK_FAINT; }
+        QLabel#notice { border-radius: 10px; padding: 12px 14px; }
+        QLabel#notice[tone="danger"] { background: $ERROR_TINT; color: $ERROR; }
+        QLabel#notice[tone="warning"] { background: $GOLD_TINT; color: $GOLD; }
+        QFrame#panel, QFrame#gpuCard, QFrame#gpuEmpty { background: $PANEL; border: 1px solid $BORDER; border-radius: 14px; }
+        QFrame#gpuDivider { background: $BORDER; border: none; }
+        QFrame#sidebar { background: $PANEL; border: none; border-right: 1px solid $BORDER; }
+        QFrame#hero { border: none; border-radius: 14px;
+            background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1, stop: 0 $HERO_START, stop: 1 $HERO_END); }
+        QFrame#hero QLabel { color: #FFFFFF; }
+        QFrame#hero QLabel[role="heroSoft"], QFrame#hero QLabel[role="caption"] { color: rgba(255, 255, 255, 199); }
+        QFrame#hero QLabel[role="heroValue"] { font-family: "$DISPLAY"; font-size: 64px; font-weight: 700; }
+        QFrame#hero QLabel[role="heroUnit"] { font-family: "$DISPLAY"; font-size: 28px; font-weight: 300; color: rgba(255, 255, 255, 158); }
+        QFrame#hero QLabel[role="heroTitle"] { font-family: "$DISPLAY"; font-size: 40px; font-weight: 700; }
+        QFrame#hero QLabel[role="statValue"] { font-family: "$DISPLAY"; font-size: 28px; font-weight: 700; }
+        QFrame#hero QWidget#heroStat { border: none; border-left: 1px solid rgba(255, 255, 255, 71); }
+        QListWidget#navigation { background: transparent; border: none; outline: none; font-weight: 700; }
+        QListWidget#navigation::item { height: 44px; border: none; border-radius: 10px; padding-left: 12px; margin-bottom: 4px; color: $INK_SOFT; }
+        QListWidget#navigation[compact="true"]::item { padding-left: 14px; }
+        QListWidget#navigation::item:hover { background: $HOVER; color: $INK; }
+        QListWidget#navigation::item:selected { background: transparent; color: $WINE_TEXT; }
+        QListWidget#navigation::item:selected:hover { background: $HOVER; }
+        QPushButton { background: $PANEL; color: $INK; border: 1px solid $FIELD_BORDER; border-radius: 10px; padding: 10px 16px; font-weight: 700; }
+        QPushButton:hover { background: $HOVER; }
+        QPushButton:focus { border: 2px solid $WINE_TEXT; padding: 9px 15px; }
+        QPushButton:disabled { background: $PANEL_SOFT; border-color: $BORDER; color: $INK_FAINT; }
+        QPushButton[role="primary"] { background: $WINE; border: 1px solid $WINE; color: #FFFFFF; }
+        QPushButton[role="primary"]:hover { background: $WINE_DEEP; border-color: $WINE_DEEP; }
+        QPushButton[role="primary"]:focus { border: 2px solid $INK; padding: 9px 15px; }
+        QPushButton[role="primary"]:disabled { background: $HOVER; border-color: $HOVER; color: $INK_FAINT; }
+        QPushButton[role="link"] { background: transparent; border: none; color: $WINE_TEXT; padding: 4px 0; text-align: left; }
+        QPushButton[role="link"]:hover, QPushButton[role="link"]:focus { text-decoration: underline; }
+        QPushButton[role="icon"] { background: transparent; border: none; border-radius: 8px; padding: 6px; }
+        QPushButton[role="icon"]:hover { background: $HOVER; }
+        QPushButton[role="icon"]:disabled { background: transparent; }
+        QPushButton[role="icon"]:focus { border: 2px solid $WINE_TEXT; padding: 4px; }
+        QPushButton[role="sidebar"] { background: transparent; border: none; border-radius: 10px; color: $INK_SOFT; padding: 0 12px; min-height: 44px; text-align: left; }
+        QPushButton[role="sidebar"][compact="true"] { padding: 0 14px; }
+        QPushButton[role="sidebar"]:hover { background: $HOVER; color: $INK; }
+        QPushButton[role="sidebar"]:focus { border: 2px solid $WINE_TEXT; padding: 0 10px; }
+        QFrame#segmented { background: $PANEL_SOFT; border: 1px solid $BORDER; border-radius: 10px; }
+        QPushButton[role="segment"] { background: transparent; border: none; border-radius: 7px; color: $INK_SOFT; padding: 6px 12px; }
+        QPushButton[role="segment"]:hover { color: $INK; }
+        QPushButton[role="segment"]:checked { background: $PANEL; color: $INK; }
+        QPushButton[role="segment"]:focus { border: 2px solid $WINE_TEXT; padding: 4px 10px; }
+        QPushButton[role="segment"]:disabled { background: transparent; color: $INK_FAINT; }
+        QPushButton[role="segment"]:checked:disabled { background: $PANEL; }
+        QLineEdit, QComboBox { background: $PANEL; color: $INK; border: 1px solid $FIELD_BORDER; border-radius: 10px; padding: 9px 12px; min-height: 20px;
+            selection-background-color: $WINE; selection-color: #FFFFFF; }
+        QLineEdit:focus, QComboBox:focus { border: 2px solid $WINE_TEXT; padding: 8px 11px; }
+        QLineEdit:disabled, QComboBox:disabled { background: $PANEL_SOFT; border-color: $BORDER; color: $INK_FAINT; }
+        QComboBox QAbstractItemView { background: $PANEL; color: $INK; border: 1px solid $BORDER; selection-background-color: $WINE_TINT; selection-color: $INK; }
+        QToolButton { background: transparent; color: $INK_SOFT; border: none; border-radius: 6px; padding: 2px 6px; font-weight: 700; }
+        QToolButton:hover { background: $HOVER; color: $INK; }
+        QTableWidget { background: $PANEL; border: none; gridline-color: $BORDER; selection-background-color: $WINE_TINT; selection-color: $INK; }
+        QHeaderView::section { background: $PANEL; color: $INK_FAINT; border: none; border-bottom: 1px solid $BORDER; padding: 8px 6px; font-weight: 700; }
+        QPlainTextEdit { background: $PANEL; color: $INK; border: 1px solid $BORDER; border-radius: 10px; padding: 10px;
+            selection-background-color: $WINE; selection-color: #FFFFFF; }
+        QMenu { background: $PANEL; color: $INK; border: 1px solid $BORDER; padding: 4px; }
+        QMenu::item { padding: 6px 18px; border-radius: 6px; }
+        QMenu::item:selected { background: $WINE_TINT; color: $INK; }
+        QStatusBar, QStatusBar QLabel { background: $BG; color: $INK_SOFT; }
+        QScrollBar:vertical { background: transparent; width: 12px; margin: 2px; }
+        QScrollBar:horizontal { background: transparent; height: 12px; margin: 2px; }
+        QScrollBar::handle { background: $FIELD_BORDER; border-radius: 4px; }
+        QScrollBar::handle:vertical { min-height: 32px; }
+        QScrollBar::handle:horizontal { min-width: 32px; }
+        QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+        QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+    )";
+    const QHash<QString, QString> tokens{
+        {"$BG", css(theme.bg)}, {"$PANEL_SOFT", css(theme.panelSoft)}, {"$PANEL", css(theme.panel)},
+        {"$BORDER", css(theme.border)}, {"$INK_SOFT", css(theme.inkSoft)}, {"$INK_FAINT", css(theme.inkFaint)},
+        {"$INK", css(theme.ink)}, {"$WINE_DEEP", css(theme.wineDeep)}, {"$WINE_TINT", css(theme.wineTint)},
+        {"$WINE_TEXT", css(theme.wineText)}, {"$WINE", css(theme.wine)}, {"$ERROR_TINT", css(theme.errorTint)},
+        {"$ERROR", css(theme.error)}, {"$GOLD_TINT", css(theme.goldTint)}, {"$GOLD", css(theme.gold)},
+        {"$HOVER", css(theme.hover)}, {"$FIELD_BORDER", css(theme.fieldBorder)}, {"$HERO_START", css(theme.heroStart)},
+        {"$HERO_END", css(theme.heroEnd)}, {"$DISPLAY", displayFamily()}};
+    // Replace longer tokens first so $WINE does not consume $WINE_TINT.
+    auto keys = tokens.keys();
+    std::sort(keys.begin(), keys.end(), [](const QString& a, const QString& b) { return a.size() > b.size(); });
+    for (const auto& key : keys)
+        sheet.replace(key, tokens.value(key));
+    return sheet;
+}
+
+// Structure only: platform colors stay in charge, including high-contrast themes.
+QString nativeSheet()
+{
+    QString sheet = R"(
+        QLabel[role="title"] { font-family: "$DISPLAY"; font-size: 32px; font-weight: 700; }
+        QLabel[role="brand"] { font-family: "$DISPLAY"; font-size: 23px; font-weight: 700; }
+        QLabel[role="section"] { font-size: 17px; font-weight: 700; }
+        QLabel[role="strong"] { font-weight: 700; }
+        QLabel[role="pill"] { font-size: 13px; font-weight: 700; }
+        QLabel[role="code"] { border: 1px solid palette(mid); border-radius: 10px; padding: 10px 12px; }
+        QLabel[role="gpuRate"] { font-family: "$DISPLAY"; font-size: 30px; font-weight: 700; }
+        QLabel[role="unit"] { font-family: "$DISPLAY"; font-size: 17px; font-weight: 300; }
+        QLabel#notice { border: 1px solid palette(mid); border-radius: 10px; padding: 12px 14px; }
+        QFrame#panel, QFrame#gpuCard, QFrame#gpuEmpty, QFrame#hero { border: 1px solid palette(mid); border-radius: 14px; }
+        QFrame#gpuDivider { background: palette(mid); border: none; }
+        QFrame#sidebar { border: none; border-right: 1px solid palette(mid); }
+        QLabel[role="heroValue"] { font-family: "$DISPLAY"; font-size: 64px; font-weight: 700; }
+        QLabel[role="heroUnit"] { font-family: "$DISPLAY"; font-size: 28px; font-weight: 300; }
+        QLabel[role="heroTitle"] { font-family: "$DISPLAY"; font-size: 40px; font-weight: 700; }
+        QLabel[role="statValue"] { font-family: "$DISPLAY"; font-size: 28px; font-weight: 700; }
+        QWidget#heroStat { border: none; border-left: 1px solid palette(mid); }
+        QListWidget#navigation { background: transparent; border: none; outline: none; font-weight: 700; }
+        QListWidget#navigation::item { height: 44px; border-radius: 10px; padding-left: 12px; margin-bottom: 4px; }
+        QListWidget#navigation::item:selected { background: palette(highlight); color: palette(highlighted-text); }
+        QListWidget#navigation[compact="true"]::item { padding-left: 14px; }
+        QPushButton { padding: 10px 16px; font-weight: 700; }
+        QPushButton[role="segment"] { padding: 6px 12px; }
+        QPushButton[role="link"] { background: transparent; border: none; color: palette(link); padding: 4px 0; text-align: left; }
+        QPushButton[role="link"]:hover, QPushButton[role="link"]:focus { text-decoration: underline; }
+        QPushButton[role="icon"] { padding: 6px; }
+        QPushButton[role="sidebar"] { background: transparent; border: none; border-radius: 10px; padding: 0 12px; min-height: 44px; text-align: left; }
+        QPushButton[role="sidebar"][compact="true"] { padding: 0 14px; }
+        QLineEdit, QComboBox { padding: 9px; min-height: 20px; }
+    )";
+    sheet.replace("$DISPLAY", displayFamily());
+    return sheet;
+}
+
+// The wallet's typefaces: Saira SemiCondensed for headings and figures, Source Sans Pro for text.
+struct BrandFonts
+{
+    QString display = QStringLiteral("Saira SemiCondensed");
+    QString body = QStringLiteral("Source Sans Pro");
+};
+
+const BrandFonts& brandFonts()
+{
+    static const BrandFonts fonts = [] {
+        BrandFonts result;
+        for (const auto* file : {":/fonts/SairaSemiCondensed-Bold.ttf", ":/fonts/SairaSemiCondensed-Light.ttf",
+                 ":/fonts/SourceSansPro-Regular.ttf", ":/fonts/SourceSansPro-Bold.ttf"})
+        {
+            const auto families = QFontDatabase::applicationFontFamilies(QFontDatabase::addApplicationFont(file));
+            if (families.isEmpty())
+                continue;
+            if (families.first().startsWith("Saira"))
+                result.display = families.first();
+            else
+                result.body = families.first();
+        }
+        return result;
+    }();
+    return fonts;
+}
+
+QString displayFamily()
+{
+    return brandFonts().display;
+}
+
+// Source Sans runs small, so its default is a step above common UI sizes, while larger
+// accessibility text settings still scale it.
+QFont bodyFont(QFont font)
+{
+    if (font.family() == brandFonts().body)
+        return font;
+    const qreal points = font.pointSizeF() > 0 ? font.pointSizeF() : font.pixelSize() * 0.75;
+    font.setFamily(brandFonts().body);
+    font.setPointSizeF(std::max<qreal>(11.25, points * 1.1));
+    return font;
+}
+
+QFont monoFont(int pixelSize)
+{
+    const auto families = QFontDatabase::families();
+    for (const auto* family : {"Cascadia Mono", "Consolas", "DejaVu Sans Mono", "Ubuntu Mono", "Liberation Mono"})
+        if (families.contains(family))
+        {
+            QFont font(family);
+            font.setPixelSize(pixelSize);
+            return font;
+        }
+    auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    font.setPixelSize(pixelSize);
+    return font;
+}
+
+QPainterPath svgPath(const QString& data)
+{
+    static const QRegularExpression token("([MmLlHhVvCcZz])|([-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?)");
+    QPainterPath path;
+    QList<double> numbers;
+    QChar command;
+    QPointF current, start;
+    auto flush = [&] {
+        const bool relative = command.isLower();
+        int i = 0;
+        switch (command.toUpper().unicode())
+        {
+        case 'M':
+            for (; i + 1 < numbers.size(); i += 2)
+            {
+                current = (relative ? current : QPointF()) + QPointF(numbers[i], numbers[i + 1]);
+                if (i == 0)
+                {
+                    path.moveTo(current);
+                    start = current;
+                }
+                else
+                    path.lineTo(current);
+            }
+            break;
+        case 'L':
+            for (; i + 1 < numbers.size(); i += 2)
+                path.lineTo(current = (relative ? current : QPointF()) + QPointF(numbers[i], numbers[i + 1]));
+            break;
+        case 'H':
+            for (; i < numbers.size(); ++i)
+            {
+                current.setX((relative ? current.x() : 0) + numbers[i]);
+                path.lineTo(current);
+            }
+            break;
+        case 'V':
+            for (; i < numbers.size(); ++i)
+            {
+                current.setY((relative ? current.y() : 0) + numbers[i]);
+                path.lineTo(current);
+            }
+            break;
+        case 'C':
+            for (; i + 5 < numbers.size(); i += 6)
+            {
+                const QPointF base = relative ? current : QPointF();
+                path.cubicTo(base + QPointF(numbers[i], numbers[i + 1]), base + QPointF(numbers[i + 2], numbers[i + 3]),
+                    base + QPointF(numbers[i + 4], numbers[i + 5]));
+                current = base + QPointF(numbers[i + 4], numbers[i + 5]);
+            }
+            break;
+        case 'Z':
+            path.closeSubpath();
+            current = start;
+            break;
+        }
+        numbers.clear();
+    };
+    for (auto match = token.globalMatch(data); match.hasNext();)
+    {
+        const auto part = match.next();
+        if (part.capturedLength(1))
+        {
+            if (!command.isNull())
+                flush();
+            command = part.captured(1).at(0);
+        }
+        else
+            numbers.append(part.captured(2).toDouble());
+    }
+    if (!command.isNull())
+        flush();
+    return path;
+}
+
+// Outline icons drawn on a 24-unit grid, so they stay sharp at any scale without an SVG module.
+QPainterPath glyphPath(Glyph glyph, bool& filled)
+{
+    QPainterPath path;
+    filled = false;
+    switch (glyph)
+    {
+    case Glyph::Overview:
+        path.addRoundedRect(QRectF(3.5, 3.5, 7, 9), 1.5, 1.5);
+        path.addRoundedRect(QRectF(13.5, 3.5, 7, 5), 1.5, 1.5);
+        path.addRoundedRect(QRectF(13.5, 11.5, 7, 9), 1.5, 1.5);
+        path.addRoundedRect(QRectF(3.5, 15.5, 7, 5), 1.5, 1.5);
+        break;
+    case Glyph::Setup:
+        path.moveTo(4, 7);
+        path.lineTo(13, 7);
+        path.moveTo(17, 7);
+        path.lineTo(20, 7);
+        path.moveTo(4, 17);
+        path.lineTo(7, 17);
+        path.moveTo(11, 17);
+        path.lineTo(20, 17);
+        path.addEllipse(QPointF(15, 7), 2, 2);
+        path.addEllipse(QPointF(9, 17), 2, 2);
+        break;
+    case Glyph::Gpu:
+        path.addRoundedRect(QRectF(2.5, 6, 19, 11), 2, 2);
+        path.addEllipse(QPointF(9, 11.5), 2.6, 2.6);
+        path.moveTo(15, 9.5);
+        path.lineTo(18.5, 9.5);
+        path.moveTo(15, 13.5);
+        path.lineTo(18.5, 13.5);
+        for (const qreal x : {6.0, 10.0, 14.0})
+        {
+            path.moveTo(x, 17);
+            path.lineTo(x, 19.5);
+        }
+        break;
+    case Glyph::Activity:
+        path.moveTo(3, 12);
+        path.lineTo(7, 12);
+        path.lineTo(10, 5);
+        path.lineTo(14, 19);
+        path.lineTo(17, 12);
+        path.lineTo(21, 12);
+        break;
+    case Glyph::Settings:
+    {
+        QPolygonF cog;
+        const std::pair<qreal, qreal> outline[] = {{-16, 7}, {-9, 9.3}, {9, 9.3}, {16, 7}};
+        for (int tooth = 0; tooth < 8; ++tooth)
+            for (const auto& [offset, radius] : outline)
+            {
+                const qreal angle = qDegreesToRadians(tooth * 45.0 + offset);
+                cog << QPointF(12 + radius * std::cos(angle), 12 + radius * std::sin(angle));
+            }
+        path.addPolygon(cog);
+        path.closeSubpath();
+        path.addEllipse(QPointF(12, 12), 3, 3);
+        break;
+    }
+    case Glyph::Help:
+        path.addEllipse(QPointF(12, 12), 9, 9);
+        path.moveTo(9.5, 9.5);
+        path.arcTo(QRectF(9.5, 7, 5, 5), 180, -240);
+        path.lineTo(12, 12.8);
+        path.lineTo(12, 13.8);
+        path.addEllipse(QPointF(12, 17), 0.5, 0.5);
+        break;
+    case Glyph::Play:
+        filled = true;
+        path.moveTo(7, 4.5);
+        path.lineTo(7, 19.5);
+        path.lineTo(19.5, 12);
+        path.closeSubpath();
+        break;
+    case Glyph::Stop:
+        filled = true;
+        path.addRoundedRect(QRectF(5, 5, 14, 14), 2.5, 2.5);
+        break;
+    case Glyph::Copy:
+        path.addRoundedRect(QRectF(9, 9, 11, 11), 2, 2);
+        path.moveTo(15, 9);
+        path.lineTo(15, 6);
+        path.arcTo(QRectF(11, 4, 4, 4), 0, 90);
+        path.lineTo(6, 4);
+        path.arcTo(QRectF(4, 4, 4, 4), 90, 90);
+        path.lineTo(4, 13);
+        path.arcTo(QRectF(4, 11, 4, 4), 180, 90);
+        path.lineTo(9, 15);
+        break;
+    case Glyph::Temperature:
+        path.moveTo(14, 14.6);
+        path.lineTo(14, 5);
+        path.arcTo(QRectF(10, 3, 4, 4), 0, 180);
+        path.lineTo(10, 14.6);
+        path.arcTo(QRectF(8.2, 14, 7.6, 7.6), 121.8, 296.4);
+        path.closeSubpath();
+        break;
+    case Glyph::Fan:
+    {
+        path.addEllipse(QPointF(12, 12), 9, 9);
+        path.addEllipse(QPointF(12, 12), 1.5, 1.5);
+        QPainterPath blade;
+        blade.moveTo(12, 10.3);
+        blade.cubicTo(11, 7.4, 12.6, 4.8, 15.2, 5.6);
+        for (int i = 0; i < 3; ++i)
+        {
+            QTransform turn;
+            turn.translate(12, 12);
+            turn.rotate(120.0 * i);
+            turn.translate(-12, -12);
+            path.addPath(turn.map(blade));
+        }
+        break;
+    }
+    case Glyph::Power:
+        path.moveTo(13, 3);
+        path.lineTo(5, 13.5);
+        path.lineTo(11, 13.5);
+        path.lineTo(10, 21);
+        path.lineTo(18, 10.5);
+        path.lineTo(12, 10.5);
+        path.closeSubpath();
+        break;
+    }
+    return path;
+}
+
+QPixmap glyphPixmap(Glyph glyph, const QColor& color, int size, qreal ratio = 0)
+{
+    if (ratio <= 0)
+        ratio = std::max<qreal>(qApp->devicePixelRatio(), 1);
+    QPixmap pixmap(QSize(size, size) * ratio);
+    pixmap.setDevicePixelRatio(ratio);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.scale(size / 24.0, size / 24.0);
+    bool filled = false;
+    const auto path = glyphPath(glyph, filled);
+    if (filled)
+        painter.fillPath(path, color);
+    else
+    {
+        painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawPath(path);
+    }
+    return pixmap;
+}
+
+QIcon glyphIcon(Glyph glyph, const QColor& normal, const QColor& selected = QColor(), int size = 20)
+{
+    QIcon icon;
+    for (const qreal ratio : {1.0, 2.0, std::max<qreal>(qApp->devicePixelRatio(), 1)})
+    {
+        icon.addPixmap(glyphPixmap(glyph, normal, size, ratio), QIcon::Normal);
+        if (selected.isValid())
+            icon.addPixmap(glyphPixmap(glyph, selected, size, ratio), QIcon::Selected);
+    }
+    return icon;
+}
+
+void repolish(QWidget* widget)
+{
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+    widget->update();
+}
+
+void setRole(QWidget* widget, const char* role)
+{
+    if (widget->property("role").toString() == role)
+        return;
+    widget->setProperty("role", role);
+    repolish(widget);
+}
+
 QLabel* label(const QString& text, const char* role = nullptr)
 {
     auto* result = new QLabel(text);
     result->setTextFormat(Qt::PlainText);
     if (role)
         result->setProperty("role", role);
+    return result;
+}
+
+// QLabel's word-wrap heuristic prefers a narrow column; short details should prefer one line
+// and wrap only when the window is narrow.
+class DetailLabel : public QLabel
+{
+public:
+    using QLabel::QLabel;
+    QSize sizeHint() const override
+    {
+        const auto hint = QLabel::sizeHint();
+        const auto margins = contentsMargins();
+        return {std::max(hint.width(), fontMetrics().horizontalAdvance(text()) + margins.left() + margins.right() + 4), hint.height()};
+    }
+};
+
+// Small bold capitals; QSS cannot carry letter spacing or capitalization.
+QLabel* caption(const QString& text)
+{
+    auto* result = label(text, "caption");
+    QFont font(brandFonts().body);
+    font.setPixelSize(12);
+    font.setBold(true);
+    font.setCapitalization(QFont::AllUppercase);
+    font.setLetterSpacing(QFont::AbsoluteSpacing, 0.8);
+    result->setFont(font);
     return result;
 }
 
@@ -108,12 +674,24 @@ double hashValue(const QJsonValue& value)
     return (value.isString() && !ok) || !std::isfinite(result) || result < 0 ? 0 : result / 1000000.;
 }
 
+bool hasReading(const QJsonValue& value, bool allowZero)
+{
+    return value.isDouble() && std::isfinite(value.toDouble()) && value.toDouble() >= 0 &&
+        (allowZero || value.toDouble() != 0);
+}
+
 QString sensor(const QJsonValue& value, const QString& unit, bool allowZero = false)
 {
-    if (!value.isDouble() || !std::isfinite(value.toDouble()) || value.toDouble() < 0 ||
-        (!allowZero && value.toDouble() == 0))
+    if (!hasReading(value, allowZero))
         return QStringLiteral("Unavailable");
     return QString::number(value.toDouble(), 'f', 0) + unit;
+}
+
+// A dash keeps unavailable figures compact; assistive technology still hears the word.
+void setValue(QLabel* label, const QString& text)
+{
+    label->setText(text);
+    label->setAccessibleName(text == QString::fromUtf8("—") ? QStringLiteral("Unavailable") : QString());
 }
 
 QString abbreviated(const QString& text)
@@ -121,19 +699,160 @@ QString abbreviated(const QString& text)
     return text.size() > 22 ? text.left(10) + QString::fromUtf8("…") + text.right(8) : text;
 }
 
-QString runtimeText(qint64 seconds)
+QString durationText(qint64 seconds)
 {
-    return QString("Running for %1h %2m").arg(seconds / 3600).arg((seconds / 60) % 60);
+    seconds = std::max<qint64>(seconds, 0);
+    // A no-break space keeps each number with its unit.
+    const QChar space(0x00a0);
+    if (seconds < 60)
+        return QString::number(seconds) + space + "s";
+    if (seconds < 3600)
+        return QString::number(seconds / 60) + space + "min";
+    return QString("%1h %2m").arg(seconds / 3600).arg((seconds / 60) % 60);
+}
+
+QString sessionEndText(const QDateTime& ended)
+{
+    const QLocale locale;
+    auto timeFormat = locale.timeFormat(QLocale::ShortFormat);
+    timeFormat.remove(QRegularExpression("[:.]ss"));
+    const auto time = locale.toString(ended.time(), timeFormat);
+    if (ended.date() == QDate::currentDate())
+        return "Ended " + time;
+    return "Ended " + locale.toString(ended.date(), QLocale::ShortFormat) + ", " + time;
+}
+
+double niceStep(double raw)
+{
+    const double magnitude = std::pow(10.0, std::floor(std::log10(raw)));
+    for (const double factor : {1.0, 2.0, 2.5, 5.0})
+        if (raw <= factor * magnitude)
+            return factor * magnitude;
+    return 10 * magnitude;
+}
+
+struct ToneColors
+{
+    QColor background, dot, text, edge;
+};
+
+ToneColors toneColors(const GuiTheme& theme, Tone tone, const QPalette& palette)
+{
+    if (!theme.branded)
+    {
+        const QColor ink = palette.color(QPalette::WindowText);
+        QColor edge = ink;
+        edge.setAlphaF(0.5);
+        return {Qt::transparent, tone == Tone::Positive ? palette.color(QPalette::Highlight) : ink, ink, edge};
+    }
+    switch (tone)
+    {
+    case Tone::Positive:
+        return {theme.tealTint, theme.teal, theme.tealText, QColor()};
+    case Tone::Warning:
+        return {theme.goldTint, theme.gold, theme.gold, QColor()};
+    case Tone::Danger:
+        return {theme.errorTint, theme.error, theme.error, QColor()};
+    case Tone::Neutral:
+        break;
+    }
+    return {theme.hover, theme.inkFaint, theme.inkSoft, QColor()};
 }
 }
+
+// A status label drawn as a pill with a leading dot, so the state never relies on color alone.
+class StatusPill : public QLabel
+{
+public:
+    explicit StatusPill(const GuiTheme& colors, QWidget* parent = nullptr) : QLabel(parent), colors_(colors)
+    {
+        setTextFormat(Qt::PlainText);
+        setProperty("role", "pill");
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    }
+    void setStatus(const QString& text, Tone tone)
+    {
+        tone_ = tone;
+        if (text != this->text())
+        {
+            setText(text);
+            updateGeometry();
+        }
+        update();
+    }
+    QSize sizeHint() const override
+    {
+        const QFontMetrics metrics(font());
+        return QSize(metrics.horizontalAdvance(text()) + 39, std::max(28, metrics.height() + 10));
+    }
+    QSize minimumSizeHint() const override { return sizeHint(); }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const auto tone = toneColors(colors_, tone_, palette());
+        const QRectF pill = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+        painter.setPen(tone.edge.isValid() ? QPen(tone.edge, 1) : QPen(Qt::NoPen));
+        painter.setBrush(tone.background);
+        painter.drawRoundedRect(pill, pill.height() / 2, pill.height() / 2);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(tone.dot);
+        painter.drawEllipse(QPointF(15, pill.center().y()), 4, 4);
+        painter.setPen(tone.text);
+        const auto area = QRectF(pill).adjusted(25, 0, -12, 0);
+        painter.drawText(area, Qt::AlignVCenter | Qt::AlignLeft,
+            fontMetrics().elidedText(text(), Qt::ElideRight, int(area.width())));
+    }
+
+private:
+    const GuiTheme& colors_;
+    Tone tone_ = Tone::Neutral;
+};
+
+// The overview banner: the wallet's wine gradient and faint Firo mark, cropped by the top-right corner.
+class HeroFrame : public QFrame
+{
+public:
+    explicit HeroFrame(const GuiTheme& colors) : colors_(colors) { setObjectName("hero"); }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QStyleOption option;
+        option.initFrom(this);
+        QPainter painter(this);
+        style()->drawPrimitive(QStyle::PE_Widget, &option, &painter, this);
+        if (!colors_.branded)
+            return;
+        static const QPainterPath symbol = [] {
+            QPainterPath path;
+            for (const auto* outline : firoSymbol)
+                path.addPath(svgPath(outline));
+            return path;
+        }();
+        QPainterPath clip;
+        clip.addRoundedRect(QRectF(rect()), 14, 14);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setClipPath(clip);
+        painter.translate(width() - 234, -46);
+        painter.scale(270.0 / 520, 270.0 / 520);
+        painter.setOpacity(0.07);
+        painter.fillPath(symbol, Qt::white);
+    }
+
+private:
+    const GuiTheme& colors_;
+};
 
 // The chart needs only a short, bounded session history, not a charting dependency.
 class HashrateChart : public QWidget
 {
 public:
-    explicit HashrateChart(QWidget* parent = nullptr) : QWidget(parent)
+    explicit HashrateChart(const GuiTheme& colors, QWidget* parent = nullptr) : QWidget(parent), colors_(colors)
     {
-        setMinimumHeight(210);
+        setMinimumHeight(150);
         setAccessibleName("Local hashrate history");
         setAccessibleDescription("Use View history for timestamped hashrate readings.");
     }
@@ -149,11 +868,38 @@ public:
         update();
     }
     void reset() { points_.clear(); update(); }
+    bool isEmpty() const { return points_.isEmpty(); }
     void setRange(int seconds) { range_ = seconds; update(); }
+    void setDimmed(bool dimmed)
+    {
+        if (dimmed_ != dimmed)
+        {
+            dimmed_ = dimmed;
+            update();
+        }
+    }
+    //! Mean of the nonzero readings within the last seconds, once they span minimumSpan seconds.
+    double average(qint64 seconds, qint64 minimumSpan = 300) const
+    {
+        const auto now = QDateTime::currentSecsSinceEpoch();
+        double sum = 0, first = 0, last = 0;
+        int count = 0;
+        for (const auto& point : points_)
+            if (point.x() >= now - seconds && point.y() > 0)
+            {
+                if (!count)
+                    first = point.x();
+                last = point.x();
+                sum += point.y();
+                ++count;
+            }
+        return count && last - first >= minimumSpan ? sum / count : std::numeric_limits<double>::quiet_NaN();
+    }
     void showHistory()
     {
         QDialog dialog(this);
         dialog.setPalette(palette());
+        dialog.setFont(font());
         dialog.setWindowTitle("Hashrate history");
         dialog.resize(440, 360);
         auto* layout = new QVBoxLayout(&dialog);
@@ -185,174 +931,437 @@ protected:
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        const auto colors = window()->palette();
-        const QRectF plot(43, 18, width() - 57, height() - 53);
+        QFont axisFont = font();
+        axisFont.setPixelSize(12);
+        painter.setFont(axisFont);
+        const QFontMetrics metrics(axisFont);
+        const int labels = metrics.horizontalAdvance("8888") + 10;
+        const QRectF plot(labels, 10, width() - labels - 12, height() - metrics.height() - 22);
         if (plot.width() <= 0 || plot.height() <= 0)
             return;
+        if (points_.isEmpty())
+        {
+            painter.setPen(colors_.inkFaint);
+            painter.drawText(plot, Qt::AlignCenter | Qt::TextWordWrap, "Hashrate history appears when mining starts");
+            return;
+        }
+        const QColor line = dimmed_ ? colors_.inkFaint : colors_.chartLine;
         const auto now = QDateTime::currentSecsSinceEpoch();
-        double maximum = 10;
+        double peak = 0;
         for (const auto& point : points_)
             if (point.x() >= now - range_)
-                maximum = std::max(maximum, point.y() * 1.15);
-        maximum = std::ceil(maximum / 10) * 10;
-        QFont axisFont = font();
-        axisFont.setPointSize(9);
-        painter.setFont(axisFont);
-        for (int i = 0; i <= 3; ++i)
+                peak = std::max(peak, point.y());
+        const double target = std::max(peak * 1.15, 10.0);
+        const double step = niceStep(target / 3);
+        const double maximum = step * std::ceil(target / step);
+        for (double value = 0; value <= maximum + step / 2; value += step)
         {
-            const auto y = plot.bottom() - i * plot.height() / 3;
-            painter.setPen(colors.color(QPalette::Mid));
+            const auto y = plot.bottom() - value / maximum * plot.height();
+            painter.setPen(QPen(colors_.border, 1));
             painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
-            painter.setPen(colors.color(QPalette::WindowText));
-            painter.drawText(QRectF(0, y - 10, 35, 20), Qt::AlignRight | Qt::AlignVCenter,
-                QString::number(maximum * i / 3, 'f', 0));
+            painter.setPen(colors_.inkFaint);
+            painter.drawText(QRectF(0, y - 10, labels - 10, 20), Qt::AlignRight | Qt::AlignVCenter,
+                QString::number(value, 'f', step < 1 ? 1 : 0));
         }
         for (int i = 0; i <= 4; ++i)
         {
             const auto x = plot.left() + i * plot.width() / 4;
             const auto time = now - range_ + i * range_ / 4;
-            painter.setPen(colors.color(QPalette::WindowText));
-            painter.drawText(QRectF(x - 25, plot.bottom() + 10, 50, 20), Qt::AlignCenter,
-                QDateTime::fromSecsSinceEpoch(time).toString("HH:mm"));
+            painter.setPen(colors_.inkFaint);
+            painter.drawText(QRectF(x - 28, plot.bottom() + 8, 56, metrics.height() + 4), Qt::AlignCenter,
+                i == 4 ? QStringLiteral("Now") : QDateTime::fromSecsSinceEpoch(time).toString("HH:mm"));
         }
-        if (points_.isEmpty())
-        {
-            painter.setPen(colors.color(QPalette::WindowText));
-            painter.drawText(plot, Qt::AlignCenter, "Hashrate history appears when mining starts");
-            return;
-        }
-        QPainterPath line;
-        bool first = true;
+        QPainterPath path, area;
+        QPolygonF segment, dots;
+        double sum = 0;
+        int count = 0;
         double previousTime = 0;
+        QPointF last;
+        auto closeSegment = [&] {
+            if (segment.size() > 1)
+            {
+                QPolygonF shape = segment;
+                shape << QPointF(segment.last().x(), plot.bottom()) << QPointF(segment.first().x(), plot.bottom());
+                area.addPolygon(shape);
+            }
+            else if (segment.size() == 1)
+                dots << segment.first(); // A reading between gaps has no line to draw.
+            segment.clear();
+        };
         for (const auto& point : points_)
         {
             if (point.x() < now - range_)
                 continue;
             const QPointF p(plot.right() - (now - point.x()) / range_ * plot.width(),
                 plot.bottom() - point.y() / maximum * plot.height());
-            if (first || point.x() - previousTime > 15)
-                line.moveTo(p);
+            if (segment.isEmpty() || point.x() - previousTime > 15)
+            {
+                closeSegment();
+                path.moveTo(p);
+            }
             else
-                line.lineTo(p);
-            first = false;
+                path.lineTo(p);
+            segment << p;
             previousTime = point.x();
+            last = p;
+            if (point.y() > 0)
+            {
+                sum += point.y();
+                ++count;
+            }
         }
-        painter.setClipRect(plot.adjusted(-1, -1, 1, 1));
-        painter.setPen(QPen(highContrastEnabled() || colors.color(QPalette::Window).lightness() < 128 ?
-            colors.color(QPalette::Highlight) : QColor("#9b1c2e"), 2));
-        painter.drawPath(line);
-        if (points_.size() == 1)
-            painter.drawEllipse(line.currentPosition(), 2, 2);
+        closeSegment();
+        painter.setClipRect(plot.adjusted(-6, -6, 6, 6));
+        if (!dimmed_)
+        {
+            QColor fill = line;
+            fill.setAlphaF(colors_.branded && colors_.bg.lightness() >= 128 ? 0.07 : 0.12);
+            painter.fillPath(area, fill);
+        }
+        painter.setPen(QPen(line, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(path);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(line);
+        for (const auto& dot : dots)
+            painter.drawEllipse(dot, 2.5, 2.5);
+        if (count > 1)
+        {
+            const double mean = sum / count;
+            const auto y = plot.bottom() - mean / maximum * plot.height();
+            painter.setPen(QPen(colors_.inkFaint, 1, Qt::DashLine));
+            painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
+            const auto text = QString("Avg %1").arg(mean, 0, 'f', 1);
+            const QRectF box(plot.right() - metrics.horizontalAdvance(text) - 14, y - metrics.height() - 6,
+                metrics.horizontalAdvance(text) + 8, metrics.height() + 2);
+            painter.fillRect(box, colors_.panel);
+            painter.setPen(colors_.inkFaint);
+            painter.drawText(box, Qt::AlignCenter, text);
+        }
+        if (!dimmed_ && now - previousTime <= 15)
+        {
+            painter.setPen(QPen(colors_.panel, 3));
+            painter.setBrush(line);
+            painter.drawEllipse(last, 4.5, 4.5);
+        }
     }
+
 private:
+    const GuiTheme& colors_;
     QList<QPointF> points_;
     int range_ = 3600;
+    bool dimmed_ = false;
 };
+
+class Sparkline : public QWidget
+{
+public:
+    explicit Sparkline(const GuiTheme& colors) : colors_(colors)
+    {
+        setFixedSize(132, 30);
+        setAccessibleName("Recent GPU hashrate");
+    }
+    void add(double value)
+    {
+        values_.append(value);
+        while (values_.size() > 40)
+            values_.removeFirst();
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        if (values_.size() < 2)
+            return;
+        const auto [low, high] = std::minmax_element(values_.begin(), values_.end());
+        const double middle = (*low + *high) / 2;
+        const double span = std::max({*high - *low, middle * 0.08, 0.1});
+        QPainterPath path;
+        for (int i = 0; i < values_.size(); ++i)
+        {
+            const QPointF point(1 + i * (width() - 2.0) / (values_.size() - 1),
+                height() / 2.0 - (values_[i] - middle) / span * (height() - 4));
+            if (i)
+                path.lineTo(point);
+            else
+                path.moveTo(point);
+        }
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(colors_.chartLine, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawPath(path);
+    }
+
+private:
+    const GuiTheme& colors_;
+    QList<double> values_;
+};
+
+struct GpuReading
+{
+    QString name, meta, rate, status, statusTip, temperature, fan, power, shares;
+    Tone tone = Tone::Neutral;
+};
+
+class GpuCard : public QFrame
+{
+public:
+    explicit GpuCard(const GuiTheme& colors) : colors_(colors)
+    {
+        setObjectName("gpuCard");
+        auto* layout = new QVBoxLayout(this);
+        layout->setContentsMargins(16, 12, 16, 10);
+        layout->setSpacing(6);
+        auto* top = new QHBoxLayout;
+        top->setSpacing(12);
+        badge_ = label("", "badge");
+        badge_->setFixedSize(36, 36);
+        badge_->setAlignment(Qt::AlignCenter);
+        top->addWidget(badge_, 0, Qt::AlignTop);
+        auto* names = new QVBoxLayout;
+        names->setSpacing(0);
+        name_ = label("", "strong");
+        name_->setObjectName("gpuName");
+        name_->setWordWrap(true);
+        meta_ = label("", "faint");
+        meta_->setObjectName("gpuMeta");
+        meta_->setWordWrap(true);
+        names->addWidget(name_);
+        names->addWidget(meta_);
+        top->addLayout(names, 1);
+        status_ = new StatusPill(colors);
+        status_->setObjectName("gpuStatus");
+        top->addWidget(status_, 0, Qt::AlignTop);
+        layout->addLayout(top);
+        auto* rateRow = new QHBoxLayout;
+        rateRow->setSpacing(5);
+        rate_ = label("", "gpuRate");
+        rate_->setObjectName("gpuHashrate");
+        rateRow->addWidget(rate_, 0, Qt::AlignBottom);
+        rateRow->addWidget(label("MH/s", "unit"), 0, Qt::AlignBottom);
+        rateRow->addStretch();
+        spark_ = new Sparkline(colors);
+        rateRow->addWidget(spark_, 0, Qt::AlignVCenter);
+        layout->addLayout(rateRow);
+        auto* divider = new QFrame;
+        divider->setObjectName("gpuDivider");
+        divider->setFixedHeight(1);
+        layout->addWidget(divider);
+        auto* sensors = new QHBoxLayout;
+        sensors->setSpacing(5);
+        auto addSensor = [&](Glyph glyph, const char* name) {
+            auto* icon = new QLabel;
+            icon->setFixedSize(16, 16);
+            icons_.append({icon, glyph});
+            auto* value = label("", "muted");
+            value->setObjectName(name);
+            sensors->addWidget(icon);
+            sensors->addWidget(value);
+            sensors->addSpacing(10);
+            return value;
+        };
+        temperature_ = addSensor(Glyph::Temperature, "gpuTemperature");
+        fan_ = addSensor(Glyph::Fan, "gpuFan");
+        power_ = addSensor(Glyph::Power, "gpuPower");
+        sensors->addStretch();
+        shares_ = label("", "faint");
+        shares_->setObjectName("gpuShares");
+        sensors->addWidget(shares_);
+        layout->addLayout(sensors);
+        refreshIcons();
+    }
+    void setReading(const GpuReading& reading)
+    {
+        name_->setText(reading.name);
+        meta_->setText(reading.meta);
+        setValue(rate_, reading.rate);
+        status_->setStatus(reading.status, reading.tone);
+        status_->setToolTip(reading.statusTip);
+        setSensors(reading.temperature, reading.fan, reading.power);
+        shares_->setText(reading.shares);
+    }
+    // A lost connection can leave stale readings in the API; show none until fresh ones arrive.
+    void setWaiting()
+    {
+        const auto dash = QString::fromUtf8("—");
+        setValue(rate_, dash);
+        status_->setStatus("Waiting", Tone::Warning);
+        status_->setToolTip("Waiting for fresh statistics");
+        setSensors(dash, dash, dash);
+    }
+    void addRate(double rate) { spark_->add(rate); }
+    void refreshIcons()
+    {
+        badge_->setPixmap(glyphPixmap(Glyph::Gpu, colors_.wineText, 20));
+        for (const auto& [icon, glyph] : icons_)
+            icon->setPixmap(glyphPixmap(glyph, colors_.inkFaint, 16));
+    }
+
+private:
+    void setSensors(const QString& temperature, const QString& fan, const QString& power)
+    {
+        const QList<std::pair<QLabel*, QString>> sensors{{temperature_, temperature}, {fan_, fan}, {power_, power}};
+        const QStringList names{"Temperature", "Fan", "Power"};
+        for (int i = 0; i < sensors.size(); ++i)
+        {
+            sensors[i].first->setText(sensors[i].second);
+            sensors[i].first->setAccessibleName(names[i] + ' ' + (sensors[i].second == QString::fromUtf8("—") ?
+                QStringLiteral("unavailable") : sensors[i].second));
+        }
+    }
+
+    const GuiTheme& colors_;
+    QLabel *badge_, *name_, *meta_, *rate_, *temperature_, *fan_, *power_, *shares_;
+    StatusPill* status_;
+    Sparkline* spark_;
+    QList<std::pair<QLabel*, Glyph>> icons_;
+};
+
+// Cards flow into as many columns as fit, so a rig with many GPUs stays readable.
+class GpuGrid : public QWidget
+{
+public:
+    explicit GpuGrid(const GuiTheme& colors) : colors_(colors)
+    {
+        setObjectName("overviewDevices");
+        layout_ = new QGridLayout(this);
+        layout_->setContentsMargins(0, 0, 0, 0);
+        layout_->setSpacing(16);
+        // The grid may shrink below its current columns; the next resize reflows the cards.
+        layout_->setSizeConstraint(QLayout::SetNoConstraint);
+    }
+    QSize minimumSizeHint() const override
+    {
+        int width = 0;
+        for (auto* card : cards_)
+            width = std::max(width, card->minimumSizeHint().width());
+        return {width, layout_->minimumSize().height()};
+    }
+    int count() const { return cards_.size(); }
+    GpuCard* card(int index) const { return cards_.value(index); }
+    void setCount(int count)
+    {
+        if (count == cards_.size())
+            return;
+        while (cards_.size() > count)
+            delete cards_.takeLast();
+        while (cards_.size() < count)
+            cards_.append(new GpuCard(colors_));
+        arrange(true);
+    }
+    void refreshIcons()
+    {
+        for (auto* card : cards_)
+            card->refreshIcons();
+    }
+    //! Recheck the columns after readings change a card's minimum width.
+    void refreshLayout() { arrange(false); }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override
+    {
+        QWidget::resizeEvent(event);
+        arrange(false);
+    }
+
+private:
+    void arrange(bool force)
+    {
+        // Larger text widens each card, so the column count follows the cards' real minimum width.
+        int cardWidth = 300;
+        for (auto* card : cards_)
+            cardWidth = std::max(cardWidth, card->minimumSizeHint().width());
+        const int spacing = layout_->horizontalSpacing();
+        const int columns = std::clamp((width() + spacing) / (cardWidth + spacing), 1, 3);
+        if (!force && columns == columns_)
+            return;
+        columns_ = columns;
+        for (auto* card : cards_)
+            layout_->removeWidget(card);
+        for (int i = 0; i < cards_.size(); ++i)
+            layout_->addWidget(cards_[i], i / columns, i % columns);
+        for (int column = 0; column < 3; ++column)
+            layout_->setColumnStretch(column, column < columns ? 1 : 0);
+    }
+
+    const GuiTheme& colors_;
+    QGridLayout* layout_;
+    QList<GpuCard*> cards_;
+    int columns_ = 0;
+};
+
+void MainWindow::installBrandFonts()
+{
+    QApplication::setFont(bodyFont(QApplication::font()));
+}
+
+MainWindow::~MainWindow() = default;
 
 void MainWindow::updateTheme()
 {
-    if (highContrastEnabled() || theme_ == "system")
+    if (highContrastEnabled() || appearance_ == "system")
     {
         // A user's high-contrast setting always takes precedence over the theme.
-        setStyleSheet(R"(
-            QLabel[role="heading"] { font-size: 29px; font-weight: 650; }
-            QLabel[role="section"] { font-size: 17px; font-weight: 650; }
-            QLabel[role="metric"] { font-size: 35px; font-weight: 650; }
-            QLabel#brand { font-size: 24px; font-weight: 650; }
-            QLabel#notice { padding: 12px; }
-            QListWidget#navigation::item { height: 48px; padding-left: 15px; margin-bottom: 6px; }
-            QPushButton { padding: 10px 16px; }
-            QPushButton[role="range"] { padding: 5px 10px; }
-            QLineEdit, QComboBox { padding: 9px; min-height: 20px; }
-        )");
+        // Replacing a style sheet restores the palette it saved, so the palette follows it.
+        *colors_ = nativeTheme(QApplication::palette());
+        setStyleSheet(nativeSheet());
         setPalette(QApplication::palette());
-        return;
     }
-    const bool dark = theme_ == "dark";
-    QPalette colors = QApplication::palette();
-    auto color = [&](QPalette::ColorRole role, const char* light, const char* darkColor) {
-        colors.setColor(role, QColor(dark ? darkColor : light));
-    };
-    color(QPalette::Window, "#f6f6f4", "#1b1d21");
-    color(QPalette::WindowText, "#24262b", "#ededf0");
-    color(QPalette::Base, "#ffffff", "#26282d");
-    color(QPalette::AlternateBase, "#f6f6f4", "#303239");
-    color(QPalette::Text, "#24262b", "#ededf0");
-    color(QPalette::Button, "#ffffff", "#26282d");
-    color(QPalette::ButtonText, "#24262b", "#ededf0");
-    color(QPalette::BrightText, "#ffffff", "#ffffff");
-    color(QPalette::Highlight, "#9b1c2e", "#ec9caa");
-    color(QPalette::HighlightedText, "#ffffff", "#24262b");
-    color(QPalette::Link, "#9b1c2e", "#ec9caa");
-    color(QPalette::LinkVisited, "#682331", "#dbb1c4");
-    color(QPalette::ToolTipBase, "#ffffff", "#26282d");
-    color(QPalette::ToolTipText, "#24262b", "#ededf0");
-    color(QPalette::PlaceholderText, "#606570", "#b5b8c2");
-    color(QPalette::Light, "#ffffff", "#4d5059");
-    color(QPalette::Midlight, "#ececef", "#3b3e46");
-    color(QPalette::Mid, "#dedfe3", "#42454e");
-    color(QPalette::Dark, "#94979e", "#16171a");
-    color(QPalette::Shadow, "#727681", "#101114");
-    for (const auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
-        colors.setColor(QPalette::Disabled, role, QColor(dark ? "#9397a2" : "#81848c"));
-    QString sheet = R"(
-        QMainWindow, QWidget#workspace, QScrollArea, QScrollArea > QWidget > QWidget { background: #f6f6f4; }
-        QDialog, QMenu, QMessageBox { background: #f6f6f4; }
-        QWidget { color: #24262b; }
-        QLabel { background: transparent; }
-        QLabel[role="muted"] { color: #606570; }
-        QLabel[role="heading"] { font-size: 29px; font-weight: 650; }
-        QLabel[role="section"] { font-size: 17px; font-weight: 650; }
-        QLabel[role="metric"] { font-size: 35px; font-weight: 650; }
-        QLabel#notice { background: #fff0e9; color: #81321b; padding: 12px; border-radius: 6px; }
-        QFrame#panel { background: white; border: 1px solid #dedfe3; border-radius: 8px; }
-        QFrame#sidebar { background: #242527; }
-        QFrame#sidebar QLabel { color: white; }
-        QLabel#brand { font-size: 24px; font-weight: 650; }
-        QListWidget#navigation { background: transparent; border: none; outline: none; color: #e7e8eb; }
-        QListWidget#navigation::item { height: 48px; border-radius: 6px; padding-left: 15px; margin-bottom: 6px; }
-        QListWidget#navigation::item:selected { background: #682331; color: white; }
-        QListWidget#navigation::item:hover:!selected { background: #343538; }
-        QPushButton { background: white; border: 1px solid #d8d9dd; border-radius: 6px; padding: 10px 16px; }
-        QPushButton:hover { background: #f0f0f1; }
-        QPushButton:focus { border: 2px solid #9b1c2e; }
-        QPushButton:disabled { color: #94979e; background: #eeeeef; }
-        QPushButton[role="primary"] { background: #9b1c2e; border-color: #9b1c2e; color: white; font-weight: 600; }
-        QPushButton[role="primary"]:hover { background: #801526; }
-        QPushButton[role="primary"]:disabled { background: #b58089; border-color: #b58089; }
-        QPushButton[role="link"] { color: #9b1c2e; background: transparent; border: none; text-align: left; padding-left: 0; }
-        QPushButton[role="sidebar"] { color: #e1e2e5; background: transparent; border: none; text-align: left; }
-        QPushButton[role="sidebar"]:hover { background: #343538; }
-        QPushButton[role="range"] { padding: 5px 10px; }
-        QPushButton[role="range"]:checked { background: #9b1c2e; color: white; border-color: #9b1c2e; }
-        QLineEdit, QComboBox { background: white; border: 1px solid #d7d9de; border-radius: 5px; padding: 9px; min-height: 20px; }
-        QLineEdit:focus, QComboBox:focus { border: 1px solid #9b1c2e; }
-        QLineEdit:disabled, QComboBox:disabled { background: #f0f0f1; color: #81848c; }
-        QTableWidget { border: none; background: white; gridline-color: #ececef; selection-background-color: #f8e9ec; selection-color: #24262b; }
-        QHeaderView::section { background: white; color: #606570; border: none; border-bottom: 1px solid #e5e6e9; padding: 8px 5px; text-align: left; }
-        QPlainTextEdit { background: white; border: 1px solid #dedfe3; border-radius: 6px; padding: 10px; font-family: "Consolas", monospace; font-size: 12px; }
-        QComboBox QAbstractItemView { background: white; color: #24262b; selection-background-color: #9b1c2e; selection-color: white; }
-        QStatusBar { background: #f6f6f4; color: #606570; }
-    )";
-    if (dark)
+    else
     {
-        sheet.replace("#f6f6f4", "#1b1d21");
-        sheet.replace("background: white", "background: #26282d");
-        sheet.replace("#24262b", "#ededf0");
-        sheet.replace("#606570", "#b5b8c2");
-        for (const auto* border : {"#dedfe3", "#d8d9dd", "#d7d9de", "#e5e6e9", "#ececef"})
-            sheet.replace(border, "#42454e");
-        sheet.replace("#f0f0f1", "#34363d");
-        sheet.replace("#eeeeef", "#34363d");
-        sheet.replace("#f8e9ec", "#682331");
-        sheet.replace("#fff0e9", "#493328");
-        sheet.replace("#81321b", "#ffcfac");
-        sheet.replace("color: #9b1c2e; background: transparent", "color: #ec9caa; background: transparent");
-        sheet.replace("border: 2px solid #9b1c2e", "border: 2px solid #ec9caa");
-        sheet.replace("border: 1px solid #9b1c2e", "border: 1px solid #ec9caa");
+        *colors_ = brandTheme(appearance_ == "dark");
+        const auto& theme = *colors_;
+        QPalette colors = QApplication::palette();
+        auto color = [&](QPalette::ColorRole role, const QColor& value) { colors.setColor(role, value); };
+        color(QPalette::Window, theme.bg);
+        color(QPalette::WindowText, theme.ink);
+        color(QPalette::Base, theme.panel);
+        color(QPalette::AlternateBase, theme.panelSoft);
+        color(QPalette::Text, theme.ink);
+        color(QPalette::Button, theme.panel);
+        color(QPalette::ButtonText, theme.ink);
+        color(QPalette::BrightText, Qt::white);
+        color(QPalette::Highlight, theme.wine);
+        color(QPalette::HighlightedText, Qt::white);
+        color(QPalette::Link, theme.wineText);
+        color(QPalette::LinkVisited, theme.wineDeep);
+        color(QPalette::ToolTipBase, theme.panel);
+        color(QPalette::ToolTipText, theme.ink);
+        color(QPalette::PlaceholderText, theme.inkFaint);
+        color(QPalette::Light, theme.panel);
+        color(QPalette::Midlight, theme.hover);
+        color(QPalette::Mid, theme.border);
+        color(QPalette::Dark, theme.fieldBorder);
+        color(QPalette::Shadow, theme.inkFaint);
+        for (const auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+            colors.setColor(QPalette::Disabled, role, theme.inkFaint);
+        setStyleSheet(brandedSheet(theme));
+        setPalette(colors);
     }
-    setStyleSheet(sheet);
-    setPalette(colors);
+    refreshIcons();
+    update();
+}
+
+void MainWindow::refreshIcons()
+{
+    if (!navigation_)
+        return;
+    const auto& theme = *colors_;
+    const QColor normal = theme.branded ? theme.inkSoft : palette().color(QPalette::WindowText);
+    const QColor selected = theme.branded ? theme.wineText : palette().color(QPalette::HighlightedText);
+    const QList<Glyph> glyphs{Glyph::Overview, Glyph::Setup, Glyph::Gpu, Glyph::Activity};
+    for (int i = 0; i < navigation_->count() && i < glyphs.size(); ++i)
+        navigation_->item(i)->setIcon(glyphIcon(glyphs[i], normal, selected));
+    settingsButton_->setIcon(glyphIcon(Glyph::Settings, normal));
+    helpButton_->setIcon(glyphIcon(Glyph::Help, normal));
+    copyAddress_->setIcon(glyphIcon(Glyph::Copy, normal, QColor(), 18));
+    const bool primary = start_->property("role").toString() == "primary";
+    const bool setup = start_->property("glyph").toString() == "setup";
+    const QColor onPrimary = theme.branded ? QColor(Qt::white) : palette().color(QPalette::ButtonText);
+    start_->setIcon(glyphIcon(setup ? Glyph::Setup : primary ? Glyph::Play : Glyph::Stop,
+        primary ? onPrimary : theme.branded ? theme.wineText : palette().color(QPalette::ButtonText), QColor(), 16));
+    gpuGrid_->refreshIcons();
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
@@ -364,14 +1373,14 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     return QMainWindow::eventFilter(watched, event);
 }
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
+MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this), colors_(std::make_unique<GuiTheme>(brandTheme(false)))
 {
     setWindowTitle("Firominer");
     setWindowIcon(QIcon(":/firominer.ico"));
+    setFont(bodyFont(QApplication::font()));
     const QSize available = screen()->availableGeometry().size() - QSize(40, 80);
     resize(QSize(1120, 800).boundedTo(available));
     setMinimumSize(QSize(640, 400).boundedTo(available));
-    updateTheme();
     qApp->installEventFilter(this);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
     connect(QGuiApplication::styleHints()->accessibility(), &QAccessibilityHints::contrastPreferenceChanged,
@@ -382,63 +1391,39 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     auto* outer = new QHBoxLayout(shell);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
-    auto* sidebar = new QFrame;
-    sidebar->setObjectName("sidebar");
-    sidebar->setFixedWidth(210);
-    auto* side = new QVBoxLayout(sidebar);
-    side->setContentsMargins(14, 25, 14, 20);
-    auto* brand = new QHBoxLayout;
-    auto* icon = label("");
-    icon->setPixmap(windowIcon().pixmap(42, 42));
-    auto* name = label("firominer");
-    name->setObjectName("brand");
-    brand->addWidget(icon);
-    brand->addWidget(name);
-    side->addLayout(brand);
-    side->addSpacing(25);
-    navigation_ = new QListWidget;
-    navigation_->setObjectName("navigation");
-    navigation_->setAccessibleName("Navigation");
-    navigation_->addItems({"Overview", "Mining setup", "Devices", "Activity"});
-    navigation_->setMinimumHeight(220);
-    side->addWidget(navigation_, 1);
-    auto* settings = button("Settings", "sidebar");
-    settings->setObjectName("settingsButton");
-    auto* help = button("Help", "sidebar");
-    side->addWidget(settings);
-    side->addWidget(help);
-    outer->addWidget(sidebar);
+    outer->addWidget(sidebar());
 
     auto* workspace = new QWidget;
     workspace->setObjectName("workspace");
     auto* content = new QVBoxLayout(workspace);
-    content->setContentsMargins(27, 25, 27, 12);
-    content->setSpacing(18);
+    content->setContentsMargins(28, 22, 28, 12);
+    content->setSpacing(16);
     auto* header = new QFormLayout;
     header->setContentsMargins(0, 0, 0, 0);
     header->setRowWrapPolicy(QFormLayout::WrapLongRows);
     header->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     auto* heading = new QVBoxLayout;
-    title_ = label("Mining overview", "heading");
-    heading->addWidget(label("THIS COMPUTER", "muted"));
+    heading->setContentsMargins(0, 0, 0, 0);
+    heading->setSpacing(2);
+    title_ = label("Overview", "title");
+    heading->addWidget(caption("This computer · " + QHostInfo::localHostName().section('.', 0, 0)));
     heading->addWidget(title_);
     auto* controls = new QHBoxLayout;
     controls->setContentsMargins(0, 0, 0, 0);
+    controls->setSpacing(14);
     controls->addStretch();
-    auto* running = new QVBoxLayout;
-    state_ = label("Stopped", "section");
+    state_ = new StatusPill(*colors_);
     state_->setObjectName("miningState");
+    state_->setText("Stopped");
     runtime_ = label("Ready when you are", "muted");
-    running->addWidget(state_);
-    running->addWidget(runtime_);
-    controls->addLayout(running);
-    controls->addSpacing(20);
-    start_ = button("Start mining", "primary");
+    start_ = button("Start pool mining", "primary");
     start_->setObjectName("startMining");
-    start_->setMinimumWidth(160);
+    start_->setMinimumWidth(170);
+    start_->setIconSize(QSize(16, 16));
+    controls->addWidget(state_);
+    controls->addWidget(runtime_);
     controls->addWidget(start_);
     auto* headingWidget = new QWidget;
-    heading->setContentsMargins(0, 0, 0, 0);
     headingWidget->setLayout(heading);
     header->addRow(headingWidget, controls);
     content->addLayout(header);
@@ -460,19 +1445,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     shellScroll->setObjectName("shellScroll");
     setCentralWidget(shellScroll);
     statusBar()->setSizeGripEnabled(true);
-    modeStatus_ = label("FiroPoW  |  Mainnet  |  Pool", "muted");
-    statusBar()->addWidget(modeStatus_);
-    statusBar()->addPermanentWidget(label("Local miner", "muted"));
 
     connect(navigation_, &QListWidget::currentRowChanged, this, [this](int row) {
         pages_->setCurrentIndex(row);
-        const QStringList titles{"Mining overview", "Mining setup", "Your GPUs", "Activity"};
+        const QStringList titles{"Overview", "Mining setup", "Your GPUs", "Activity"};
         title_->setText(titles.value(row));
     });
     navigation_->setCurrentRow(0);
     connect(start_, &QPushButton::clicked, this, &MainWindow::toggleMining);
-    connect(settings, &QPushButton::clicked, this, &MainWindow::showSettings);
-    connect(help, &QPushButton::clicked, this, [this] {
+    connect(settingsButton_, &QPushButton::clicked, this, &MainWindow::showSettings);
+    connect(helpButton_, &QPushButton::clicked, this, [this] {
         QMessageBox::information(this, "Using Firominer",
             "1. Open Mining setup and choose Pool or Solo.\n"
             "   Pool uses your pool endpoint and payout account. Solo uses your own synced Firo node, RPC login and transparent reward address.\n"
@@ -515,6 +1497,149 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     loadSettings();
     resize(size().boundedTo(available));
     clearReadings();
+    for (auto* input : {poolInput_, walletInput_, workerInput_, nodeInput_, rpcUserInput_, rpcPasswordInput_,
+             rewardInput_, coinbaseMessageInput_, devicesInput_})
+        connect(input, &QLineEdit::textChanged, this, [this] {
+            if (currentState_ == "Stopped")
+                updateOverview();
+        });
+    connect(backendInput_, &QComboBox::currentIndexChanged, this, &MainWindow::updateOverview);
+}
+
+QWidget* MainWindow::sidebar()
+{
+    sidebar_ = new QFrame;
+    sidebar_->setObjectName("sidebar");
+    sidebar_->setFixedWidth(220);
+    auto* side = new QVBoxLayout(sidebar_);
+    side->setContentsMargins(12, 22, 12, 14);
+    side->setSpacing(4);
+    auto* brand = new QHBoxLayout;
+    brand->setContentsMargins(10, 0, 0, 0);
+    brand->setSpacing(10);
+    auto* icon = label("");
+    icon->setPixmap(windowIcon().pixmap(30, 30));
+    brandName_ = label("firominer", "brand");
+    brand->addWidget(icon);
+    brand->addWidget(brandName_, 1);
+    side->addLayout(brand);
+    side->addSpacing(20);
+    navigation_ = new QListWidget;
+    navigation_->setObjectName("navigation");
+    navigation_->setAccessibleName("Navigation");
+    navigation_->setIconSize(QSize(20, 20));
+    navigation_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    navigation_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    navigationNames_ = QStringList{"Overview", "Mining setup", "GPUs", "Activity"};
+    navigation_->addItems(navigationNames_);
+    for (int i = 0; i < navigation_->count(); ++i)
+        navigation_->item(i)->setData(Qt::AccessibleTextRole, navigationNames_[i]);
+    navigation_->setMinimumHeight(200);
+    side->addWidget(navigation_, 1);
+    settingsButton_ = button("Settings", "sidebar");
+    settingsButton_->setObjectName("settingsButton");
+    helpButton_ = button("Help", "sidebar");
+    for (auto* item : {settingsButton_, helpButton_})
+    {
+        item->setIconSize(QSize(20, 20));
+        side->addWidget(item);
+    }
+    sidebarFooter_ = label(QString("Mainnet · FiroPoW · %1").arg(FIROMINER_GUI_VERSION), "faint");
+    sidebarFooter_->setContentsMargins(12, 8, 0, 0);
+    sidebarFooter_->setWordWrap(true);
+    side->addWidget(sidebarFooter_);
+    return sidebar_;
+}
+
+QWidget* MainWindow::heroPanel()
+{
+    hero_ = new HeroFrame(*colors_);
+    auto* layout = new QBoxLayout(QBoxLayout::LeftToRight, hero_);
+    heroLayout_ = layout;
+    layout->setContentsMargins(24, 16, 24, 16);
+    layout->setSpacing(20);
+    auto* summary = new QVBoxLayout;
+    summary->setSpacing(2);
+    heroCaption_ = caption("Total hashrate");
+    summary->addWidget(heroCaption_);
+    hashrateRow_ = new QWidget;
+    auto* rateRow = new QHBoxLayout(hashrateRow_);
+    rateRow->setContentsMargins(0, 0, 0, 0);
+    rateRow->setSpacing(8);
+    hashrate_ = label("0.0", "heroValue");
+    hashrate_->setObjectName("totalHashrate");
+    hashrateUnit_ = label("MH/s", "heroUnit");
+    hashrateUnit_->setObjectName("totalHashrateUnit");
+    rateRow->addWidget(hashrate_, 0, Qt::AlignBaseline);
+    rateRow->addWidget(hashrateUnit_, 0, Qt::AlignBaseline);
+    rateRow->addStretch();
+    summary->addWidget(hashrateRow_);
+    heroTitle_ = label("", "heroTitle");
+    heroTitle_->setObjectName("heroTitle");
+    heroTitle_->setWordWrap(true);
+    summary->addWidget(heroTitle_);
+    gpuCount_ = label("", "heroSoft");
+    gpuCount_->setObjectName("heroDetail");
+    gpuCount_->setWordWrap(true);
+    gpuCount_->setMinimumWidth(220);
+    summary->addSpacing(6);
+    summary->addWidget(gpuCount_);
+    layout->addLayout(summary, 1);
+
+    auto statsRow = [](QWidget*& container) {
+        container = new QWidget;
+        auto* row = new QHBoxLayout(container);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(0);
+        return row;
+    };
+    // Details are a step smaller than the body text and scale with it.
+    QFont small = font();
+    small.setPointSizeF(small.pointSizeF() * 0.87);
+    auto addStat = [&small](QHBoxLayout* row, const QString& title, QLabel*& value, QLabel*& detail) {
+        auto* stat = new QWidget;
+        stat->setObjectName("heroStat");
+        stat->setAttribute(Qt::WA_StyledBackground);
+        auto* column = new QVBoxLayout(stat);
+        column->setContentsMargins(18, 2, 14, 2);
+        column->setSpacing(0);
+        auto* name = caption(title);
+        column->addWidget(name);
+        value = label("", "statValue");
+        column->addWidget(value);
+        detail = new DetailLabel;
+        detail->setTextFormat(Qt::PlainText);
+        detail->setProperty("role", "heroSoft");
+        detail->setWordWrap(true);
+        detail->setFont(small);
+        column->addWidget(detail);
+        column->addStretch();
+        row->addWidget(stat);
+        return name;
+    };
+    auto* live = statsRow(liveStats_);
+    acceptedLabel_ = addStat(live, "Accepted shares", accepted_, shareDetail_);
+    acceptedLabel_->setObjectName("acceptedLabel");
+    accepted_->setObjectName("acceptedShares");
+    lastShareLabel_ = addStat(live, "Last share", lastShare_, lastShareDetail_);
+    lastShare_->setObjectName("lastShare");
+    addStat(live, "GPU power", power_, powerDetail_);
+    power_->setObjectName("totalPower");
+    powerDetail_->setToolTip("Hashrate for each watt the GPUs report");
+    layout->addWidget(liveStats_, 0, Qt::AlignVCenter);
+
+    auto* session = statsRow(sessionStats_);
+    sessionStats_->setObjectName("lastSession");
+    addStat(session, "Last session", sessionRuntime_, sessionEnded_);
+    sessionRuntime_->setObjectName("sessionRuntime");
+    sessionAcceptedLabel_ = addStat(session, "Accepted", sessionAccepted_, sessionRejected_);
+    sessionAccepted_->setObjectName("sessionAccepted");
+    QLabel* averageUnit = nullptr;
+    addStat(session, "Average", sessionAverage_, averageUnit);
+    sessionAverage_->setObjectName("sessionAverage");
+    averageUnit->setText("MH/s");
+    layout->addWidget(sessionStats_, 0, Qt::AlignVCenter);
+    return hero_;
 }
 
 QWidget* MainWindow::overviewPage()
@@ -522,125 +1647,127 @@ QWidget* MainWindow::overviewPage()
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(16);
-    auto* metrics = panel();
-    auto* metricLayout = new QHBoxLayout(metrics);
-    metricsLayout_ = metricLayout;
-    metricLayout->setContentsMargins(23, 18, 23, 18);
-    metricLayout->setSpacing(16);
-    auto addMetric = [&](const QString& text, QLabel*& value, QLabel*& detail, const char* objectName) {
-        auto* group = new QVBoxLayout;
-        auto* caption = label(text, "muted");
-        group->addWidget(caption);
-        value = label("Unavailable", "metric");
-        value->setObjectName(objectName);
-        group->addWidget(value);
-        detail = label("", "muted");
-        detail->setWordWrap(true);
-        group->addWidget(detail);
-        metricLayout->addLayout(group, 1);
-        return caption;
-    };
-    addMetric("Total hashrate", hashrate_, gpuCount_, "totalHashrate");
-    acceptedLabel_ = addMetric("Accepted shares", accepted_, shareDetail_, "acceptedShares");
-    acceptedLabel_->setObjectName("acceptedLabel");
-    addMetric("GPU power", power_, powerDetail_, "totalPower");
-    layout->addWidget(metrics);
+    layout->setSpacing(14);
+    layout->addWidget(heroPanel());
 
-    auto* middle = new QHBoxLayout;
-    overviewLayout_ = middle;
+    auto* middle = new QBoxLayout(QBoxLayout::LeftToRight);
+    middleLayout_ = middle;
     middle->setSpacing(16);
     auto* chartPanel = panel();
     auto* chartLayout = new QVBoxLayout(chartPanel);
-    chartLayout->setContentsMargins(18, 17, 18, 12);
+    chartLayout->setContentsMargins(18, 16, 18, 10);
+    chartLayout->setSpacing(6);
     auto* chartTop = new QHBoxLayout;
     auto* chartTitles = new QVBoxLayout;
+    chartTitles->setSpacing(0);
     chartTitles->addWidget(label("Hashrate", "section"));
-    chartTitles->addWidget(label("Local hashrate · MH/s", "muted"));
+    chartSubtitle_ = label("MH/s · this session", "faint");
+    chartTitles->addWidget(chartSubtitle_);
     chartTop->addLayout(chartTitles, 1);
-    QList<QPushButton*> ranges;
+    auto* ranges = new QFrame;
+    ranges->setObjectName("segmented");
+    auto* rangeLayout = new QHBoxLayout(ranges);
+    rangeLayout->setContentsMargins(3, 3, 3, 3);
+    rangeLayout->setSpacing(2);
+    QList<QPushButton*> rangeButtons;
+    const QStringList rangeNames{"Last 15 minutes", "Last hour", "Last 6 hours"};
     for (const auto& text : {"15m", "1h", "6h"})
     {
-        auto* range = button(text, "range");
+        auto* range = button(text, "segment");
         range->setCheckable(true);
         range->setAutoExclusive(true);
         range->setChecked(QString(text) == "1h");
-        ranges.append(range);
-        chartTop->addWidget(range);
+        range->setAccessibleName(rangeNames.value(rangeButtons.size()));
+        rangeButtons.append(range);
+        rangeLayout->addWidget(range);
     }
+    chartTop->addWidget(ranges, 0, Qt::AlignTop);
     chartLayout->addLayout(chartTop);
-    chart_ = new HashrateChart;
+    chart_ = new HashrateChart(*colors_);
     chartLayout->addWidget(chart_, 1);
     auto* history = button("View history", "link");
     history->setObjectName("viewHistory");
     chartLayout->addWidget(history, 0, Qt::AlignLeft);
     connect(history, &QPushButton::clicked, chart_, &HashrateChart::showHistory);
     const QList<int> intervals{900, 3600, 21600};
-    for (int i = 0; i < ranges.size(); ++i)
-        connect(ranges[i], &QPushButton::clicked, chart_, [this, intervals, i] { chart_->setRange(intervals[i]); });
+    for (int i = 0; i < rangeButtons.size(); ++i)
+        connect(rangeButtons[i], &QPushButton::clicked, chart_, [this, intervals, i] { chart_->setRange(intervals[i]); });
     middle->addWidget(chartPanel, 3);
+
     auto* connection = panel();
-    connection->setMinimumWidth(225);
+    connection->setMinimumWidth(240);
     auto* poolLayout = new QVBoxLayout(connection);
-    poolLayout->setContentsMargins(20, 18, 20, 15);
-    poolLayout->setSpacing(6);
-    connectionTitle_ = label("Pool connection", "section");
-    poolLayout->addWidget(connectionTitle_);
-    poolState_ = label("Not connected");
+    poolLayout->setContentsMargins(18, 16, 18, 14);
+    poolLayout->setSpacing(2);
+    auto* poolTop = new QHBoxLayout;
+    connectionTitle_ = label("Pool", "section");
+    poolTop->addWidget(connectionTitle_, 1);
+    poolState_ = new StatusPill(*colors_);
     poolState_->setObjectName("poolState");
-    poolLayout->addWidget(poolState_);
+    poolTop->addWidget(poolState_);
+    poolLayout->addLayout(poolTop);
+    poolLayout->addSpacing(8);
     auto addField = [&](const QString& text, QLabel*& value) {
-        auto* caption = label(text, "muted");
-        poolLayout->addWidget(caption);
-        value = label("");
+        auto* name = caption(text);
+        poolLayout->addWidget(name);
+        value = label("", "strong");
         value->setWordWrap(true);
         value->setTextInteractionFlags(Qt::TextSelectableByMouse);
         poolLayout->addWidget(value);
-        return caption;
+        poolLayout->addSpacing(6);
+        return name;
     };
     endpointLabel_ = addField("Pool", pool_);
     workerLabel_ = addField("Worker", worker_);
-    rewardLabel_ = addField("Payout address", wallet_);
-    wallet_->setObjectName("payoutSummary");
-    auto* copy = button("Copy", "link");
-    copy->setToolTip("Copy payout address");
-    copy->setAccessibleName("Copy payout address");
-    poolLayout->removeWidget(wallet_);
+    rewardLabel_ = caption("Payout address");
+    poolLayout->addWidget(rewardLabel_);
     auto* payoutRow = new QHBoxLayout;
+    payoutRow->setSpacing(4);
+    wallet_ = label("");
+    wallet_->setObjectName("payoutSummary");
+    wallet_->setFont(monoFont(13));
+    wallet_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     payoutRow->addWidget(wallet_, 1);
-    payoutRow->addWidget(copy);
+    copyAddress_ = button("", "icon");
+    copyAddress_->setObjectName("copyAddress");
+    copyAddress_->setToolTip("Copy payout address");
+    copyAddress_->setAccessibleName("Copy payout address");
+    copyAddress_->setIconSize(QSize(18, 18));
+    payoutRow->addWidget(copyAddress_);
     poolLayout->addLayout(payoutRow);
-    connect(copy, &QPushButton::clicked, this, [this] {
+    poolLayout->addSpacing(6);
+    connect(copyAddress_, &QPushButton::clicked, this, [this] {
         QApplication::clipboard()->setText((soloMode_->isChecked() ? rewardInput_ : walletInput_)->text().trimmed());
         statusBar()->showMessage("Address copied", 3000);
     });
     poolLayout->addStretch();
     auto* edit = button("Edit mining setup", "link");
     connect(edit, &QPushButton::clicked, this, [this] { navigation_->setCurrentRow(1); });
-    poolLayout->addWidget(edit);
-    middle->addWidget(connection, 1);
+    poolLayout->addWidget(edit, 0, Qt::AlignLeft);
+    middle->addWidget(connection, 2);
     layout->addLayout(middle, 1);
 
-    auto* devices = panel();
-    auto* deviceLayout = new QVBoxLayout(devices);
-    deviceLayout->setContentsMargins(18, 15, 18, 8);
-    deviceLayout->addWidget(label("Your GPUs", "section"));
-    auto* table = deviceTable();
-    table->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
-    table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
-    deviceLayout->addWidget(table);
-    layout->addWidget(devices);
-
-    auto* recent = panel();
-    auto* recentLayout = new QHBoxLayout(recent);
-    recentLayout->setContentsMargins(18, 5, 18, 5);
-    lastActivity_ = label("Ready to start mining", "muted");
-    lastActivity_->setWordWrap(true);
-    recentLayout->addWidget(lastActivity_, 1);
-    auto* view = button("View activity →", "link");
-    connect(view, &QPushButton::clicked, this, [this] { navigation_->setCurrentRow(3); });
-    recentLayout->addWidget(view);
-    layout->addWidget(recent);
+    auto* gpuHeader = new QHBoxLayout;
+    gpuHeader->setSpacing(8);
+    gpuHeader->addWidget(label("Your GPUs", "section"));
+    gpuSummary_ = label("", "faint");
+    gpuSummary_->setObjectName("gpuSummary");
+    gpuHeader->addWidget(gpuSummary_, 1);
+    auto* details = button(QString::fromUtf8("GPU details →"), "link");
+    connect(details, &QPushButton::clicked, this, [this] { navigation_->setCurrentRow(2); });
+    gpuHeader->addWidget(details);
+    layout->addLayout(gpuHeader);
+    gpuGrid_ = new GpuGrid(*colors_);
+    layout->addWidget(gpuGrid_);
+    gpuEmpty_ = new QFrame;
+    gpuEmpty_->setObjectName("gpuEmpty");
+    auto* emptyLayout = new QHBoxLayout(gpuEmpty_);
+    emptyLayout->setContentsMargins(18, 14, 18, 14);
+    auto* emptyText = label("Your GPUs appear here once mining starts. Automatic uses every compatible GPU; "
+        "choose specific devices in Mining setup.", "muted");
+    emptyText->setWordWrap(true);
+    emptyLayout->addWidget(emptyText);
+    layout->addWidget(gpuEmpty_);
     return scrollPage(page);
 }
 
@@ -655,18 +1782,24 @@ QWidget* MainWindow::setupPage()
     body->setSpacing(14);
     auto* modes = new QHBoxLayout;
     modes->addWidget(label("Mining mode", "section"), 1);
+    auto* modeSwitch = new QFrame;
+    modeSwitch->setObjectName("segmented");
+    auto* modeLayout = new QHBoxLayout(modeSwitch);
+    modeLayout->setContentsMargins(3, 3, 3, 3);
+    modeLayout->setSpacing(2);
     auto* group = new QButtonGroup(this);
-    poolMode_ = button("Pool", "range");
-    soloMode_ = button("Solo · own node", "range");
+    poolMode_ = button("Pool", "segment");
+    soloMode_ = button("Solo · own node", "segment");
     poolMode_->setObjectName("poolMode");
     soloMode_->setObjectName("soloMode");
     for (auto* mode : {poolMode_, soloMode_})
     {
         mode->setCheckable(true);
         group->addButton(mode);
-        modes->addWidget(mode);
+        modeLayout->addWidget(mode);
     }
     poolMode_->setChecked(true);
+    modes->addWidget(modeSwitch);
     body->addLayout(modes);
     auto* heading = new QFormLayout;
     heading->setContentsMargins(0, 0, 0, 0);
@@ -684,12 +1817,14 @@ QWidget* MainWindow::setupPage()
     nodeGuide_->setObjectName("nodeGuide");
     auto* guide = new QVBoxLayout(nodeGuide_);
     guide->setContentsMargins(0, 0, 0, 0);
+    guide->setSpacing(10);
     auto* instructions = label("Local node example: update the existing entries in firo.conf. "
         "Use a strong, unique password and enter the same password below.", "muted");
     instructions->setWordWrap(true);
     guide->addWidget(instructions);
     auto* config = label("server=1\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nrpcport=8888\n"
-        "rpcuser=miner\nrpcpassword=CHANGE_ME");
+        "rpcuser=miner\nrpcpassword=CHANGE_ME", "code");
+    config->setFont(monoFont(13));
     config->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     config->setWordWrap(true);
     guide->addWidget(config);
@@ -723,7 +1858,7 @@ QWidget* MainWindow::setupPage()
         auto* captionLayout = new QHBoxLayout(rowLabel);
         captionLayout->setContentsMargins(0, 0, 0, 0);
         captionLayout->setSpacing(4);
-        auto* text = label(caption);
+        auto* text = label(caption, "strong");
         text->setBuddy(input);
         captionLayout->addWidget(text);
         if (!tip.isEmpty())
@@ -783,7 +1918,7 @@ QWidget* MainWindow::setupPage()
     rewardInput_ = field(soloForm, "Reward address", "rewardInput", "Your transparent Mainnet Firo address",
         "Use a transparent receiving address from your Firo wallet. Spark addresses cannot receive solo block rewards. "
         "Rewards arrive only when you find a block and become spendable after enough confirmations.");
-    auto* addressNote = label("Transparent address required. Spark addresses are not supported for solo rewards.", "muted");
+    auto* addressNote = label("Transparent address required. Spark addresses are not supported for solo rewards.", "faint");
     addressNote->setWordWrap(true);
     soloForm->addRow("", addressNote);
     coinbaseMessageInput_ = field(soloForm, "Coinbase message", "coinbaseMessageInput", "Optional, for example Zed",
@@ -810,7 +1945,7 @@ QWidget* MainWindow::setupPage()
     backendInput_->addItem("Automatic · all compatible GPUs", "auto");
     backendInput_->addItem("NVIDIA CUDA", "cuda");
     backendInput_->addItem("OpenCL", "opencl");
-    auto* backendLabel = label("GPU backend");
+    auto* backendLabel = label("GPU backend", "strong");
     backendLabel->setMinimumWidth(180);
     backendLabel->setBuddy(backendInput_);
     gpuForm->addRow(backendLabel, backendInput_);
@@ -823,7 +1958,7 @@ QWidget* MainWindow::setupPage()
         devicesRow_->setVisible(backendInput_->currentData().toString() != "auto");
     });
     body->addWidget(devicesRow_);
-    auto* note = label("Passwords stay in this session only. Automatic uses all compatible GPUs.", "muted");
+    auto* note = label("Passwords stay in this session only. Automatic uses all compatible GPUs.", "faint");
     note->setWordWrap(true);
     saveSetup_ = button("Save setup");
     saveSetup_->setObjectName("saveSetup");
@@ -847,7 +1982,7 @@ QWidget* MainWindow::setupPage()
 QTableWidget* MainWindow::deviceTable()
 {
     auto* table = new QTableWidget(0, 6);
-    table->setObjectName(deviceTables_.isEmpty() ? "overviewDevices" : "allDevices");
+    table->setObjectName("allDevices");
     table->setAccessibleName("GPU statistics");
     table->setHorizontalHeaderLabels({"Device", "Hashrate", "Temp", "Fan", "Power", "Status"});
     table->verticalHeader()->hide();
@@ -900,6 +2035,7 @@ QWidget* MainWindow::activityPage()
     log_->setObjectName("activityLog");
     log_->setReadOnly(true);
     log_->setMaximumBlockCount(2000);
+    log_->setFont(monoFont(12));
     layout->addWidget(log_, 1);
     connect(clear, &QPushButton::clicked, log_, &QPlainTextEdit::clear);
     connect(exportLog, &QPushButton::clicked, this, [this] {
@@ -929,9 +2065,9 @@ MiningConfig MainWindow::configuration() const
 void MainWindow::loadSettings()
 {
     QSettings settings;
-    theme_ = settings.value("appearance/theme", "light").toString();
-    if (theme_ != "light" && theme_ != "dark" && theme_ != "system")
-        theme_ = "light";
+    appearance_ = settings.value("appearance/theme", "light").toString();
+    if (appearance_ != "light" && appearance_ != "dark" && appearance_ != "system")
+        appearance_ = "light";
     updateTheme();
 #ifdef Q_OS_WIN
     const auto minerName = QStringLiteral("firominer.exe");
@@ -950,6 +2086,13 @@ void MainWindow::loadSettings()
     devicesInput_->setText(settings.value("miner/devices").toString());
     devicesInput_->setEnabled(backendInput_->currentData().toString() != "auto");
     devicesRow_->setVisible(backendInput_->currentData().toString() != "auto");
+    lastSession_.runtime = settings.value("session/runtime", 0).toLongLong();
+    lastSession_.accepted = settings.value("session/accepted", 0).toLongLong();
+    lastSession_.rejected = settings.value("session/rejected", 0).toLongLong();
+    lastSession_.average = settings.value("session/average", 0).toDouble();
+    lastSession_.ended = settings.value("session/ended").toDateTime();
+    lastSession_.solo = settings.value("session/solo", false).toBool();
+    hasSession_ = lastSession_.runtime > 0 && lastSession_.ended.isValid();
     soloMode_->setChecked(settings.value("mining/solo", false).toBool());
     poolMode_->setChecked(!soloMode_->isChecked());
     restoreGeometry(settings.value("window/geometry").toByteArray());
@@ -971,7 +2114,7 @@ bool MainWindow::saveSettings()
         }
     }
     QSettings settings;
-    settings.setValue("appearance/theme", theme_);
+    settings.setValue("appearance/theme", appearance_);
     settings.setValue("miner/executable", executable_);
     settings.setValue("pool/endpoint", poolInput_->text().trimmed());
     settings.setValue("pool/wallet", walletInput_->text().trimmed());
@@ -993,6 +2136,27 @@ bool MainWindow::saveSettings()
     return true;
 }
 
+void MainWindow::recordSession()
+{
+    lastSession_.runtime = runtimeSeconds_;
+    lastSession_.accepted = acceptedCount_;
+    lastSession_.rejected = rejectedCount_;
+    const double average = chart_->average(std::numeric_limits<int>::max(), 0);
+    lastSession_.average = std::isfinite(average) ? average : 0;
+    lastSession_.ended = QDateTime::currentDateTime();
+    lastSession_.solo = soloMode_->isChecked();
+    hasSession_ = lastSession_.runtime > 0;
+    if (!hasSession_)
+        return;
+    QSettings settings;
+    settings.setValue("session/runtime", lastSession_.runtime);
+    settings.setValue("session/accepted", lastSession_.accepted);
+    settings.setValue("session/rejected", lastSession_.rejected);
+    settings.setValue("session/average", lastSession_.average);
+    settings.setValue("session/ended", lastSession_.ended);
+    settings.setValue("session/solo", lastSession_.solo);
+}
+
 void MainWindow::updateConnectionSummary()
 {
     const bool solo = soloMode_->isChecked();
@@ -1003,6 +2167,7 @@ void MainWindow::updateConnectionSummary()
     const auto address = (solo ? rewardInput_ : walletInput_)->text().trimmed();
     wallet_->setText(address.isEmpty() ? "Not configured" : abbreviated(address));
     wallet_->setToolTip(address);
+    copyAddress_->setEnabled(!address.isEmpty());
 }
 
 void MainWindow::updateMiningMode()
@@ -1018,18 +2183,18 @@ void MainWindow::updateMiningMode()
         "Enter your pool endpoint and payout account. A pool's SOLO endpoint also belongs here.");
     acceptedLabel_->setText(solo ? "Blocks accepted" : "Accepted shares");
     acceptedLabel_->setToolTip(solo ? "Blocks accepted by your node this session. Rewards still need confirmations before they can be spent." : "");
-    connectionTitle_->setText(solo ? "Node connection" : "Pool connection");
+    lastShareLabel_->setText(solo ? "Last block" : "Last share");
+    connectionTitle_->setText(solo ? "Node" : "Pool");
     endpointLabel_->setText(solo ? "Node" : "Pool");
     rewardLabel_->setText(solo ? "Reward address" : "Payout address");
+    copyAddress_->setToolTip(solo ? "Copy reward address" : "Copy payout address");
+    copyAddress_->setAccessibleName(copyAddress_->toolTip());
     workerLabel_->setVisible(!solo);
     worker_->setVisible(!solo);
-    modeStatus_->setText(solo ? "FiroPoW  |  Mainnet  |  Solo" : "FiroPoW  |  Mainnet  |  Pool");
     if (currentState_ == "Stopped")
-    {
-        start_->setText(solo ? "Start solo mining" : "Start pool mining");
         clearReadings();
-    }
     updateConnectionSummary();
+    updateOverview();
 }
 
 void MainWindow::toggleMining()
@@ -1045,7 +2210,8 @@ void MainWindow::toggleMining()
     if (!error.isEmpty())
     {
         navigation_->setCurrentRow(1);
-        showFailure(error);
+        showNotice(error, "warning");
+        appendActivity(error);
         return;
     }
     if (!saveSettings())
@@ -1058,14 +2224,18 @@ void MainWindow::toggleMining()
 
 void MainWindow::clearReadings()
 {
-    hashrate_->setText("0.0 MH/s");
-    gpuCount_->setText("No GPUs mining");
+    hasReadings_ = false;
+    acceptedCount_ = rejectedCount_ = runtimeSeconds_ = 0;
+    activeGpus_ = totalGpus_ = 0;
+    const bool solo = soloMode_->isChecked();
+    setValue(hashrate_, "0.0");
     accepted_->setText("0");
-    shareDetail_->setText(soloMode_->isChecked() ? "This session · 0 rejected · 0 failed" : "0 rejected · 0 failed");
-    power_->setText("Unavailable");
-    powerDetail_->setText("Reported by devices");
-    poolState_->setText("Not connected");
-    lastActivity_->setText("Ready to start mining");
+    shareDetail_->setText(solo ? "This session · 0 rejected · 0 failed" : "0 rejected · 0 failed");
+    setValue(lastShare_, QString::fromUtf8("—"));
+    lastShareDetail_->setText(solo ? "No block found this session" : "Waiting for the first share");
+    setValue(power_, QString::fromUtf8("—"));
+    powerDetail_->setText("Waiting for statistics");
+    gpuGrid_->setCount(0);
     for (auto* table : deviceTables_)
     {
         table->clearSpans();
@@ -1074,16 +2244,15 @@ void MainWindow::clearReadings()
         table->setSpan(0, 0, 1, 6);
         table->setItem(0, 0, new QTableWidgetItem("GPU details appear when mining starts"));
     }
+    updateOverview();
 }
 
 void MainWindow::setMiningState(const QString& state)
 {
+    if (state == "Stopped" && currentState_ != "Stopped" && hasReadings_)
+        recordSession();
     currentState_ = state;
-    state_->setText(state);
     const bool running = state != "Stopped";
-    start_->setText(state == "Checking node" ? "Cancel check" : running ? "Stop mining" :
-        soloMode_->isChecked() ? "Start solo mining" : "Start pool mining");
-    start_->setEnabled(state != "Stopping");
     for (auto* field : {poolInput_, walletInput_, workerInput_, passwordInput_, nodeInput_, rpcUserInput_, rpcPasswordInput_, rewardInput_, coinbaseMessageInput_})
         field->setEnabled(!running);
     backendInput_->setEnabled(!running);
@@ -1093,26 +2262,22 @@ void MainWindow::setMiningState(const QString& state)
     saveSetup_->setEnabled(!running);
     devicesInput_->setEnabled(!running && backendInput_->currentData().toString() != "auto");
     if (state == "Stopped")
-    {
         clearReadings();
-        runtime_->setText("Ready when you are");
-    }
     else if (state == "Checking node")
     {
         navigation_->setCurrentRow(1);
-        runtime_->setText("Checking solo setup");
-        nodeStatus_->setText("Checking node, sync and reward address…");
+        nodeStatus_->setText(QString::fromUtf8("Checking node, sync and reward address…"));
     }
-    else if (state == "Starting" || state == "Preparing GPUs")
-        runtime_->setText("Waiting for miner statistics");
     else if (state == "Reconnecting")
     {
-        hashrate_->setText("Unavailable");
-        power_->setText("Unavailable");
-        gpuCount_->setText("Waiting for statistics");
-        poolState_->setText("Reconnecting");
-        runtime_->setText("Waiting for fresh statistics");
-        lastActivity_->setText(soloMode_->isChecked() ? "Waiting for fresh block statistics" : "Waiting for fresh share statistics");
+        const auto dash = QString::fromUtf8("—");
+        setValue(hashrate_, dash);
+        setValue(power_, dash);
+        setValue(lastShare_, dash);
+        powerDetail_->setText("Waiting for statistics");
+        lastShareDetail_->setText(soloMode_->isChecked() ? "Waiting for fresh block statistics" : "Waiting for fresh share statistics");
+        for (int i = 0; i < gpuGrid_->count(); ++i)
+            gpuGrid_->card(i)->setWaiting();
         for (auto* table : deviceTables_)
             if (table->columnSpan(0, 0) == 1)
                 for (int row = 0; row < table->rowCount(); ++row)
@@ -1124,6 +2289,112 @@ void MainWindow::setMiningState(const QString& state)
         tray_->setToolTip("Firominer - " + state.toLower());
     if (state == "Starting")
         navigation_->setCurrentRow(0);
+    updateOverview();
+}
+
+void MainWindow::updateOverview()
+{
+    if (!gpuGrid_)
+        return;
+    const bool solo = soloMode_->isChecked();
+    const auto& state = currentState_;
+    const bool stopped = state == "Stopped";
+    const bool checking = state == "Checking node";
+    const QString setupError = stopped ? MinerController::validate(configuration()) : QString();
+    const bool ready = stopped && setupError.isEmpty();
+    const auto dash = QString::fromUtf8("—");
+
+    state_->setStatus(state, state == "Mining" ? Tone::Positive : stopped || state == "Stopping" ? Tone::Neutral : Tone::Warning);
+    auto setStart = [this](const QString& text, const char* role, const char* glyph) {
+        start_->setText(text);
+        const bool changed = start_->property("role").toString() != role || start_->property("glyph").toString() != glyph;
+        start_->setProperty("glyph", glyph);
+        setRole(start_, role);
+        if (changed)
+            refreshIcons();
+    };
+    if (checking)
+        setStart("Cancel check", "secondary", "stop");
+    else if (!stopped)
+        setStart("Stop mining", "secondary", "stop");
+    else if (ready)
+        setStart(solo ? "Start solo mining" : "Start pool mining", "primary", "play");
+    else
+        setStart("Set up mining", "primary", "setup");
+    start_->setEnabled(state != "Stopping");
+    runtime_->setText(stopped ? (ready ? "Ready when you are" : "Not set up yet") :
+        checking ? "Checking solo setup" :
+        state == "Mining" && hasReadings_ ? "Running " + durationText(runtimeSeconds_) :
+        state == "Reconnecting" ? "Waiting for statistics" :
+        state == "Stopping" ? QString::fromUtf8("Stopping…") : QString::fromUtf8("Starting up…"));
+
+    const bool live = !stopped && !checking;
+    hashrateRow_->setVisible(live);
+    heroTitle_->setVisible(!live);
+    liveStats_->setVisible(live);
+    sessionStats_->setVisible(stopped && hasSession_);
+    if (stopped)
+    {
+        const QUrl endpoint((solo ? nodeInput_ : poolInput_)->text().trimmed());
+        const auto address = (solo ? rewardInput_ : walletInput_)->text().trimmed();
+        const bool untouched = (solo ? rewardInput_ : poolInput_)->text().trimmed().isEmpty() && address.isEmpty();
+        heroCaption_->setText(ready ? "Ready to mine" : "Get started");
+        heroTitle_->setText(ready ? (solo ? "Solo mining" : "Pool mining") : "Set up mining");
+        gpuCount_->setText(ready ? QString("%1:%2 · %3 to %4").arg(endpoint.host()).arg(endpoint.port())
+                .arg(solo ? "rewards" : "payouts", abbreviated(address)) :
+            untouched ? (solo ? "Connect your Firo node and reward address in Mining setup, then start mining." :
+                "Add your pool and payout address in Mining setup, then start mining.") : setupError);
+    }
+    else if (checking)
+    {
+        heroCaption_->setText("Solo mining");
+        heroTitle_->setText("Checking your node");
+        gpuCount_->setText(QString::fromUtf8("Checking the node, its sync and your reward address…"));
+    }
+    else
+    {
+        heroCaption_->setText("Total hashrate");
+        if (state == "Reconnecting")
+            gpuCount_->setText(QString("%1 connection lost. Retrying automatically; your GPUs stay ready.").arg(solo ? "Node" : "Pool"));
+        else if (state == "Stopping")
+            gpuCount_->setText(QString::fromUtf8("Stopping the miner…"));
+        else if (!hasReadings_ || !totalGpus_)
+            gpuCount_->setText("Preparing your GPUs. Hashrate appears in a moment.");
+        else
+        {
+            auto text = QString("%1 of %2 GPUs mining").arg(activeGpus_).arg(totalGpus_);
+            const double average = chart_->average(3600);
+            if (std::isfinite(average))
+                text += QString(" · 1 h average %1 MH/s").arg(average, 0, 'f', 1);
+            gpuCount_->setText(text);
+        }
+    }
+    if (hasSession_)
+    {
+        sessionRuntime_->setText(durationText(lastSession_.runtime));
+        sessionEnded_->setText(sessionEndText(lastSession_.ended));
+        sessionAcceptedLabel_->setText(lastSession_.solo ? "Blocks" : "Accepted");
+        sessionAccepted_->setText(QLocale().toString(lastSession_.accepted));
+        sessionRejected_->setText(QString("%1 rejected").arg(QLocale().toString(lastSession_.rejected)));
+        setValue(sessionAverage_, lastSession_.average > 0 ? QString::number(lastSession_.average, 'f', 1) : dash);
+    }
+
+    chart_->setDimmed(stopped || checking);
+    chartSubtitle_->setText(live ? "MH/s · this session" : chart_->isEmpty() ? "MH/s · appears when mining starts" : "MH/s · last session");
+
+    if (state == "Mining" && hasReadings_)
+        poolState_->setStatus("Connected", Tone::Positive);
+    else if (state == "Reconnecting")
+        poolState_->setStatus("Reconnecting", Tone::Warning);
+    else if (state == "Starting" || state == "Preparing GPUs" || checking)
+        poolState_->setStatus("Connecting", Tone::Warning);
+    else
+        poolState_->setStatus("Not connected", Tone::Neutral);
+
+    gpuSummary_->setText(gpuGrid_->count() ? QString::fromUtf8("· %1 of %2 mining").arg(activeGpus_).arg(totalGpus_) :
+        live ? QString::fromUtf8("· waiting for statistics") : QString());
+    gpuGrid_->setVisible(gpuGrid_->count() > 0);
+    gpuEmpty_->setVisible(gpuGrid_->count() == 0);
 }
 
 void MainWindow::updateStatistics(const QJsonObject& statistics)
@@ -1132,26 +2403,32 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
     const auto shares = mining.value("shares").toArray();
     const auto devices = statistics.value("devices").toArray();
     const bool connected = statistics.value("connection").toObject().value("connected").toBool();
-    const auto count = shares.at(0).toInteger();
     const bool solo = soloMode_->isChecked();
-    accepted_->setText(QLocale().toString(count));
-    shareDetail_->setText((solo ? "This session · " : QString()) +
-        QString("%1 rejected · %2 failed").arg(shares.at(1).toInteger()).arg(shares.at(2).toInteger()));
-    lastActivity_->setText(count + shares.at(1).toInteger() + shares.at(2).toInteger() > 0 ?
-        QString(solo ? "Last block submission · %1 seconds ago" : "Last share · %1 seconds ago").arg(shares.at(3).toInteger()) :
-        solo ? (currentState_ == "Mining" ? "Mining normally · no block found yet" : "No block found this session") : "Waiting for the first share");
+    acceptedCount_ = shares.at(0).toInteger();
+    rejectedCount_ = shares.at(1).toInteger();
+    const auto failed = shares.at(2).toInteger();
+    const qint64 lastSubmission = acceptedCount_ + rejectedCount_ + failed > 0 ? shares.at(3).toInteger() : -1;
+    accepted_->setText(QLocale().toString(acceptedCount_));
+    shareDetail_->setText((solo ? "This session · " : QString()) + QString("%1 rejected · %2 failed").arg(rejectedCount_).arg(failed));
     if (!connected)
     {
         // A pool disconnect can leave the API's previous hashrate and sensors populated.
         setMiningState("Reconnecting");
-        gpuCount_->setText(solo ? "Waiting for node" : "Waiting for pool");
         return;
     }
+    hasReadings_ = true;
+    runtimeSeconds_ = statistics.value("host").toObject().value("runtime").toInteger();
     const auto rate = hashValue(mining.value("hashrate"));
-    hashrate_->setText(QString::number(rate, 'f', 1) + " MH/s");
+    setValue(hashrate_, QString::number(rate, 'f', 1));
     chart_->add(rate);
-    runtime_->setText(runtimeText(statistics.value("host").toObject().value("runtime").toInteger()));
-    poolState_->setText("Connected");
+    setValue(lastShare_, lastSubmission >= 0 ? durationText(lastSubmission) + " ago" :
+        solo ? QStringLiteral("None yet") : QString::fromUtf8("—"));
+    if (solo)
+        lastShareDetail_->setText(acceptedCount_ > 0 ? QString("%1 found this session").arg(acceptedCount_ == 1 ? "1 block" : QLocale().toString(acceptedCount_) + " blocks") :
+            currentState_ == "Mining" ? "Mining normally · no block found yet" : "No block found this session");
+    else
+        lastShareDetail_->setText(acceptedCount_ > 0 && runtimeSeconds_ > 0 ?
+            "About 1 every " + durationText(std::max<qint64>(1, runtimeSeconds_ / acceptedCount_)) : "Waiting for the first share");
     int active = 0;
     double totalPower = 0;
     int powerReadings = 0;
@@ -1160,6 +2437,8 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         table->clearSpans();
         table->setRowCount(devices.size());
     }
+    gpuGrid_->setCount(devices.size());
+    const auto dash = QString::fromUtf8("—");
     for (int row = 0; row < devices.size(); ++row)
     {
         const auto device = devices[row].toObject();
@@ -1173,9 +2452,9 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         if (sensors.at(2).toDouble() > 0 && std::isfinite(sensors.at(2).toDouble()))
         { totalPower += sensors.at(2).toDouble(); ++powerReadings; }
         const QString status = paused ? "Paused" : deviceRate > 0 ? "Mining" : "Preparing";
-        const QStringList values{
-            hardware.value("name").toString() + "\nGPU " + QString::number(device.value("_index").toInt()) + " · " + device.value("_mode").toString(),
-            QString::number(deviceRate, 'f', 1) + " MH/s", sensor(sensors.at(0), "°C"),
+        const auto name = hardware.value("name").toString();
+        const auto meta = "GPU " + QString::number(device.value("_index").toInt()) + " · " + device.value("_mode").toString();
+        const QStringList values{name + "\n" + meta, QString::number(deviceRate, 'f', 1) + " MH/s", sensor(sensors.at(0), "°C"),
             sensor(sensors.at(1), "%", sensors.at(0).toDouble() > 0), sensor(sensors.at(2), " W"), status};
         for (auto* table : deviceTables_)
         {
@@ -1187,15 +2466,40 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
                     item->setToolTip(info.value("pause_reason").toString());
                 }
                 else if (col == 0)
-                    item->setToolTip(hardware.value("name").toString() + "\nPCI: " + hardware.value("pci").toString());
+                    item->setToolTip(name + "\nPCI: " + hardware.value("pci").toString());
                 table->setItem(row, col, item);
             }
         }
+        GpuReading reading;
+        reading.name = name;
+        reading.meta = meta;
+        reading.rate = QString::number(deviceRate, 'f', 1);
+        reading.status = status;
+        reading.statusTip = info.value("pause_reason").toString();
+        reading.tone = paused ? Tone::Danger : deviceRate > 0 ? Tone::Positive : Tone::Warning;
+        auto compact = [&dash](const QString& text) { return text == "Unavailable" ? dash : text; };
+        reading.temperature = compact(values[2]);
+        reading.fan = compact(values[3]);
+        reading.power = compact(values[4]);
+        const auto deviceShares = info.value("shares").toArray();
+        if (!deviceShares.isEmpty())
+        {
+            const auto count = deviceShares.at(0).toInteger();
+            reading.shares = QLocale().toString(count) + (solo ? (count == 1 ? " block" : " blocks") : (count == 1 ? " share" : " shares"));
+        }
+        auto* card = gpuGrid_->card(row);
+        card->setReading(reading);
+        if (!paused)
+            card->addRate(deviceRate);
     }
-    gpuCount_->setText(QString("%1 of %2 GPUs mining").arg(active).arg(devices.size()));
-    power_->setText(powerReadings ? QString::number(totalPower, 'f', 0) + " W" : "Unavailable");
-    powerDetail_->setText(powerReadings && powerReadings != devices.size() ?
-        QString("Partial · %1 of %2 devices").arg(powerReadings).arg(devices.size()) : "Reported by devices");
+    gpuGrid_->refreshLayout();
+    activeGpus_ = active;
+    totalGpus_ = devices.size();
+    setValue(power_, powerReadings ? QString::number(totalPower, 'f', 0) + " W" : dash);
+    powerDetail_->setText(!powerReadings ? QStringLiteral("Not reported by your GPUs") :
+        powerReadings != devices.size() ? QString("Partial · %1 of %2 devices").arg(powerReadings).arg(devices.size()) :
+        rate > 0 ? QString("%1 MH/J").arg(rate / totalPower, 0, 'f', 2) : QStringLiteral("Reported by your GPUs"));
+    updateOverview();
 }
 
 void MainWindow::appendActivity(const QString& line)
@@ -1203,10 +2507,17 @@ void MainWindow::appendActivity(const QString& line)
     log_->appendPlainText(QTime::currentTime().toString("HH:mm:ss") + "  " + line);
 }
 
-void MainWindow::showFailure(const QString& message)
+void MainWindow::showNotice(const QString& message, const char* tone)
 {
     notice_->setText(message);
+    notice_->setProperty("tone", tone);
+    repolish(notice_);
     notice_->show();
+}
+
+void MainWindow::showFailure(const QString& message)
+{
+    showNotice(message, "danger");
     appendActivity(message);
     if (!isVisible())
     { showNormal(); raise(); }
@@ -1217,6 +2528,7 @@ void MainWindow::showSettings()
     QDialog dialog(this);
     dialog.setObjectName("settingsDialog");
     dialog.setPalette(palette());
+    dialog.setFont(font());
     dialog.setWindowTitle("Firominer settings");
     dialog.resize(650, 320);
     auto* layout = new QVBoxLayout(&dialog);
@@ -1228,7 +2540,7 @@ void MainWindow::showSettings()
     theme->addItem("Light", "light");
     theme->addItem("Dark", "dark");
     theme->addItem("System", "system");
-    theme->setCurrentIndex(theme->findData(theme_));
+    theme->setCurrentIndex(theme->findData(appearance_));
     appearance->addRow("Color theme", theme);
     layout->addLayout(appearance);
     auto* themeNote = label("System follows your computer's colors. High-contrast settings always take priority.", "muted");
@@ -1239,7 +2551,7 @@ void MainWindow::showSettings()
     auto* path = new QLineEdit(executable_);
     path->setObjectName("minerExecutableInput");
     path->setAccessibleName("Miner executable path");
-    auto* browse = button("Browse…");
+    auto* browse = button(QString::fromUtf8("Browse…"));
     row->addWidget(path, 1);
     row->addWidget(browse);
     layout->addLayout(row);
@@ -1253,6 +2565,8 @@ void MainWindow::showSettings()
             path->setText(selected);
     });
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    if (auto* save = buttons->button(QDialogButtonBox::Save))
+        save->setProperty("role", "primary");
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
         const QFileInfo file(path->text().trimmed());
@@ -1262,30 +2576,58 @@ void MainWindow::showSettings()
             return;
         }
         const auto previous = executable_;
-        const auto previousTheme = theme_;
+        const auto previousTheme = appearance_;
         executable_ = file.absoluteFilePath();
-        theme_ = theme->currentData().toString();
+        appearance_ = theme->currentData().toString();
         if (saveSettings())
         {
             updateTheme();
+            updateOverview();
             dialog.accept();
         }
         else
         {
             executable_ = previous;
-            theme_ = previousTheme;
+            appearance_ = previousTheme;
         }
     });
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     dialog.exec();
 }
 
+void MainWindow::setSidebarCompact(bool compact)
+{
+    if (compact == sidebarCompact_)
+        return;
+    sidebarCompact_ = compact;
+    sidebar_->setFixedWidth(compact ? 72 : 220);
+    brandName_->setVisible(!compact);
+    sidebarFooter_->setVisible(!compact);
+    for (int i = 0; i < navigation_->count(); ++i)
+    {
+        navigation_->item(i)->setText(compact ? QString() : navigationNames_[i]);
+        navigation_->item(i)->setToolTip(compact ? navigationNames_[i] : QString());
+    }
+    const QList<std::pair<QPushButton*, QString>> buttons{{settingsButton_, "Settings"}, {helpButton_, "Help"}};
+    for (const auto& [item, name] : buttons)
+    {
+        item->setText(compact ? QString() : name);
+        item->setToolTip(compact ? name : QString());
+        item->setAccessibleName(name);
+        item->setProperty("compact", compact);
+        repolish(item);
+    }
+    navigation_->setProperty("compact", compact);
+    repolish(navigation_);
+}
+
 void MainWindow::resizeEvent(QResizeEvent* event)
 {
     QMainWindow::resizeEvent(event);
     const auto direction = width() < 1000 ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight;
-    metricsLayout_->setDirection(direction);
-    overviewLayout_->setDirection(direction);
+    heroLayout_->setDirection(direction);
+    middleLayout_->setDirection(direction);
+    setSidebarCompact(width() < 900);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
