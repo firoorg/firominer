@@ -599,7 +599,8 @@ void MinerController::resetConnection(const QString& reason)
     if (!reason.isEmpty())
         emit logLine(reason);
     if (isRunning() && !m_stopping)
-        setState(m_hadStats ? QStringLiteral("Reconnecting") : QStringLiteral("Preparing GPUs"));
+        setState(m_wasConnected ? QStringLiteral("Reconnecting") :
+            m_hadStats ? QStringLiteral("Connecting") : QStringLiteral("Preparing GPUs"));
 }
 
 void MinerController::readLogs(bool flush)
