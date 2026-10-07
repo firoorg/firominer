@@ -2391,7 +2391,8 @@ void MainWindow::updateOverview()
     else
         poolState_->setStatus("Not connected", Tone::Neutral);
 
-    gpuSummary_->setText(gpuGrid_->count() ? QString::fromUtf8("· %1 of %2 mining").arg(activeGpus_).arg(totalGpus_) :
+    gpuSummary_->setText(gpuGrid_->count() && state != "Reconnecting" ?
+        QString::fromUtf8("· %1 of %2 mining").arg(activeGpus_).arg(totalGpus_) :
         live ? QString::fromUtf8("· waiting for statistics") : QString());
     gpuGrid_->setVisible(gpuGrid_->count() > 0);
     gpuEmpty_->setVisible(gpuGrid_->count() == 0);

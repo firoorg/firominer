@@ -318,6 +318,7 @@ private slots:
         QCOMPARE(table->item(0, 5)->text(), QString("Waiting for statistics"));
         QCOMPARE(cardText(gpuCards(window)[0], "gpuHashrate"), dash);
         QCOMPARE(cardText(gpuCards(window)[0], "gpuStatus"), QString("Waiting"));
+        QVERIFY(window.findChild<QLabel*>("gpuSummary")->text().contains("waiting"));
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
         QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("112.8"));
