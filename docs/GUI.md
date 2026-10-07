@@ -40,7 +40,8 @@ appears in the GUI's log view.
 The overview leads with the miner's state. Until setup is complete, it says what is
 missing and the start button becomes **Set up mining**. Once ready, it names the pool
 or node and summarizes the last session's runtime, accepted shares and average
-hashrate. While mining it shows total hashrate, accepted shares, the last share, GPU
+hashrate. A saved solo setup asks only for its RPC password, which is never saved.
+While mining it shows total hashrate, accepted shares, the last share, GPU
 power and efficiency, a hashrate chart with its average, and a card for each GPU with
 its recent hashrate, temperature, fan, power and shares.
 

@@ -62,6 +62,8 @@ private:
     QWidget* activityPage();
     QTableWidget* deviceTable();
     MiningConfig configuration() const;
+    //! Whether a solo setup is complete apart from its RPC password, which is never saved.
+    bool needsRpcPassword() const;
     void loadSettings();
     bool saveSettings();
     void toggleMining();
@@ -125,6 +127,7 @@ private:
     qint64 rateSamples_ = 0;
     int activeGpus_ = 0, totalGpus_ = 0;
     bool hasReadings_ = false;
+    bool connectionLost_ = false; //!< The miner reported its pool or node connection down.
     Session lastSession_;
     bool hasSession_ = false;
     bool sidebarCompact_ = false;

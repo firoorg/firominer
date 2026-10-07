@@ -208,6 +208,14 @@ private slots:
         for (auto* text : window.findChildren<QLabel*>())
             healthy |= text->text() == "Mining normally · no block found yet";
         QVERIFY(healthy);
+        // A rejected block is not a found one.
+        mining["shares"] = QJsonArray{0, 1, 0, 30};
+        stats["mining"] = mining;
+        window.updateStatistics(stats);
+        bool rejected = false;
+        for (auto* text : window.findChildren<QLabel*>())
+            rejected |= text->text() == "Not accepted by your node";
+        QVERIFY(rejected);
         window.setMiningState("Stopped");
         QVERIFY(solo->isEnabled());
         QVERIFY(window.findChild<QLineEdit*>("coinbaseMessageInput")->isEnabled());
@@ -268,7 +276,7 @@ private slots:
         QCOMPARE(window.findChild<QLabel*>("totalPower")->text(), QString("490 W"));
         QCOMPARE(window.findChild<QLabel*>("acceptedShares")->text(), QLocale().toString(1248));
         QCOMPARE(window.findChild<QLabel*>("lastShare")->text(), QString("12") + QChar(0x00a0) + "s ago");
-        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString("2 of 2 GPUs mining"));
+        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString("2 of 2 GPUs mining · session average 112.8 MH/s"));
         const auto cards = gpuCards(window);
         QCOMPARE(cards.size(), 2);
         QCOMPARE(cardText(cards[0], "gpuHashrate"), QString("71.2"));
@@ -331,6 +339,9 @@ private slots:
         MainWindow window;
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
+        // Losing the miner's own statistics does not blame the pool.
+        window.setMiningState("Reconnecting");
+        QVERIFY(window.findChild<QLabel*>("heroDetail")->text().startsWith("Waiting for the miner"));
         auto disconnected = statistics();
         disconnected["connection"] = QJsonObject{{"connected", false}};
         window.setMiningState("Reconnecting");
@@ -405,6 +416,28 @@ private slots:
         // A changed endpoint is no longer a fresh setup, so its own error shows.
         window.findChild<QLineEdit*>("nodeInput")->setText("127.0.0.1:8888");
         QVERIFY(detail->text().contains("HTTP/getwork"));
+    }
+
+    void savedSoloSetupOnlyNeedsThePassword()
+    {
+        useTestMiner();
+        QSettings settings;
+        settings.setValue("mining/solo", true);
+        settings.setValue("solo/rewardAddress", "a7KpDesignPreviewAddress9mQ2");
+        MainWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        // RPC passwords are never saved, so a saved solo setup asks only for the password.
+        QCOMPARE(window.findChild<QLabel*>("heroTitle")->text(), QString("Solo mining"));
+        QVERIFY(window.findChild<QLabel*>("heroDetail")->text().startsWith("127.0.0.1:8888"));
+        auto* start = window.findChild<QPushButton*>("startMining");
+        QCOMPARE(start->text(), QString("Enter RPC password"));
+        start->click();
+        QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 1);
+        auto* password = window.findChild<QLineEdit*>("rpcPasswordInput");
+        QVERIFY(password->hasFocus());
+        password->setText("session-secret");
+        QCOMPARE(start->text(), QString("Start solo mining"));
     }
 
     void pausedAndPreparingGpusStayConnected()

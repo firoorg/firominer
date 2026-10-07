@@ -50,7 +50,6 @@
 #include <QVBoxLayout>
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
 #include <QAccessibilityHints>
 #elif defined(Q_OS_WIN)
@@ -634,12 +633,13 @@ public:
     }
 };
 
-// Small bold capitals; QSS cannot carry letter spacing or capitalization.
+// Small bold capitals; QSS cannot carry letter spacing or capitalization. They follow the
+// body text size, so larger text settings enlarge them too.
 QLabel* caption(const QString& text)
 {
     auto* result = label(text, "caption");
-    QFont font(brandFonts().body);
-    font.setPixelSize(12);
+    QFont font = bodyFont(QApplication::font());
+    font.setPointSizeF(font.pointSizeF() * 0.8);
     font.setBold(true);
     font.setCapitalization(QFont::AllUppercase);
     font.setLetterSpacing(QFont::AbsoluteSpacing, 0.8);
@@ -691,11 +691,17 @@ QString sensor(const QJsonValue& value, const QString& unit, bool allowZero = fa
     return hasReading(value, allowZero) ? QString::number(value.toDouble(), 'f', 0) + unit : QString();
 }
 
+//! Stands in for unavailable figures; setValue() announces it as "Unavailable".
+QString dash()
+{
+    return QString(QChar(0x2014));
+}
+
 // A dash keeps unavailable figures compact; assistive technology still hears the word.
 void setValue(QLabel* label, const QString& text)
 {
     label->setText(text);
-    label->setAccessibleName(text == QString::fromUtf8("—") ? QStringLiteral("Unavailable") : QString());
+    label->setAccessibleName(text == dash() ? QStringLiteral("Unavailable") : QString());
 }
 
 QString abbreviated(const QString& text)
@@ -874,6 +880,11 @@ public:
     }
     void reset() { points_.clear(); update(); }
     bool isEmpty() const { return points_.isEmpty(); }
+    //! The plot's right edge: now while mining, or the last reading once the session stops.
+    qint64 end() const
+    {
+        return dimmed_ && !points_.isEmpty() ? qint64(points_.last().x()) : QDateTime::currentSecsSinceEpoch();
+    }
     void setRange(int seconds) { range_ = seconds; update(); }
     void setDimmed(bool dimmed)
     {
@@ -882,23 +893,6 @@ public:
             dimmed_ = dimmed;
             update();
         }
-    }
-    //! Mean of the nonzero readings within the last seconds, once they span five minutes.
-    double average(qint64 seconds) const
-    {
-        const auto now = QDateTime::currentSecsSinceEpoch();
-        double sum = 0, first = 0, last = 0;
-        int count = 0;
-        for (const auto& point : points_)
-            if (point.x() >= now - seconds && point.y() > 0)
-            {
-                if (!count)
-                    first = point.x();
-                last = point.x();
-                sum += point.y();
-                ++count;
-            }
-        return count && last - first >= 300 ? sum / count : std::numeric_limits<double>::quiet_NaN();
     }
     void showHistory()
     {
@@ -914,7 +908,7 @@ public:
         table->setHorizontalHeaderLabels({"Time", "Hashrate (MH/s)"});
         table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-        const auto earliest = QDateTime::currentSecsSinceEpoch() - range_;
+        const auto earliest = end() - range_;
         for (const auto& point : points_)
         {
             if (point.x() < earliest)
@@ -951,10 +945,10 @@ protected:
             return;
         }
         const QColor line = dimmed_ ? colors_.inkFaint : colors_.chartLine;
-        const auto now = QDateTime::currentSecsSinceEpoch();
+        const auto endTime = end();
         double peak = 0;
         for (const auto& point : points_)
-            if (point.x() >= now - range_)
+            if (point.x() >= endTime - range_)
                 peak = std::max(peak, point.y());
         const double target = std::max(peak * 1.15, 10.0);
         const double step = niceStep(target / 3);
@@ -971,10 +965,10 @@ protected:
         for (int i = 0; i <= 4; ++i)
         {
             const auto x = plot.left() + i * plot.width() / 4;
-            const auto time = now - range_ + i * range_ / 4;
+            const auto time = endTime - range_ + i * range_ / 4;
             painter.setPen(colors_.inkFaint);
             painter.drawText(QRectF(x - 28, plot.bottom() + 8, 56, metrics.height() + 4), Qt::AlignCenter,
-                i == 4 ? QStringLiteral("Now") : QDateTime::fromSecsSinceEpoch(time).toString("HH:mm"));
+                i == 4 && !dimmed_ ? QStringLiteral("Now") : QDateTime::fromSecsSinceEpoch(time).toString("HH:mm"));
         }
         QPainterPath path, area;
         QPolygonF segment, dots;
@@ -995,9 +989,9 @@ protected:
         };
         for (const auto& point : points_)
         {
-            if (point.x() < now - range_)
+            if (point.x() < endTime - range_)
                 continue;
-            const QPointF p(plot.right() - (now - point.x()) / range_ * plot.width(),
+            const QPointF p(plot.right() - (endTime - point.x()) / range_ * plot.width(),
                 plot.bottom() - point.y() / maximum * plot.height());
             if (segment.isEmpty() || point.x() - previousTime > 15)
             {
@@ -1043,7 +1037,7 @@ protected:
             painter.setPen(colors_.inkFaint);
             painter.drawText(box, Qt::AlignCenter, text);
         }
-        if (!dimmed_ && now - previousTime <= 15)
+        if (!dimmed_ && endTime - previousTime <= 15)
         {
             painter.setPen(QPen(colors_.panel, 3));
             painter.setBrush(line);
@@ -1190,7 +1184,7 @@ public:
     // A lost connection can leave stale readings in the API; show none until fresh ones arrive.
     void setWaiting()
     {
-        setValue(rate_, QString::fromUtf8("—"));
+        setValue(rate_, dash());
         status_->setStatus("Waiting", Tone::Warning);
         status_->setToolTip("Waiting for fresh statistics");
         setSensors({}, {}, {});
@@ -1212,7 +1206,7 @@ private:
         for (int i = 0; i < sensors.size(); ++i)
         {
             const auto& [value, text] = sensors[i];
-            value->setText(text.isEmpty() ? QString::fromUtf8("—") : text);
+            value->setText(text.isEmpty() ? dash() : text);
             value->setAccessibleName(names[i] + ' ' + (text.isEmpty() ? QStringLiteral("unavailable") : text));
         }
     }
@@ -1508,7 +1502,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     loadSettings();
     resize(size().boundedTo(available));
     clearReadings();
-    for (auto* input : {poolInput_, walletInput_, workerInput_, nodeInput_, rpcUserInput_, rpcPasswordInput_,
+    for (auto* input : {poolInput_, walletInput_, workerInput_, passwordInput_, nodeInput_, rpcUserInput_, rpcPasswordInput_,
              rewardInput_, coinbaseMessageInput_, devicesInput_})
         connect(input, &QLineEdit::textChanged, this, [this] {
             if (currentState_ != "Stopped")
@@ -2112,6 +2106,15 @@ void MainWindow::loadSettings()
     updateMiningMode();
 }
 
+bool MainWindow::needsRpcPassword() const
+{
+    auto config = configuration();
+    if (!config.solo || !config.rpcPassword.isEmpty())
+        return false;
+    config.rpcPassword = QStringLiteral("x");
+    return MinerController::validate(config).isEmpty();
+}
+
 bool MainWindow::saveSettings()
 {
     for (auto* input : {poolInput_, nodeInput_})
@@ -2225,6 +2228,8 @@ void MainWindow::toggleMining()
         navigation_->setCurrentRow(1);
         showNotice(error, "warning");
         appendActivity(error);
+        if (needsRpcPassword())
+            rpcPasswordInput_->setFocus();
         return;
     }
     if (!saveSettings())
@@ -2237,7 +2242,7 @@ void MainWindow::toggleMining()
 
 void MainWindow::clearReadings()
 {
-    hasReadings_ = false;
+    hasReadings_ = connectionLost_ = false;
     acceptedCount_ = rejectedCount_ = runtimeSeconds_ = rateSamples_ = 0;
     rateSum_ = 0;
     activeGpus_ = totalGpus_ = 0;
@@ -2245,9 +2250,9 @@ void MainWindow::clearReadings()
     setValue(hashrate_, "0.0");
     accepted_->setText("0");
     shareDetail_->setText(solo ? "This session · 0 rejected · 0 failed" : "0 rejected · 0 failed");
-    setValue(lastShare_, QString::fromUtf8("—"));
+    setValue(lastShare_, dash());
     lastShareDetail_->setText(solo ? "No block found this session" : "Waiting for the first share");
-    setValue(power_, QString::fromUtf8("—"));
+    setValue(power_, dash());
     powerDetail_->setText("Waiting for statistics");
     gpuGrid_->setCount(0);
     for (auto* table : deviceTables_)
@@ -2284,10 +2289,9 @@ void MainWindow::setMiningState(const QString& state)
     }
     else if (state == "Reconnecting")
     {
-        const auto dash = QString::fromUtf8("—");
-        setValue(hashrate_, dash);
-        setValue(power_, dash);
-        setValue(lastShare_, dash);
+        setValue(hashrate_, dash());
+        setValue(power_, dash());
+        setValue(lastShare_, dash());
         powerDetail_->setText("Waiting for statistics");
         lastShareDetail_->setText(soloMode_->isChecked() ? "Waiting for fresh block statistics" : "Waiting for fresh share statistics");
         for (int i = 0; i < gpuGrid_->count(); ++i)
@@ -2318,7 +2322,7 @@ void MainWindow::updateOverview()
     const bool connected = hasReadings_ && (state == "Mining" || state == "Paused" || state == "Preparing GPUs");
     const QString setupError = stopped ? MinerController::validate(configuration()) : QString();
     const bool ready = stopped && setupError.isEmpty();
-    const auto dash = QString::fromUtf8("—");
+    const bool needsPassword = stopped && !ready && needsRpcPassword();
 
     state_->setStatus(state, state == "Mining" ? Tone::Positive : stopped || state == "Stopping" ? Tone::Neutral : Tone::Warning);
     auto setStart = [this](const QString& text, const char* role, const char* glyph) {
@@ -2335,10 +2339,12 @@ void MainWindow::updateOverview()
         setStart("Stop mining", "secondary", "stop");
     else if (ready)
         setStart(solo ? "Start solo mining" : "Start pool mining", "primary", "play");
+    else if (needsPassword)
+        setStart("Enter RPC password", "primary", "setup");
     else
         setStart("Set up mining", "primary", "setup");
     start_->setEnabled(state != "Stopping");
-    runtime_->setText(stopped ? (ready ? "Ready when you are" : "Not set up yet") :
+    runtime_->setText(stopped ? (ready ? "Ready when you are" : needsPassword ? "RPC password needed" : "Not set up yet") :
         checking ? "Checking solo setup" :
         connected ? "Running " + durationText(runtimeSeconds_) :
         state == "Reconnecting" ? "Waiting for statistics" :
@@ -2356,10 +2362,13 @@ void MainWindow::updateOverview()
         const auto address = (solo ? rewardInput_ : walletInput_)->text().trimmed();
         // A fresh setup gets directions instead of its first validation error.
         const bool untouched = address.isEmpty() && (endpointText.isEmpty() || (solo && endpointText == MiningConfig().nodeUrl));
-        heroCaption_->setText(ready ? "Ready to mine" : "Get started");
-        heroTitle_->setText(ready ? (solo ? "Solo mining" : "Pool mining") : "Set up mining");
-        gpuCount_->setText(ready ? QString("%1:%2 · %3 to %4").arg(endpoint.host()).arg(endpoint.port())
-                .arg(solo ? "rewards" : "payouts", abbreviated(address)) :
+        const bool configured = ready || needsPassword;
+        heroCaption_->setText(configured ? "Ready to mine" : "Get started");
+        heroTitle_->setText(configured ? (solo ? "Solo mining" : "Pool mining") : "Set up mining");
+        const auto destination = QString("%1:%2 · %3 to %4").arg(endpoint.host()).arg(endpoint.port())
+            .arg(solo ? "rewards" : "payouts", abbreviated(address));
+        gpuCount_->setText(ready ? destination :
+            needsPassword ? destination + ". Enter your RPC password to start; it is never saved." :
             untouched ? (solo ? "Connect your Firo node and reward address in Mining setup, then start mining." :
                 "Add your pool and payout address in Mining setup, then start mining.") : setupError);
     }
@@ -2373,7 +2382,9 @@ void MainWindow::updateOverview()
     {
         heroCaption_->setText("Total hashrate");
         if (state == "Reconnecting")
-            gpuCount_->setText(QString("%1 connection lost. Retrying automatically; your GPUs stay ready.").arg(solo ? "Node" : "Pool"));
+            gpuCount_->setText(connectionLost_ ?
+                QString("%1 connection lost. Retrying automatically; your GPUs stay ready.").arg(solo ? "Node" : "Pool") :
+                QString("Waiting for the miner's statistics. Retrying automatically."));
         else if (state == "Stopping")
             gpuCount_->setText(QString::fromUtf8("Stopping the miner…"));
         else if (!hasReadings_ || !totalGpus_)
@@ -2381,9 +2392,8 @@ void MainWindow::updateOverview()
         else
         {
             auto text = QString(totalGpus_ == 1 ? "%1 of %2 GPU mining" : "%1 of %2 GPUs mining").arg(activeGpus_).arg(totalGpus_);
-            const double average = chart_->average(3600);
-            if (std::isfinite(average))
-                text += QString(" · 1 h average %1 MH/s").arg(average, 0, 'f', 1);
+            if (runtimeSeconds_ >= 300 && rateSamples_)
+                text += QString(" · session average %1 MH/s").arg(rateSum_ / rateSamples_, 0, 'f', 1);
             gpuCount_->setText(text);
         }
     }
@@ -2394,7 +2404,7 @@ void MainWindow::updateOverview()
         sessionAcceptedLabel_->setText(lastSession_.solo ? "Blocks" : "Accepted");
         sessionAccepted_->setText(QLocale().toString(lastSession_.accepted));
         sessionRejected_->setText(QString("%1 rejected").arg(QLocale().toString(lastSession_.rejected)));
-        setValue(sessionAverage_, lastSession_.average > 0 ? QString::number(lastSession_.average, 'f', 1) : dash);
+        setValue(sessionAverage_, lastSession_.average > 0 ? QString::number(lastSession_.average, 'f', 1) : dash());
     }
 
     chart_->setDimmed(stopped || checking);
@@ -2426,6 +2436,7 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
     acceptedCount_ = shares.at(0).toInteger();
     rejectedCount_ = shares.at(1).toInteger();
     const auto failed = shares.at(2).toInteger();
+    connectionLost_ = !connected;
     const qint64 lastSubmission = acceptedCount_ + rejectedCount_ + failed > 0 ? shares.at(3).toInteger() : -1;
     accepted_->setText(QLocale().toString(acceptedCount_));
     shareDetail_->setText((solo ? "This session · " : QString()) + QString("%1 rejected · %2 failed").arg(rejectedCount_).arg(failed));
@@ -2447,9 +2458,10 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         ++rateSamples_;
     }
     setValue(lastShare_, lastSubmission >= 0 ? durationText(lastSubmission) + " ago" :
-        solo ? QStringLiteral("None yet") : QString::fromUtf8("—"));
+        solo ? QStringLiteral("None yet") : dash());
     if (solo)
         lastShareDetail_->setText(acceptedCount_ > 0 ? QString("%1 found this session").arg(acceptedCount_ == 1 ? "1 block" : QLocale().toString(acceptedCount_) + " blocks") :
+            lastSubmission >= 0 ? QStringLiteral("Not accepted by your node") :
             currentState_ == "Mining" ? "Mining normally · no block found yet" : "No block found this session");
     else
         lastShareDetail_->setText(acceptedCount_ > 0 && runtimeSeconds_ > 0 ?
@@ -2463,7 +2475,6 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         table->setRowCount(devices.size());
     }
     gpuGrid_->setCount(devices.size());
-    const auto dash = QString::fromUtf8("—");
     for (int row = 0; row < devices.size(); ++row)
     {
         const auto device = devices[row].toObject();
@@ -2523,7 +2534,7 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
     gpuGrid_->refreshLayout();
     activeGpus_ = active;
     totalGpus_ = devices.size();
-    setValue(power_, powerReadings ? QString::number(totalPower, 'f', 0) + " W" : dash);
+    setValue(power_, powerReadings ? QString::number(totalPower, 'f', 0) + " W" : dash());
     powerDetail_->setText(!powerReadings ? QStringLiteral("Not reported by your GPUs") :
         powerReadings != devices.size() ? QString("Partial · %1 of %2 devices").arg(powerReadings).arg(devices.size()) :
         rate > 0 ? QString("%1 MH/J").arg(rate / totalPower, 0, 'f', 2) : QStringLiteral("Reported by your GPUs"));
