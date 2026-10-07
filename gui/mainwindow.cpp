@@ -333,7 +333,7 @@ QString withFamilies(QString sheet)
 // accessibility text settings still scale it.
 QFont bodyFont(QFont font)
 {
-    if (font.family() == brandFonts().body)
+    if (font.family() == brandFonts().body && font.pointSizeF() > 0)
         return font;
     const qreal points = font.pointSizeF() > 0 ? font.pointSizeF() : font.pixelSize() * 0.75;
     font.setFamily(brandFonts().body);
@@ -633,6 +633,29 @@ public:
     }
 };
 
+// Box layouts center or bottom-align labels, so a unit takes the top margin that puts its
+// baseline on its figure's whenever either font changes. Add both with Qt::AlignTop.
+class BaselineAligner : public QObject
+{
+public:
+    BaselineAligner(QLabel* figure, QLabel* unit) : QObject(unit), figure_(figure), unit_(unit)
+    {
+        figure->installEventFilter(this);
+        unit->installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject*, QEvent* event) override
+    {
+        if (event->type() == QEvent::FontChange)
+            unit_->setContentsMargins(0, std::max(0, figure_->fontMetrics().ascent() - unit_->fontMetrics().ascent()), 0, 0);
+        return false;
+    }
+
+private:
+    QLabel *figure_, *unit_;
+};
+
 // Small bold capitals; QSS cannot carry letter spacing or capitalization. They follow the
 // body text size, so larger text settings enlarge them too.
 QLabel* caption(const QString& text)
@@ -718,7 +741,7 @@ QString durationText(qint64 seconds)
         return QString::number(seconds) + space + "s";
     if (seconds < 3600)
         return QString::number(seconds / 60) + space + "min";
-    return QString("%1h %2m").arg(seconds / 3600).arg((seconds / 60) % 60);
+    return QString::number(seconds / 3600) + "h" + space + QString::number((seconds / 60) % 60) + "m";
 }
 
 QString sessionEndText(const QDateTime& ended)
@@ -1138,8 +1161,11 @@ public:
         rateRow->setSpacing(5);
         rate_ = label("", "gpuRate");
         rate_->setObjectName("gpuHashrate");
-        rateRow->addWidget(rate_, 0, Qt::AlignBottom);
-        rateRow->addWidget(label("MH/s", "unit"), 0, Qt::AlignBottom);
+        auto* unit = label("MH/s", "unit");
+        unit->setObjectName("gpuUnit");
+        rateRow->addWidget(rate_, 0, Qt::AlignTop);
+        rateRow->addWidget(unit, 0, Qt::AlignTop);
+        new BaselineAligner(rate_, unit);
         rateRow->addStretch();
         spark_ = new Sparkline(colors);
         rateRow->addWidget(spark_, 0, Qt::AlignVCenter);
@@ -1577,8 +1603,9 @@ QWidget* MainWindow::heroPanel()
     hashrate_->setObjectName("totalHashrate");
     hashrateUnit_ = label("MH/s", "heroUnit");
     hashrateUnit_->setObjectName("totalHashrateUnit");
-    rateRow->addWidget(hashrate_, 0, Qt::AlignBaseline);
-    rateRow->addWidget(hashrateUnit_, 0, Qt::AlignBaseline);
+    rateRow->addWidget(hashrate_, 0, Qt::AlignTop);
+    rateRow->addWidget(hashrateUnit_, 0, Qt::AlignTop);
+    new BaselineAligner(hashrate_, hashrateUnit_);
     rateRow->addStretch();
     summary->addWidget(hashrateRow_);
     heroTitle_ = label("", "heroTitle");
@@ -1669,6 +1696,7 @@ QWidget* MainWindow::overviewPage()
     chartTitles->setSpacing(0);
     chartTitles->addWidget(label("Hashrate", "section"));
     chartSubtitle_ = label("MH/s · this session", "faint");
+    chartSubtitle_->setObjectName("chartSubtitle");
     chartTitles->addWidget(chartSubtitle_);
     chartTop->addLayout(chartTitles, 1);
     auto* ranges = new QFrame;
@@ -2225,9 +2253,16 @@ void MainWindow::toggleMining()
     const auto error = MinerController::validate(config);
     if (!error.isEmpty())
     {
-        navigation_->setCurrentRow(1);
         showNotice(error, "warning");
         appendActivity(error);
+        const QFileInfo miner(config.executable);
+        if (!miner.isFile() || !miner.isExecutable())
+        {
+            // The miner's path lives in Settings, not Mining setup.
+            showSettings();
+            return;
+        }
+        navigation_->setCurrentRow(1);
         if (needsRpcPassword())
             rpcPasswordInput_->setFocus();
         return;
@@ -2236,7 +2271,6 @@ void MainWindow::toggleMining()
         return;
     updateConnectionSummary();
     clearReadings();
-    chart_->reset();
     controller_.start(config);
 }
 
@@ -2407,8 +2441,8 @@ void MainWindow::updateOverview()
         setValue(sessionAverage_, lastSession_.average > 0 ? QString::number(lastSession_.average, 'f', 1) : dash());
     }
 
-    chart_->setDimmed(stopped || checking);
-    chartSubtitle_->setText(live ? "MH/s · this session" : chart_->isEmpty() ? "MH/s · appears when mining starts" : "MH/s · last session");
+    chart_->setDimmed(!hasReadings_);
+    chartSubtitle_->setText(hasReadings_ ? "MH/s · this session" : chart_->isEmpty() ? "MH/s · appears when mining starts" : "MH/s · last session");
 
     if (connected)
         poolState_->setStatus("Connected", Tone::Positive);
@@ -2446,6 +2480,9 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         setMiningState("Reconnecting");
         return;
     }
+    // The chart keeps the last session, dimmed, until this one's first reading replaces it.
+    if (!hasReadings_)
+        chart_->reset();
     hasReadings_ = true;
     runtimeSeconds_ = statistics.value("host").toObject().value("runtime").toInteger();
     const auto rate = hashValue(mining.value("hashrate"));
@@ -2516,7 +2553,7 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         reading.rate = QString::number(deviceRate, 'f', 1);
         reading.status = status;
         reading.statusTip = info.value("pause_reason").toString();
-        reading.tone = paused ? Tone::Danger : deviceRate > 0 ? Tone::Positive : Tone::Warning;
+        reading.tone = deviceRate > 0 && !paused ? Tone::Positive : Tone::Warning;
         reading.temperature = temperature;
         reading.fan = fan;
         reading.power = power;
