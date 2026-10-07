@@ -151,7 +151,7 @@ QString css(const QColor& color)
         QString("rgba(%1, %2, %3, %4)").arg(color.red()).arg(color.green()).arg(color.blue()).arg(color.alpha());
 }
 
-QString displayFamily();
+QString withFamilies(QString sheet);
 
 QString brandedSheet(const GuiTheme& theme)
 {
@@ -169,7 +169,7 @@ QString brandedSheet(const GuiTheme& theme)
         QLabel[role="code"] { background: $PANEL_SOFT; border: 1px solid $BORDER; border-radius: 10px; padding: 10px 12px; }
         QLabel[role="badge"] { background: $WINE_TINT; border-radius: 10px; }
         QLabel[role="gpuRate"] { font-family: "$DISPLAY"; font-size: 30px; font-weight: 700; }
-        QLabel[role="unit"] { font-family: "$DISPLAY"; font-size: 17px; font-weight: 300; color: $INK_FAINT; }
+        QLabel[role="unit"] { font-family: "$DISPLAY_LIGHT"; font-size: 17px; font-weight: 300; color: $INK_FAINT; }
         QLabel#notice { border-radius: 10px; padding: 12px 14px; }
         QLabel#notice[tone="danger"] { background: $ERROR_TINT; color: $ERROR; }
         QLabel#notice[tone="warning"] { background: $GOLD_TINT; color: $GOLD; }
@@ -181,7 +181,7 @@ QString brandedSheet(const GuiTheme& theme)
         QFrame#hero QLabel { color: #FFFFFF; }
         QFrame#hero QLabel[role="heroSoft"], QFrame#hero QLabel[role="caption"] { color: rgba(255, 255, 255, 199); }
         QFrame#hero QLabel[role="heroValue"] { font-family: "$DISPLAY"; font-size: 64px; font-weight: 700; }
-        QFrame#hero QLabel[role="heroUnit"] { font-family: "$DISPLAY"; font-size: 28px; font-weight: 300; color: rgba(255, 255, 255, 158); }
+        QFrame#hero QLabel[role="heroUnit"] { font-family: "$DISPLAY_LIGHT"; font-size: 28px; font-weight: 300; color: rgba(255, 255, 255, 158); }
         QFrame#hero QLabel[role="heroTitle"] { font-family: "$DISPLAY"; font-size: 40px; font-weight: 700; }
         QFrame#hero QLabel[role="statValue"] { font-family: "$DISPLAY"; font-size: 28px; font-weight: 700; }
         QFrame#hero QWidget#heroStat { border: none; border-left: 1px solid rgba(255, 255, 255, 71); }
@@ -246,13 +246,13 @@ QString brandedSheet(const GuiTheme& theme)
         {"$WINE_TEXT", css(theme.wineText)}, {"$WINE", css(theme.wine)}, {"$ERROR_TINT", css(theme.errorTint)},
         {"$ERROR", css(theme.error)}, {"$GOLD_TINT", css(theme.goldTint)}, {"$GOLD", css(theme.gold)},
         {"$HOVER", css(theme.hover)}, {"$FIELD_BORDER", css(theme.fieldBorder)}, {"$HERO_START", css(theme.heroStart)},
-        {"$HERO_END", css(theme.heroEnd)}, {"$DISPLAY", displayFamily()}};
+        {"$HERO_END", css(theme.heroEnd)}};
     // Replace longer tokens first so $WINE does not consume $WINE_TINT.
     auto keys = tokens.keys();
     std::sort(keys.begin(), keys.end(), [](const QString& a, const QString& b) { return a.size() > b.size(); });
     for (const auto& key : keys)
         sheet.replace(key, tokens.value(key));
-    return sheet;
+    return withFamilies(sheet);
 }
 
 // Structure only: platform colors stay in charge, including high-contrast themes.
@@ -266,13 +266,13 @@ QString nativeSheet()
         QLabel[role="pill"] { font-size: 13px; font-weight: 700; }
         QLabel[role="code"] { border: 1px solid palette(mid); border-radius: 10px; padding: 10px 12px; }
         QLabel[role="gpuRate"] { font-family: "$DISPLAY"; font-size: 30px; font-weight: 700; }
-        QLabel[role="unit"] { font-family: "$DISPLAY"; font-size: 17px; font-weight: 300; }
+        QLabel[role="unit"] { font-family: "$DISPLAY_LIGHT"; font-size: 17px; font-weight: 300; }
         QLabel#notice { border: 1px solid palette(mid); border-radius: 10px; padding: 12px 14px; }
         QFrame#panel, QFrame#gpuCard, QFrame#gpuEmpty, QFrame#hero { border: 1px solid palette(mid); border-radius: 14px; }
         QFrame#gpuDivider { background: palette(mid); border: none; }
         QFrame#sidebar { border: none; border-right: 1px solid palette(mid); }
         QLabel[role="heroValue"] { font-family: "$DISPLAY"; font-size: 64px; font-weight: 700; }
-        QLabel[role="heroUnit"] { font-family: "$DISPLAY"; font-size: 28px; font-weight: 300; }
+        QLabel[role="heroUnit"] { font-family: "$DISPLAY_LIGHT"; font-size: 28px; font-weight: 300; }
         QLabel[role="heroTitle"] { font-family: "$DISPLAY"; font-size: 40px; font-weight: 700; }
         QLabel[role="statValue"] { font-family: "$DISPLAY"; font-size: 28px; font-weight: 700; }
         QWidget#heroStat { border: none; border-left: 1px solid palette(mid); }
@@ -289,14 +289,14 @@ QString nativeSheet()
         QPushButton[role="sidebar"][compact="true"] { padding: 0 14px; }
         QLineEdit, QComboBox { padding: 9px; min-height: 20px; }
     )";
-    sheet.replace("$DISPLAY", displayFamily());
-    return sheet;
+    return withFamilies(sheet);
 }
 
 // The wallet's typefaces: Saira SemiCondensed for headings and figures, Source Sans Pro for text.
 struct BrandFonts
 {
     QString display = QStringLiteral("Saira SemiCondensed");
+    QString displayLight;
     QString body = QStringLiteral("Source Sans Pro");
 };
 
@@ -304,25 +304,30 @@ const BrandFonts& brandFonts()
 {
     static const BrandFonts fonts = [] {
         BrandFonts result;
-        for (const auto* file : {":/fonts/SairaSemiCondensed-Bold.ttf", ":/fonts/SairaSemiCondensed-Light.ttf",
-                 ":/fonts/SourceSansPro-Regular.ttf", ":/fonts/SourceSansPro-Bold.ttf"})
-        {
-            const auto families = QFontDatabase::applicationFontFamilies(QFontDatabase::addApplicationFont(file));
-            if (families.isEmpty())
-                continue;
-            if (families.first().startsWith("Saira"))
-                result.display = families.first();
-            else
-                result.body = families.first();
-        }
+        auto load = [](const char* file) { return QFontDatabase::applicationFontFamilies(QFontDatabase::addApplicationFont(file)); };
+        const auto bold = load(":/fonts/SairaSemiCondensed-Bold.ttf");
+        if (!bold.isEmpty())
+            result.display = bold.first();
+        // The light face comes from another foundry, so the family name it shares with the bold face
+        // can resolve to the bold face. Prefer its own legacy family where the platform lists one.
+        result.displayLight = result.display;
+        for (const auto& family : load(":/fonts/SairaSemiCondensed-Light.ttf"))
+            if (family != result.display)
+                result.displayLight = family;
+        const auto body = load(":/fonts/SourceSansPro-Regular.ttf");
+        if (!body.isEmpty())
+            result.body = body.first();
+        load(":/fonts/SourceSansPro-Bold.ttf");
         return result;
     }();
     return fonts;
 }
 
-QString displayFamily()
+QString withFamilies(QString sheet)
 {
-    return brandFonts().display;
+    // Replace the longer token first so $DISPLAY does not consume $DISPLAY_LIGHT.
+    sheet.replace("$DISPLAY_LIGHT", brandFonts().displayLight);
+    return sheet.replace("$DISPLAY", brandFonts().display);
 }
 
 // Source Sans runs small, so its default is a step above common UI sizes, while larger
@@ -680,11 +685,10 @@ bool hasReading(const QJsonValue& value, bool allowZero)
         (allowZero || value.toDouble() != 0);
 }
 
+//! A sensor reading with its unit, or empty when the device does not report one.
 QString sensor(const QJsonValue& value, const QString& unit, bool allowZero = false)
 {
-    if (!hasReading(value, allowZero))
-        return QStringLiteral("Unavailable");
-    return QString::number(value.toDouble(), 'f', 0) + unit;
+    return hasReading(value, allowZero) ? QString::number(value.toDouble(), 'f', 0) + unit : QString();
 }
 
 // A dash keeps unavailable figures compact; assistive technology still hears the word.
@@ -714,8 +718,9 @@ QString durationText(qint64 seconds)
 QString sessionEndText(const QDateTime& ended)
 {
     const QLocale locale;
+    static const QRegularExpression seconds("[:.]ss");
     auto timeFormat = locale.timeFormat(QLocale::ShortFormat);
-    timeFormat.remove(QRegularExpression("[:.]ss"));
+    timeFormat.remove(seconds);
     const auto time = locale.toString(ended.time(), timeFormat);
     if (ended.date() == QDate::currentDate())
         return "Ended " + time;
@@ -878,8 +883,8 @@ public:
             update();
         }
     }
-    //! Mean of the nonzero readings within the last seconds, once they span minimumSpan seconds.
-    double average(qint64 seconds, qint64 minimumSpan = 300) const
+    //! Mean of the nonzero readings within the last seconds, once they span five minutes.
+    double average(qint64 seconds) const
     {
         const auto now = QDateTime::currentSecsSinceEpoch();
         double sum = 0, first = 0, last = 0;
@@ -893,7 +898,7 @@ public:
                 sum += point.y();
                 ++count;
             }
-        return count && last - first >= minimumSpan ? sum / count : std::numeric_limits<double>::quiet_NaN();
+        return count && last - first >= 300 ? sum / count : std::numeric_limits<double>::quiet_NaN();
     }
     void showHistory()
     {
@@ -1100,7 +1105,8 @@ private:
 
 struct GpuReading
 {
-    QString name, meta, rate, status, statusTip, temperature, fan, power, shares;
+    QString name, meta, rate, status, statusTip, shares;
+    QString temperature, fan, power; //!< Empty when the device does not report the sensor.
     Tone tone = Tone::Neutral;
 };
 
@@ -1184,11 +1190,10 @@ public:
     // A lost connection can leave stale readings in the API; show none until fresh ones arrive.
     void setWaiting()
     {
-        const auto dash = QString::fromUtf8("—");
-        setValue(rate_, dash);
+        setValue(rate_, QString::fromUtf8("—"));
         status_->setStatus("Waiting", Tone::Warning);
         status_->setToolTip("Waiting for fresh statistics");
-        setSensors(dash, dash, dash);
+        setSensors({}, {}, {});
     }
     void addRate(double rate) { spark_->add(rate); }
     void refreshIcons()
@@ -1199,15 +1204,16 @@ public:
     }
 
 private:
+    // Empty readings show a dash and are announced as unavailable.
     void setSensors(const QString& temperature, const QString& fan, const QString& power)
     {
         const QList<std::pair<QLabel*, QString>> sensors{{temperature_, temperature}, {fan_, fan}, {power_, power}};
         const QStringList names{"Temperature", "Fan", "Power"};
         for (int i = 0; i < sensors.size(); ++i)
         {
-            sensors[i].first->setText(sensors[i].second);
-            sensors[i].first->setAccessibleName(names[i] + ' ' + (sensors[i].second == QString::fromUtf8("—") ?
-                QStringLiteral("unavailable") : sensors[i].second));
+            const auto& [value, text] = sensors[i];
+            value->setText(text.isEmpty() ? QString::fromUtf8("—") : text);
+            value->setAccessibleName(names[i] + ' ' + (text.isEmpty() ? QStringLiteral("unavailable") : text));
         }
     }
 
@@ -1296,7 +1302,11 @@ void MainWindow::installBrandFonts()
     QApplication::setFont(bodyFont(QApplication::font()));
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // The pages' widgets hold references to colors_, so delete them while it is still alive.
+    delete centralWidget();
+}
 
 void MainWindow::updateTheme()
 {
@@ -1416,6 +1426,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     state_->setObjectName("miningState");
     state_->setText("Stopped");
     runtime_ = label("Ready when you are", "muted");
+    runtime_->setObjectName("miningRuntime");
     start_ = button("Start pool mining", "primary");
     start_->setObjectName("startMining");
     start_->setMinimumWidth(170);
@@ -1500,8 +1511,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), controller_(this)
     for (auto* input : {poolInput_, walletInput_, workerInput_, nodeInput_, rpcUserInput_, rpcPasswordInput_,
              rewardInput_, coinbaseMessageInput_, devicesInput_})
         connect(input, &QLineEdit::textChanged, this, [this] {
-            if (currentState_ == "Stopped")
-                updateOverview();
+            if (currentState_ != "Stopped")
+                return;
+            updateConnectionSummary();
+            updateOverview();
         });
     connect(backendInput_, &QComboBox::currentIndexChanged, this, &MainWindow::updateOverview);
 }
@@ -2138,16 +2151,16 @@ bool MainWindow::saveSettings()
 
 void MainWindow::recordSession()
 {
+    // A session that never reported its runtime keeps the previous one, as saved.
+    if (runtimeSeconds_ <= 0)
+        return;
     lastSession_.runtime = runtimeSeconds_;
     lastSession_.accepted = acceptedCount_;
     lastSession_.rejected = rejectedCount_;
-    const double average = chart_->average(std::numeric_limits<int>::max(), 0);
-    lastSession_.average = std::isfinite(average) ? average : 0;
+    lastSession_.average = rateSamples_ ? rateSum_ / rateSamples_ : 0;
     lastSession_.ended = QDateTime::currentDateTime();
     lastSession_.solo = soloMode_->isChecked();
-    hasSession_ = lastSession_.runtime > 0;
-    if (!hasSession_)
-        return;
+    hasSession_ = true;
     QSettings settings;
     settings.setValue("session/runtime", lastSession_.runtime);
     settings.setValue("session/accepted", lastSession_.accepted);
@@ -2225,7 +2238,8 @@ void MainWindow::toggleMining()
 void MainWindow::clearReadings()
 {
     hasReadings_ = false;
-    acceptedCount_ = rejectedCount_ = runtimeSeconds_ = 0;
+    acceptedCount_ = rejectedCount_ = runtimeSeconds_ = rateSamples_ = 0;
+    rateSum_ = 0;
     activeGpus_ = totalGpus_ = 0;
     const bool solo = soloMode_->isChecked();
     setValue(hashrate_, "0.0");
@@ -2300,6 +2314,8 @@ void MainWindow::updateOverview()
     const auto& state = currentState_;
     const bool stopped = state == "Stopped";
     const bool checking = state == "Checking node";
+    // Fresh statistics with the pool or node connected, whether the GPUs are mining, paused or preparing work.
+    const bool connected = hasReadings_ && (state == "Mining" || state == "Paused" || state == "Preparing GPUs");
     const QString setupError = stopped ? MinerController::validate(configuration()) : QString();
     const bool ready = stopped && setupError.isEmpty();
     const auto dash = QString::fromUtf8("—");
@@ -2324,7 +2340,7 @@ void MainWindow::updateOverview()
     start_->setEnabled(state != "Stopping");
     runtime_->setText(stopped ? (ready ? "Ready when you are" : "Not set up yet") :
         checking ? "Checking solo setup" :
-        state == "Mining" && hasReadings_ ? "Running " + durationText(runtimeSeconds_) :
+        connected ? "Running " + durationText(runtimeSeconds_) :
         state == "Reconnecting" ? "Waiting for statistics" :
         state == "Stopping" ? QString::fromUtf8("Stopping…") : QString::fromUtf8("Starting up…"));
 
@@ -2335,9 +2351,11 @@ void MainWindow::updateOverview()
     sessionStats_->setVisible(stopped && hasSession_);
     if (stopped)
     {
-        const QUrl endpoint((solo ? nodeInput_ : poolInput_)->text().trimmed());
+        const auto endpointText = (solo ? nodeInput_ : poolInput_)->text().trimmed();
+        const QUrl endpoint(endpointText);
         const auto address = (solo ? rewardInput_ : walletInput_)->text().trimmed();
-        const bool untouched = (solo ? rewardInput_ : poolInput_)->text().trimmed().isEmpty() && address.isEmpty();
+        // A fresh setup gets directions instead of its first validation error.
+        const bool untouched = address.isEmpty() && (endpointText.isEmpty() || (solo && endpointText == MiningConfig().nodeUrl));
         heroCaption_->setText(ready ? "Ready to mine" : "Get started");
         heroTitle_->setText(ready ? (solo ? "Solo mining" : "Pool mining") : "Set up mining");
         gpuCount_->setText(ready ? QString("%1:%2 · %3 to %4").arg(endpoint.host()).arg(endpoint.port())
@@ -2362,14 +2380,14 @@ void MainWindow::updateOverview()
             gpuCount_->setText("Preparing your GPUs. Hashrate appears in a moment.");
         else
         {
-            auto text = QString("%1 of %2 GPUs mining").arg(activeGpus_).arg(totalGpus_);
+            auto text = QString(totalGpus_ == 1 ? "%1 of %2 GPU mining" : "%1 of %2 GPUs mining").arg(activeGpus_).arg(totalGpus_);
             const double average = chart_->average(3600);
             if (std::isfinite(average))
                 text += QString(" · 1 h average %1 MH/s").arg(average, 0, 'f', 1);
             gpuCount_->setText(text);
         }
     }
-    if (hasSession_)
+    if (stopped && hasSession_)
     {
         sessionRuntime_->setText(durationText(lastSession_.runtime));
         sessionEnded_->setText(sessionEndText(lastSession_.ended));
@@ -2382,11 +2400,11 @@ void MainWindow::updateOverview()
     chart_->setDimmed(stopped || checking);
     chartSubtitle_->setText(live ? "MH/s · this session" : chart_->isEmpty() ? "MH/s · appears when mining starts" : "MH/s · last session");
 
-    if (state == "Mining" && hasReadings_)
+    if (connected)
         poolState_->setStatus("Connected", Tone::Positive);
     else if (state == "Reconnecting")
         poolState_->setStatus("Reconnecting", Tone::Warning);
-    else if (state == "Starting" || state == "Preparing GPUs" || checking)
+    else if (!stopped && state != "Stopping")
         poolState_->setStatus("Connecting", Tone::Warning);
     else
         poolState_->setStatus("Not connected", Tone::Neutral);
@@ -2422,6 +2440,12 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
     const auto rate = hashValue(mining.value("hashrate"));
     setValue(hashrate_, QString::number(rate, 'f', 1));
     chart_->add(rate);
+    // The chart keeps only six hours, so the session average sums every hashing reading itself.
+    if (rate > 0)
+    {
+        rateSum_ += rate;
+        ++rateSamples_;
+    }
     setValue(lastShare_, lastSubmission >= 0 ? durationText(lastSubmission) + " ago" :
         solo ? QStringLiteral("None yet") : QString::fromUtf8("—"));
     if (solo)
@@ -2450,13 +2474,17 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         const auto deviceRate = hashValue(info.value("hashrate"));
         if (!paused && deviceRate > 0)
             ++active;
-        if (sensors.at(2).toDouble() > 0 && std::isfinite(sensors.at(2).toDouble()))
+        if (hasReading(sensors.at(2), false))
         { totalPower += sensors.at(2).toDouble(); ++powerReadings; }
         const QString status = paused ? "Paused" : deviceRate > 0 ? "Mining" : "Preparing";
         const auto name = hardware.value("name").toString();
         const auto meta = "GPU " + QString::number(device.value("_index").toInt()) + " · " + device.value("_mode").toString();
-        const QStringList values{name + "\n" + meta, QString::number(deviceRate, 'f', 1) + " MH/s", sensor(sensors.at(0), "°C"),
-            sensor(sensors.at(1), "%", sensors.at(0).toDouble() > 0), sensor(sensors.at(2), " W"), status};
+        const auto temperature = sensor(sensors.at(0), "°C");
+        const auto fan = sensor(sensors.at(1), "%", sensors.at(0).toDouble() > 0);
+        const auto power = sensor(sensors.at(2), " W");
+        auto reported = [](const QString& text) { return text.isEmpty() ? QStringLiteral("Unavailable") : text; };
+        const QStringList values{name + "\n" + meta, QString::number(deviceRate, 'f', 1) + " MH/s", reported(temperature),
+            reported(fan), reported(power), status};
         for (auto* table : deviceTables_)
         {
             for (int col = 0; col < values.size(); ++col)
@@ -2478,10 +2506,9 @@ void MainWindow::updateStatistics(const QJsonObject& statistics)
         reading.status = status;
         reading.statusTip = info.value("pause_reason").toString();
         reading.tone = paused ? Tone::Danger : deviceRate > 0 ? Tone::Positive : Tone::Warning;
-        auto compact = [&dash](const QString& text) { return text == "Unavailable" ? dash : text; };
-        reading.temperature = compact(values[2]);
-        reading.fan = compact(values[3]);
-        reading.power = compact(values[4]);
+        reading.temperature = temperature;
+        reading.fan = fan;
+        reading.power = power;
         const auto deviceShares = info.value("shares").toArray();
         if (!deviceShares.isEmpty())
         {

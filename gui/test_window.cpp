@@ -55,6 +55,25 @@ QString cardText(QFrame* card, const char* name)
 
 const QString dash = QString::fromUtf8("—");
 
+// Point the launcher at the test helper so setups validate.
+void useTestMiner()
+{
+#ifdef Q_OS_WIN
+    const auto helper = "gui-test-miner.exe";
+#else
+    const auto helper = "gui-test-miner";
+#endif
+    QSettings().setValue("miner/executable", QDir(QCoreApplication::applicationDirPath()).filePath(helper));
+}
+
+QJsonObject withHashrate(QJsonObject stats, double rate)
+{
+    auto mining = stats["mining"].toObject();
+    mining["hashrate"] = "0x" + QString::number(quint64(rate * 1000000), 16);
+    stats["mining"] = mining;
+    return stats;
+}
+
 bool chooseTheme(MainWindow& window, const QString& value, QDialogButtonBox::StandardButton action)
 {
     bool selected = false;
@@ -206,6 +225,15 @@ private slots:
         QVERIFY(window.findChild<QWidget*>("lastSession")->isHidden());
         QCOMPARE(window.findChild<QPushButton*>("startMining")->text(), QString("Set up mining"));
         QVERIFY(!window.findChild<QLineEdit*>("devicesInput")->isEnabled());
+        // The pool card and the banner both follow unsaved edits, as Start will use them.
+        auto* payout = window.findChild<QLabel*>("payoutSummary");
+        auto* copy = window.findChild<QPushButton*>("copyAddress");
+        QCOMPARE(payout->text(), QString("Not configured"));
+        QVERIFY(!copy->isEnabled());
+        window.findChild<QLineEdit*>("walletInput")->setText("a7KpDesignPreviewAddress9mQ2");
+        QCOMPARE(payout->toolTip(), QString("a7KpDesignPreviewAddress9mQ2"));
+        QVERIFY(copy->isEnabled());
+        window.findChild<QLineEdit*>("walletInput")->clear();
         window.findChild<QPushButton*>("startMining")->click();
         QVERIFY(!window.findChild<QLabel*>("notice")->text().isEmpty());
         QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 1);
@@ -329,13 +357,8 @@ private slots:
 
     void readyStateRemembersTheLastSession()
     {
-#ifdef Q_OS_WIN
-        const auto helper = "gui-test-miner.exe";
-#else
-        const auto helper = "gui-test-miner";
-#endif
+        useTestMiner();
         QSettings settings;
-        settings.setValue("miner/executable", QDir(QCoreApplication::applicationDirPath()).filePath(helper));
         settings.setValue("pool/endpoint", "stratum+tcp://pool.example:3333");
         settings.setValue("pool/wallet", "a7KpDesignPreviewAddress9mQ2");
         MainWindow window;
@@ -346,11 +369,22 @@ private slots:
         window.setMiningState("Starting");
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
+        window.updateStatistics(withHashrate(statistics(), 50));
         window.setMiningState("Stopping");
         window.setMiningState("Stopped");
         QVERIFY(!window.findChild<QWidget*>("lastSession")->isHidden());
         QCOMPARE(window.findChild<QLabel*>("sessionRuntime")->text(), QString("2h 34m"));
         QCOMPARE(window.findChild<QLabel*>("sessionAccepted")->text(), QLocale().toString(1248));
+        // The average covers every reading, not just the chart's latest point.
+        QCOMPARE(window.findChild<QLabel*>("sessionAverage")->text(), QString("81.4"));
+        // A session that never reported its runtime keeps the previous one.
+        auto instant = statistics();
+        instant["host"] = QJsonObject{{"runtime", 0}};
+        window.setMiningState("Mining");
+        window.updateStatistics(instant);
+        window.setMiningState("Stopped");
+        QCOMPARE(window.findChild<QLabel*>("sessionRuntime")->text(), QString("2h 34m"));
+        QVERIFY(!window.findChild<QWidget*>("lastSession")->isHidden());
         MainWindow restored;
         QCOMPARE(restored.findChild<QLabel*>("sessionRuntime")->text(), QString("2h 34m"));
         QVERIFY(!restored.findChild<QWidget*>("lastSession")->isHidden());
@@ -359,6 +393,54 @@ private slots:
         QCOMPARE(restored.findChild<QLabel*>("heroTitle")->text(), QString("Set up mining"));
         QVERIFY(restored.findChild<QLabel*>("heroDetail")->text().contains("Stratum"));
         QCOMPARE(restored.findChild<QPushButton*>("startMining")->text(), QString("Set up mining"));
+    }
+
+    void freshSoloSetupGivesDirections()
+    {
+        useTestMiner();
+        MainWindow window;
+        window.findChild<QPushButton*>("soloMode")->click();
+        auto* detail = window.findChild<QLabel*>("heroDetail");
+        QVERIFY(detail->text().startsWith("Connect your Firo node"));
+        // A changed endpoint is no longer a fresh setup, so its own error shows.
+        window.findChild<QLineEdit*>("nodeInput")->setText("127.0.0.1:8888");
+        QVERIFY(detail->text().contains("HTTP/getwork"));
+    }
+
+    void pausedAndPreparingGpusStayConnected()
+    {
+        MainWindow window;
+        auto* pool = window.findChild<QLabel*>("poolState");
+        auto* runtime = window.findChild<QLabel*>("miningRuntime");
+        window.setMiningState("Starting");
+        window.setMiningState("Preparing GPUs");
+        QCOMPARE(pool->text(), QString("Connecting"));
+        QCOMPARE(runtime->text(), QString::fromUtf8("Starting up…"));
+        auto paused = withHashrate(statistics(), 0);
+        paused["devices"] = QJsonArray{device(0, "NVIDIA GeForce RTX 4090", "CUDA", 0, {92, 100, 300}, true)};
+        window.setMiningState("Paused");
+        window.updateStatistics(paused);
+        QCOMPARE(pool->text(), QString("Connected"));
+        QCOMPARE(runtime->text(), QString("Running 2h 34m"));
+        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString("0 of 1 GPU mining"));
+        // Hashrate can drop to zero while connected, for example while a GPU rebuilds its DAG.
+        window.setMiningState("Preparing GPUs");
+        QCOMPARE(pool->text(), QString("Connected"));
+        QCOMPARE(runtime->text(), QString("Running 2h 34m"));
+    }
+
+    void unitsUseTheLightFace()
+    {
+        MainWindow window;
+        auto* value = window.findChild<QLabel*>("totalHashrate");
+        auto* unit = window.findChild<QLabel*>("totalHashrateUnit");
+        value->ensurePolished();
+        unit->ensurePolished();
+        QFont light = unit->font(), bold = value->font();
+        light.setPixelSize(40);
+        bold.setPixelSize(40);
+        // The light and bold faces come from different foundries; a shared family name draws both bold.
+        QVERIFY(QFontMetrics(light).horizontalAdvance("MH/s") < QFontMetrics(bold).horizontalAdvance("MH/s"));
     }
 
     void narrowWindowsCompactTheSidebar()

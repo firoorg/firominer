@@ -34,6 +34,8 @@ can run but may require the launcher's forced-stop fallback when stopping.
 Choose **Pool** or **Solo** in Mining setup, enter the connection details, select
 a backend, then start mining. The dashboard displays data reported by the miner. Hardware
 monitoring depends on the device and driver, so some values may be unavailable.
+On Windows, the background miner has no separate console window; its output
+appears in the GUI's log view.
 
 The overview leads with the miner's state. Until setup is complete, it says what is
 missing and the start button becomes **Set up mining**. Once ready, it names the pool
@@ -41,8 +43,6 @@ or node and summarizes the last session's runtime, accepted shares and average
 hashrate. While mining it shows total hashrate, accepted shares, the last share, GPU
 power and efficiency, a hashrate chart with its average, and a card for each GPU with
 its recent hashrate, temperature, fan, power and shares.
-On Windows, the background miner has no separate console window; its output
-appears in the GUI's log view.
 
 The GUI controls only the process it starts. Its monitoring connection is
 bound to `127.0.0.1` and protected with a fresh API password for each launch.
@@ -151,10 +151,12 @@ The GUI is covered by the repository's GPLv3 license. It dynamically links Qt
 Core, GUI, Widgets and Network, copyright The Qt Company and other contributors,
 under the GNU Lesser General Public License version 3. The LGPLv3 text is
 included in `share/firominer-gui/licenses`; the GPLv3 text is in
-`share/firominer-gui/LICENSE`. The launcher embeds the Saira SemiCondensed and
-Source Sans Pro typefaces, which it shares with Firo Core, under the SIL Open Font
-License 1.1; their license texts are installed in `share/firominer-gui/licenses`. Qt library replacement and debugging modifications
+`share/firominer-gui/LICENSE`. Qt library replacement and debugging modifications
 to those libraries are permitted under these licenses.
+
+The launcher embeds the Saira SemiCondensed and Source Sans Pro typefaces, which it
+shares with Firo Core, under the SIL Open Font License 1.1. Their license texts are
+installed in `share/firominer-gui/licenses`.
 
 Each Windows CI and release package includes Firominer GUI source from the
 matching commit and the SHA256-verified Qt 6.8.3 `qtbase` source archive under
