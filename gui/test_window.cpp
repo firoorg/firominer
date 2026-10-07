@@ -376,6 +376,7 @@ private slots:
         window.updateStatistics(connecting);
         QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString::fromUtf8("Connecting to the pool…"));
         QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Connecting"));
+        QCOMPARE(window.findChild<QLabel*>("miningState")->text(), QString("Connecting"));
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
         // Losing the miner's own statistics does not blame the pool.

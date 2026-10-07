@@ -1636,9 +1636,9 @@ QWidget* MainWindow::heroPanel()
         return row;
     };
     // Details are a step smaller than the body text and scale with it.
-    QFont small = font();
-    small.setPointSizeF(small.pointSizeF() * 0.87);
-    auto addStat = [&small](QHBoxLayout* row, const QString& title, QLabel*& value, QLabel*& detail) {
+    QFont detailFont = font();
+    detailFont.setPointSizeF(detailFont.pointSizeF() * 0.87);
+    auto addStat = [&detailFont](QHBoxLayout* row, const QString& title, QLabel*& value, QLabel*& detail) {
         auto* stat = new QWidget;
         stat->setObjectName("heroStat");
         stat->setAttribute(Qt::WA_StyledBackground);
@@ -1653,7 +1653,7 @@ QWidget* MainWindow::heroPanel()
         detail->setTextFormat(Qt::PlainText);
         detail->setProperty("role", "heroSoft");
         detail->setWordWrap(true);
-        detail->setFont(small);
+        detail->setFont(detailFont);
         column->addWidget(detail);
         column->addStretch();
         row->addWidget(stat);
@@ -2352,8 +2352,6 @@ void MainWindow::setMiningState(const QString& state)
                     if (auto* item = table->item(row, 5))
                         item->setText("Stopping");
     }
-    if (tray_)
-        tray_->setToolTip("Firominer - " + state.toLower());
     if (state == "Starting")
         navigation_->setCurrentRow(0);
     updateOverview();
@@ -2373,7 +2371,11 @@ void MainWindow::updateOverview()
     const bool ready = stopped && setupError.isEmpty();
     const bool needsPassword = stopped && !ready && needsRpcPassword();
 
-    state_->setStatus(state, state == "Mining" ? Tone::Positive : stopped || state == "Stopping" ? Tone::Neutral : Tone::Warning);
+    // The controller reports Reconnecting before the first connection too; nothing was lost yet.
+    const QString status = state == "Reconnecting" && !hasReadings_ ? QStringLiteral("Connecting") : state;
+    state_->setStatus(status, state == "Mining" ? Tone::Positive : stopped || state == "Stopping" ? Tone::Neutral : Tone::Warning);
+    if (tray_)
+        tray_->setToolTip("Firominer - " + status.toLower());
     auto setStart = [this](const QString& text, const char* role, const char* glyph) {
         start_->setText(text);
         const bool changed = start_->property("role").toString() != role || start_->property("glyph").toString() != glyph;
