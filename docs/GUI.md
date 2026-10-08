@@ -37,6 +37,14 @@ monitoring depends on the device and driver, so some values may be unavailable.
 On Windows, the background miner has no separate console window; its output
 appears in the GUI's log view.
 
+The overview leads with the miner's state. Until setup is complete, it says what is
+missing and the start button becomes **Set up mining**. Once ready, it names the pool
+or node and summarizes the last session's runtime, accepted shares and average
+hashrate. A saved solo setup asks only for its RPC password, which is never saved.
+While mining it shows total hashrate, accepted shares, the last share, GPU
+power and efficiency, a hashrate chart with its average, and a card for each GPU with
+its recent hashrate, temperature, fan, power and shares.
+
 The GUI controls only the process it starts. Its monitoring connection is
 bound to `127.0.0.1` and protected with a fresh API password for each launch.
 It does not attach to miners started in another terminal.
@@ -68,7 +76,7 @@ acknowledges it; use Firo Core 0.14.18.1 or another version with coinbase-messag
 support. Leave it empty for nodes without this support. Explorers decide whether
 to display the message or recognize it as a miner name.
 
-In Solo mode the overview shows **Blocks accepted** and **Node connection**.
+In Solo mode the overview shows **Blocks accepted**, the last block and the **Node** connection.
 Zero blocks is normal while mining: solo has no pool shares or periodic payouts.
 Accepted block rewards need confirmations before becoming spendable. Pool and
 solo details are remembered separately. Fields and their help collapse when
@@ -78,13 +86,15 @@ Pool and RPC passwords are kept only for the current GUI session. Other mining s
 are saved for your next launch. Closing the window while mining offers to stop
 and quit, or keep mining in the system tray when a tray is available.
 
-Settings also provides Light, Dark, and System appearance. Light is the default;
-Save applies and remembers your choice, while Cancel leaves the current theme
-unchanged. Windows high-contrast settings take precedence.
+Settings also provides Light, Dark, and System appearance. Light and Dark share the
+Firo Core wallet's colors and typefaces; System keeps your computer's colors. Light is
+the default; Save applies and remembers your choice, while Cancel leaves the current
+theme unchanged. Windows high-contrast settings take precedence.
 
-At narrower window widths, the overview stacks vertically and setup labels wrap
-above their fields. Navigation and start/stop controls remain outside page
-scrolling. GPU table columns and rows size to their content.
+At narrower window widths, the sidebar shows icons only, the overview stacks
+vertically and setup labels wrap above their fields. Navigation and start/stop
+controls remain outside page scrolling. GPU cards flow into as many columns as fit,
+and the GPUs page table sizes its columns and rows to their content.
 
 ## Building the GUI only
 
@@ -144,6 +154,10 @@ under the GNU Lesser General Public License version 3. The LGPLv3 text is
 included in `share/firominer-gui/licenses`; the GPLv3 text is in
 `share/firominer-gui/LICENSE`. Qt library replacement and debugging modifications
 to those libraries are permitted under these licenses.
+
+The launcher embeds the Saira SemiCondensed and Source Sans Pro typefaces, which it
+shares with Firo Core, under the SIL Open Font License 1.1. Their license texts are
+installed in `share/firominer-gui/licenses`.
 
 Each Windows CI and release package includes Firominer GUI source from the
 matching commit and the SHA256-verified Qt 6.8.3 `qtbase` source archive under

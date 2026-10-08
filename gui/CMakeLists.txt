@@ -34,6 +34,8 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../docs/GUI.md"
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE"
     DESTINATION ${CMAKE_INSTALL_DATADIR}/firominer-gui)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../docs/LGPL-3.0.txt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fonts/OFL-SairaSemiCondensed.txt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fonts/OFL-SourceSansPro.txt"
     DESTINATION ${CMAKE_INSTALL_DATADIR}/firominer-gui/licenses)
 
 if(WIN32)

@@ -10,6 +10,7 @@ int main(int argc, char* argv[])
     QCoreApplication::setApplicationName("Firominer GUI");
     QCoreApplication::setApplicationVersion(FIROMINER_GUI_VERSION);
     QApplication::setWindowIcon(QIcon(":/firominer.ico"));
+    MainWindow::installBrandFonts();
 
     QCommandLineParser parser;
     parser.setApplicationDescription("Firominer desktop companion. Starts the command-line miner with your settings.");

@@ -43,6 +43,38 @@ QJsonObject statistics()
             device(1, "AMD Radeon RX 6900 XT", "OpenCL", 41.6, {65, 62, 180})}}};
 }
 
+QList<QFrame*> gpuCards(MainWindow& window)
+{
+    return window.findChild<QWidget*>("overviewDevices")->findChildren<QFrame*>("gpuCard");
+}
+
+QString cardText(QFrame* card, const char* name)
+{
+    return card->findChild<QLabel*>(name)->text();
+}
+
+const QString dash = QString::fromUtf8("—");
+const QString fixtureRuntime = QString("2h") + QChar(0x00a0) + "34m";
+
+// Point the launcher at the test helper so setups validate.
+void useTestMiner()
+{
+#ifdef Q_OS_WIN
+    const auto helper = "gui-test-miner.exe";
+#else
+    const auto helper = "gui-test-miner";
+#endif
+    QSettings().setValue("miner/executable", QDir(QCoreApplication::applicationDirPath()).filePath(helper));
+}
+
+QJsonObject withHashrate(QJsonObject stats, double rate)
+{
+    auto mining = stats["mining"].toObject();
+    mining["hashrate"] = "0x" + QString::number(quint64(rate * 1000000), 16);
+    stats["mining"] = mining;
+    return stats;
+}
+
 bool chooseTheme(MainWindow& window, const QString& value, QDialogButtonBox::StandardButton action)
 {
     bool selected = false;
@@ -177,6 +209,14 @@ private slots:
         for (auto* text : window.findChildren<QLabel*>())
             healthy |= text->text() == "Mining normally · no block found yet";
         QVERIFY(healthy);
+        // A rejected block is not a found one.
+        mining["shares"] = QJsonArray{0, 1, 0, 30};
+        stats["mining"] = mining;
+        window.updateStatistics(stats);
+        bool rejected = false;
+        for (auto* text : window.findChildren<QLabel*>())
+            rejected |= text->text() == "Found, but not accepted";
+        QVERIFY(rejected);
         window.setMiningState("Stopped");
         QVERIFY(solo->isEnabled());
         QVERIFY(window.findChild<QLineEdit*>("coinbaseMessageInput")->isEnabled());
@@ -186,14 +226,51 @@ private slots:
 
     void startsIdleAndRequiresConfiguration()
     {
+        useTestMiner();
         MainWindow window;
         QCOMPARE(window.findChild<QLabel*>("miningState")->text(), QString("Stopped"));
-        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("0.0 MH/s"));
+        // A fresh install leads to setup instead of a dashboard of empty readings.
+        QCOMPARE(window.findChild<QLabel*>("heroTitle")->text(), QString("Set up mining"));
+        QVERIFY(window.findChild<QLabel*>("heroDetail")->text().contains("Mining setup"));
+        QVERIFY(window.findChild<QWidget*>("lastSession")->isHidden());
+        QCOMPARE(window.findChild<QPushButton*>("startMining")->text(), QString("Set up mining"));
         QVERIFY(!window.findChild<QLineEdit*>("devicesInput")->isEnabled());
+        // The pool card and the banner both follow unsaved edits, as Start will use them.
+        auto* payout = window.findChild<QLabel*>("payoutSummary");
+        auto* copy = window.findChild<QPushButton*>("copyAddress");
+        QCOMPARE(payout->text(), QString("Not configured"));
+        QVERIFY(!copy->isEnabled());
+        window.findChild<QLineEdit*>("walletInput")->setText("a7KpDesignPreviewAddress9mQ2");
+        QCOMPARE(payout->toolTip(), QString("a7KpDesignPreviewAddress9mQ2"));
+        QVERIFY(copy->isEnabled());
+        window.findChild<QLineEdit*>("walletInput")->clear();
         window.findChild<QPushButton*>("startMining")->click();
         QVERIFY(!window.findChild<QLabel*>("notice")->text().isEmpty());
         QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 1);
         QCOMPARE(window.findChild<QLabel*>("miningState")->text(), QString("Stopped"));
+    }
+
+    void missingMinerOpensSettings()
+    {
+        QSettings settings;
+        settings.setValue("miner/executable", QDir(QCoreApplication::applicationDirPath()).filePath("missing-firominer"));
+        settings.setValue("pool/endpoint", "stratum+tcp://pool.example:3333");
+        settings.setValue("pool/wallet", "test-account");
+        MainWindow window;
+        window.show();
+        // The miner's path is chosen in Settings, so Start opens Settings rather than Mining setup.
+        bool opened = false;
+        QTimer::singleShot(0, &window, [&] {
+            if (auto* dialog = window.findChild<QDialog*>("settingsDialog"))
+            {
+                opened = true;
+                dialog->reject();
+            }
+        });
+        window.findChild<QPushButton*>("startMining")->click();
+        QVERIFY(opened);
+        QVERIFY(window.findChild<QLabel*>("notice")->text().contains("executable"));
+        QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 0);
     }
 
     void closingDuringNodeCheckCancelsWithoutMiningPrompt()
@@ -219,22 +296,40 @@ private slots:
         MainWindow window;
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
-        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("112.8 MH/s"));
+        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("112.8"));
+        QCOMPARE(window.findChild<QLabel*>("totalHashrateUnit")->text(), QString("MH/s"));
         QCOMPARE(window.findChild<QLabel*>("totalPower")->text(), QString("490 W"));
         QCOMPARE(window.findChild<QLabel*>("acceptedShares")->text(), QLocale().toString(1248));
-        const auto* table = window.findChild<QTableWidget*>("overviewDevices");
+        QCOMPARE(window.findChild<QLabel*>("lastShare")->text(), QString("12") + QChar(0x00a0) + "s ago");
+        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString("2 of 2 GPUs mining · session average 112.8 MH/s"));
+        const auto cards = gpuCards(window);
+        QCOMPARE(cards.size(), 2);
+        QCOMPARE(cardText(cards[0], "gpuHashrate"), QString("71.2"));
+        QCOMPARE(cardText(cards[0], "gpuMeta"), QString::fromUtf8("GPU 0 · CUDA"));
+        QCOMPARE(cardText(cards[1], "gpuTemperature"), QString::fromUtf8("65°C"));
+        QCOMPARE(cardText(cards[1], "gpuStatus"), QString("Mining"));
+        const auto* table = window.findChild<QTableWidget*>("allDevices");
         QCOMPARE(table->rowCount(), 2);
         QCOMPARE(table->item(0, 1)->text(), QString("71.2 MH/s"));
         QCOMPARE(table->item(1, 2)->text(), QString::fromUtf8("65°C"));
         QCOMPARE(table->item(1, 5)->text(), QString("Mining"));
         QVERIFY(!window.findChild<QLineEdit*>("poolInput")->isEnabled());
+        // While stopping, the GPUs and the pool no longer read as mining or connected.
+        window.setMiningState("Stopping");
+        QCOMPARE(cardText(gpuCards(window)[0], "gpuStatus"), QString("Stopping"));
+        QVERIFY(window.findChild<QLabel*>("gpuSummary")->text().isEmpty());
+        QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Disconnecting"));
+        QCOMPARE(table->item(0, 5)->text(), QString("Stopping"));
         window.setMiningState("Stopped");
-        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("0.0 MH/s"));
-        QCOMPARE(window.findChild<QLabel*>("totalPower")->text(), QString("Unavailable"));
+        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("0.0"));
+        QCOMPARE(window.findChild<QLabel*>("totalPower")->text(), dash);
+        QCOMPARE(window.findChild<QLabel*>("totalPower")->accessibleName(), QString("Unavailable"));
+        QVERIFY(gpuCards(window).isEmpty());
         QCOMPARE(table->rowCount(), 1);
         QVERIFY(window.findChild<QLineEdit*>("poolInput")->isEnabled());
         window.updateStatistics(statistics());
         QCOMPARE(table->columnSpan(0, 0), 1);
+        QCOMPARE(gpuCards(window).size(), 2);
     }
 
     void missingSensorsAndPauseRemainExplicit()
@@ -245,7 +340,7 @@ private slots:
             device(0, "<b>Unavailable GPU</b>", "OpenCL", 0, {0, 0, 0}, true),
             device(1, "Available GPU", "CUDA", 50, {60, 0, 100})};
         window.updateStatistics(stats);
-        const auto* table = window.findChild<QTableWidget*>("overviewDevices");
+        const auto* table = window.findChild<QTableWidget*>("allDevices");
         QCOMPARE(table->item(0, 2)->text(), QString("Unavailable"));
         QCOMPARE(table->item(0, 3)->text(), QString("Unavailable"));
         QCOMPARE(table->item(0, 4)->text(), QString("Unavailable"));
@@ -257,26 +352,252 @@ private slots:
         for (const auto* text : window.findChildren<QLabel*>())
             partial |= text->text().startsWith("Partial");
         QVERIFY(partial);
+        // Cards keep missing readings compact, but still name them for assistive technology.
+        const auto cards = gpuCards(window);
+        QCOMPARE(cardText(cards[0], "gpuName"), QString("<b>Unavailable GPU</b>"));
+        auto* temperature = cards[0]->findChild<QLabel*>("gpuTemperature");
+        QCOMPARE(temperature->text(), dash);
+        QCOMPARE(temperature->accessibleName(), QString("Temperature unavailable"));
+        auto* status = cards[0]->findChild<QLabel*>("gpuStatus");
+        QCOMPARE(status->text(), QString("Paused"));
+        QCOMPARE(status->toolTip(), QString("Temperature limit"));
+        QCOMPARE(cardText(cards[1], "gpuFan"), QString("0%"));
+        QCOMPARE(cardText(cards[1], "gpuPower"), QString("100 W"));
     }
 
     void disconnectedStatisticsDoNotRestoreStaleReadings()
     {
         MainWindow window;
+        // Before its first connection the miner is connecting, so nothing has been lost.
+        window.setMiningState("Starting");
+        auto connecting = statistics();
+        connecting["connection"] = QJsonObject{{"connected", false}};
+        window.setMiningState("Connecting");
+        window.updateStatistics(connecting);
+        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString::fromUtf8("Connecting to the pool…"));
+        QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Connecting"));
+        QCOMPARE(window.findChild<QLabel*>("miningState")->text(), QString("Connecting"));
+        QCOMPARE(window.findChild<QLabel*>("miningRuntime")->text(), QString::fromUtf8("Starting up…"));
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
+        // Losing the miner's own statistics does not blame the pool.
+        window.setMiningState("Reconnecting");
+        QVERIFY(window.findChild<QLabel*>("heroDetail")->text().startsWith("Waiting for the miner"));
+        QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Waiting"));
         auto disconnected = statistics();
         disconnected["connection"] = QJsonObject{{"connected", false}};
         window.setMiningState("Reconnecting");
         window.updateStatistics(disconnected);
-        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("Unavailable"));
-        QCOMPARE(window.findChild<QLabel*>("totalPower")->text(), QString("Unavailable"));
-        const auto* table = window.findChild<QTableWidget*>("overviewDevices");
+        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), dash);
+        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->accessibleName(), QString("Unavailable"));
+        QCOMPARE(window.findChild<QLabel*>("totalPower")->text(), dash);
+        QCOMPARE(window.findChild<QLabel*>("lastShare")->text(), dash);
+        QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Reconnecting"));
+        QVERIFY(window.findChild<QLabel*>("heroDetail")->text().startsWith("Pool connection lost"));
+        const auto* table = window.findChild<QTableWidget*>("allDevices");
         QCOMPARE(table->item(0, 1)->text(), QString("Unavailable"));
         QCOMPARE(table->item(0, 5)->text(), QString("Waiting for statistics"));
+        QCOMPARE(cardText(gpuCards(window)[0], "gpuHashrate"), dash);
+        QCOMPARE(cardText(gpuCards(window)[0], "gpuStatus"), QString("Waiting"));
+        QVERIFY(window.findChild<QLabel*>("gpuSummary")->text().contains("waiting"));
         window.setMiningState("Mining");
         window.updateStatistics(statistics());
-        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("112.8 MH/s"));
+        QCOMPARE(window.findChild<QLabel*>("totalHashrate")->text(), QString("112.8"));
+        QCOMPARE(window.findChild<QLabel*>("poolState")->text(), QString("Connected"));
         QCOMPARE(table->item(0, 5)->text(), QString("Mining"));
+        QCOMPARE(cardText(gpuCards(window)[0], "gpuStatus"), QString("Mining"));
+    }
+
+    void readyStateRemembersTheLastSession()
+    {
+        useTestMiner();
+        QSettings settings;
+        settings.setValue("pool/endpoint", "stratum+tcp://pool.example:3333");
+        settings.setValue("pool/wallet", "a7KpDesignPreviewAddress9mQ2");
+        MainWindow window;
+        QCOMPARE(window.findChild<QLabel*>("heroTitle")->text(), QString("Pool mining"));
+        QVERIFY(window.findChild<QLabel*>("heroDetail")->text().startsWith("pool.example:3333"));
+        QCOMPARE(window.findChild<QPushButton*>("startMining")->text(), QString("Start pool mining"));
+        QVERIFY(window.findChild<QWidget*>("lastSession")->isHidden());
+        window.setMiningState("Starting");
+        window.setMiningState("Mining");
+        window.updateStatistics(statistics());
+        window.updateStatistics(withHashrate(statistics(), 50));
+        window.updateStatistics(withHashrate(statistics(), 0));
+        window.setMiningState("Stopping");
+        window.setMiningState("Stopped");
+        QVERIFY(!window.findChild<QWidget*>("lastSession")->isHidden());
+        QCOMPARE(window.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
+        QCOMPARE(window.findChild<QLabel*>("sessionAccepted")->text(), QLocale().toString(1248));
+        // The average covers every connected reading, including paused ones, not just the chart's latest point.
+        QCOMPARE(window.findChild<QLabel*>("sessionAverage")->text(), QString("54.3"));
+        {
+            MainWindow reopened;
+            QCOMPARE(reopened.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
+            QVERIFY(!reopened.findChild<QWidget*>("lastSession")->isHidden());
+        }
+        // Every session with readings is remembered, so the chart and the totals describe the same one.
+        auto instant = statistics();
+        instant["host"] = QJsonObject{{"runtime", 0}};
+        window.setMiningState("Mining");
+        window.updateStatistics(instant);
+        window.setMiningState("Stopped");
+        const auto noRuntime = QString("0") + QChar(0x00a0) + "s";
+        QCOMPARE(window.findChild<QLabel*>("sessionRuntime")->text(), noRuntime);
+        MainWindow restored;
+        QCOMPARE(restored.findChild<QLabel*>("sessionRuntime")->text(), noRuntime);
+        // An unusable setup returns to guidance that names what to fix.
+        restored.findChild<QLineEdit*>("poolInput")->setText("pool.example");
+        QCOMPARE(restored.findChild<QLabel*>("heroTitle")->text(), QString("Set up mining"));
+        QVERIFY(restored.findChild<QLabel*>("heroDetail")->text().contains("Stratum"));
+        QCOMPARE(restored.findChild<QPushButton*>("startMining")->text(), QString("Set up mining"));
+    }
+
+    void quittingWhileMiningRemembersTheSession()
+    {
+        {
+            MainWindow window;
+            window.setMiningState("Mining");
+            window.updateStatistics(statistics());
+        }
+        MainWindow restored;
+        QVERIFY(!restored.findChild<QWidget*>("lastSession")->isHidden());
+        QCOMPARE(restored.findChild<QLabel*>("sessionRuntime")->text(), fixtureRuntime);
+    }
+
+    void freshSoloSetupGivesDirections()
+    {
+        useTestMiner();
+        MainWindow window;
+        window.findChild<QPushButton*>("soloMode")->click();
+        auto* detail = window.findChild<QLabel*>("heroDetail");
+        QVERIFY(detail->text().startsWith("Connect your Firo node"));
+        // A changed endpoint is no longer a fresh setup, so its own error shows.
+        window.findChild<QLineEdit*>("nodeInput")->setText("127.0.0.1:8888");
+        QVERIFY(detail->text().contains("HTTP/getwork"));
+    }
+
+    void savedSoloSetupOnlyNeedsThePassword()
+    {
+        useTestMiner();
+        QSettings settings;
+        settings.setValue("mining/solo", true);
+        settings.setValue("solo/rewardAddress", "a7KpDesignPreviewAddress9mQ2");
+        MainWindow window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        // RPC passwords are never saved, so a saved solo setup asks only for the password.
+        QCOMPARE(window.findChild<QLabel*>("heroTitle")->text(), QString("Solo mining"));
+        QVERIFY(window.findChild<QLabel*>("heroDetail")->text().startsWith("127.0.0.1:8888"));
+        auto* start = window.findChild<QPushButton*>("startMining");
+        QCOMPARE(start->text(), QString("Enter RPC password"));
+        start->click();
+        QCOMPARE(window.findChild<QListWidget*>("navigation")->currentRow(), 1);
+        auto* password = window.findChild<QLineEdit*>("rpcPasswordInput");
+        QVERIFY(password->hasFocus());
+        password->setText("session-secret");
+        QCOMPARE(start->text(), QString("Start solo mining"));
+    }
+
+    void pausedAndPreparingGpusStayConnected()
+    {
+        MainWindow window;
+        auto* pool = window.findChild<QLabel*>("poolState");
+        auto* runtime = window.findChild<QLabel*>("miningRuntime");
+        window.setMiningState("Starting");
+        window.setMiningState("Preparing GPUs");
+        QCOMPARE(pool->text(), QString("Connecting"));
+        QCOMPARE(runtime->text(), QString::fromUtf8("Starting up…"));
+        auto paused = withHashrate(statistics(), 0);
+        paused["devices"] = QJsonArray{device(0, "NVIDIA GeForce RTX 4090", "CUDA", 0, {92, 100, 300}, true)};
+        window.setMiningState("Paused");
+        window.updateStatistics(paused);
+        QCOMPARE(pool->text(), QString("Connected"));
+        QCOMPARE(runtime->text(), "Running " + fixtureRuntime);
+        QCOMPARE(window.findChild<QLabel*>("heroDetail")->text(), QString("0 of 1 GPU mining · session average 0.0 MH/s"));
+        // Hashrate can drop to zero while connected, for example while a GPU rebuilds its DAG.
+        window.setMiningState("Preparing GPUs");
+        QCOMPARE(pool->text(), QString("Connected"));
+        QCOMPARE(runtime->text(), "Running " + fixtureRuntime);
+    }
+
+    void unitsSitOnTheirFiguresBaseline()
+    {
+        MainWindow window;
+        window.resize(1120, 800);
+        window.show();
+        window.setMiningState("Mining");
+        window.updateStatistics(statistics());
+        QTest::qWait(20);
+        auto baseline = [&window](const QLabel* text) {
+            const auto metrics = text->fontMetrics();
+            const auto area = text->contentsRect();
+            return text->mapTo(&window, QPoint(0, area.top() + (area.height() - metrics.height()) / 2)).y() + metrics.ascent();
+        };
+        QVERIFY(qAbs(baseline(window.findChild<QLabel*>("totalHashrate")) - baseline(window.findChild<QLabel*>("totalHashrateUnit"))) <= 1);
+        auto* card = gpuCards(window).first();
+        QVERIFY(qAbs(baseline(card->findChild<QLabel*>("gpuHashrate")) - baseline(card->findChild<QLabel*>("gpuUnit"))) <= 1);
+    }
+
+    void failedStartKeepsTheLastSessionChart()
+    {
+        QTcpServer probe;
+        QVERIFY(probe.listen(QHostAddress::LocalHost, 0));
+        const auto closedPort = probe.serverPort();
+        probe.close();
+        useTestMiner();
+        MainWindow window;
+        window.show();
+        window.setMiningState("Mining");
+        window.updateStatistics(statistics());
+        window.setMiningState("Stopped");
+        auto* subtitle = window.findChild<QLabel*>("chartSubtitle");
+        QCOMPARE(subtitle->text(), QString::fromUtf8("MH/s · last session"));
+        window.findChild<QPushButton*>("soloMode")->click();
+        window.findChild<QLineEdit*>("nodeInput")->setText(QString("http://127.0.0.1:%1").arg(closedPort));
+        window.findChild<QLineEdit*>("rpcPasswordInput")->setText("session-secret");
+        window.findChild<QLineEdit*>("rewardInput")->setText("test-reward-address");
+        // A node that is not running fails the check; the last session stays in view.
+        window.findChild<QPushButton*>("startMining")->click();
+        QTRY_COMPARE_WITH_TIMEOUT(window.findChild<QLabel*>("miningState")->text(), QString("Stopped"), 5000);
+        QCOMPARE(subtitle->text(), QString::fromUtf8("MH/s · last session"));
+    }
+
+    void unitsUseTheLightFace()
+    {
+        MainWindow window;
+        auto* value = window.findChild<QLabel*>("totalHashrate");
+        auto* unit = window.findChild<QLabel*>("totalHashrateUnit");
+        value->ensurePolished();
+        unit->ensurePolished();
+        QFont light = unit->font(), bold = value->font();
+        light.setPixelSize(40);
+        bold.setPixelSize(40);
+        // The light and bold faces come from different foundries; a shared family name draws both bold.
+        QVERIFY(QFontMetrics(light).horizontalAdvance("MH/s") < QFontMetrics(bold).horizontalAdvance("MH/s"));
+    }
+
+    void narrowWindowsCompactTheSidebar()
+    {
+        MainWindow window;
+        window.resize(1120, 800);
+        window.show();
+        QTest::qWait(20);
+        auto* navigation = window.findChild<QListWidget*>("navigation");
+        auto* settingsButton = window.findChild<QPushButton*>("settingsButton");
+        QCOMPARE(navigation->item(2)->text(), QString("GPUs"));
+        QCOMPARE(settingsButton->text(), QString("Settings"));
+        window.resize(800, 600);
+        QTest::qWait(20);
+        QVERIFY(navigation->item(2)->text().isEmpty());
+        QCOMPARE(navigation->item(2)->toolTip(), QString("GPUs"));
+        QCOMPARE(navigation->item(2)->data(Qt::AccessibleTextRole).toString(), QString("GPUs"));
+        QVERIFY(settingsButton->text().isEmpty());
+        QCOMPARE(settingsButton->accessibleName(), QString("Settings"));
+        window.resize(1120, 800);
+        QTest::qWait(20);
+        QCOMPARE(navigation->item(2)->text(), QString("GPUs"));
+        QCOMPARE(settingsButton->text(), QString("Settings"));
     }
 
     void failedSaveCanCancelCloseOrExplicitlyDiscard()
@@ -416,7 +737,8 @@ private slots:
         QApplication::setPalette(dark);
         QCoreApplication::processEvents();
         const auto color = window.findChild<QLabel*>("miningState")->palette().color(QPalette::WindowText);
-        const bool fixedColors = window.styleSheet().contains("#f6f6f4");
+        const bool fixedColors = window.styleSheet().contains("#f5f3f4", Qt::CaseInsensitive) ||
+            window.styleSheet().contains("#9b1c2e", Qt::CaseInsensitive);
         QApplication::setPalette(original);
         QCoreApplication::processEvents();
         QCOMPARE(color, QColor(Qt::white));
@@ -447,10 +769,10 @@ private slots:
 
         MainWindow window;
         // A fresh install keeps the approved light design even on a dark OS.
-        QCOMPARE(window.palette().color(QPalette::Window), QColor("#f6f6f4"));
+        QCOMPARE(window.palette().color(QPalette::Window), QColor("#F5F3F4"));
         QVERIFY(chooseTheme(window, theme, QDialogButtonBox::Save));
-        const QColor background(theme == "dark" ? "#1b1d21" : "#f6f6f4");
-        const QColor text(theme == "dark" ? "#ededf0" : "#24262b");
+        const QColor background(theme == "dark" ? "#0F0C10" : "#F5F3F4");
+        const QColor text(theme == "dark" ? "#F5F0F3" : "#1A1216");
         QCOMPARE(window.palette().color(QPalette::Window), background);
         QCOMPARE(window.findChild<QLabel*>("miningState")->palette().color(QPalette::WindowText), text);
         QCOMPARE(window.findChild<QLineEdit*>("poolInput")->palette().color(QPalette::Text), text);
@@ -486,7 +808,7 @@ private slots:
         QCOMPARE(window.styleSheet(), savedSheet);
         QCOMPARE(QSettings().value("appearance/theme").toString(), QString("dark"));
         MainWindow restored;
-        QCOMPARE(restored.palette().color(QPalette::Window), QColor("#1b1d21"));
+        QCOMPARE(restored.palette().color(QPalette::Window), QColor("#0F0C10"));
     }
 
     void historyHasAccessibleTimestampedValues()
@@ -609,6 +931,10 @@ private slots:
         QVERIFY(QDir().mkpath(directory));
         MainWindow window;
         window.resize(1120, 800);
+        window.statusBar()->addPermanentWidget(new QLabel("Test fixture data"));
+        window.show();
+        QTest::qWait(50);
+        QVERIFY(window.grab().save(QDir(directory).filePath("overview-get-started.png")));
         window.findChild<QLineEdit*>("poolInput")->setText("stratum+tcp://pool.example:3333");
         window.findChild<QLineEdit*>("walletInput")->setText("a7KpDesignPreviewAddress9mQ2");
         window.findChild<QLineEdit*>("workerInput")->setText("desktop-01");
@@ -617,8 +943,6 @@ private slots:
         window.updateStatistics(statistics());
         window.setWindowTitle("Firominer | Test fixture data");
         window.statusBar()->clearMessage();
-        window.statusBar()->addPermanentWidget(new QLabel("Test fixture data"));
-        window.show();
         QTest::qWait(100);
         QVERIFY(window.grab().save(QDir(directory).filePath("overview.png")));
         QVERIFY(chooseTheme(window, "dark", QDialogButtonBox::Save));
@@ -637,6 +961,8 @@ private slots:
         QVERIFY(settingsCaptured);
         QVERIFY(chooseTheme(window, "light", QDialogButtonBox::Save));
         window.setMiningState("Stopped");
+        QTest::qWait(50);
+        QVERIFY(window.grab().save(QDir(directory).filePath("overview-ready.png")));
         window.findChild<QListWidget*>("navigation")->setCurrentRow(1);
         QTest::qWait(50);
         QVERIFY(window.grab().save(QDir(directory).filePath("setup.png")));

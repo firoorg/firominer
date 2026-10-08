@@ -85,6 +85,7 @@ private:
     bool m_authenticated = false;
     bool m_stopping = false;
     bool m_hadStats = false;
+    bool m_wasConnected = false; //!< The miner has reported its pool or node connected this launch.
     bool m_discardLogLine = false;
 #ifdef Q_OS_WIN
     void* m_shutdownEvent = nullptr;

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## Unreleased
+
+### Added
+
+- Desktop launcher overview states for first launch, ready (with the last session's runtime, accepted shares and average hashrate), starting, connecting, reconnecting and stopping.
+- A card for each GPU on the overview, with recent hashrate, temperature, fan, power and accepted shares.
+- An icon-only launcher sidebar for narrow windows.
+
+### Changed
+
+- Restyled the desktop launcher with the Firo Core wallet's colors, typefaces, icons and status badges in the Light and Dark themes; System and high-contrast settings keep the platform's colors.
+- Led the overview with a summary banner of total hashrate, accepted shares, last share and GPU power, and fit it within the default window.
+- Bundled the Saira SemiCondensed and Source Sans Pro fonts with their SIL Open Font License texts.
+
 ## 1.5.3
 
 ### Changed
