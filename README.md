@@ -15,6 +15,8 @@
 * Development CPU backend, selected explicitly with `--cpu` when compiled in
 * Custom solo coinbase messages with the companion Firo daemon patch
 * Optional native Qt Widgets dashboard, with the command-line miner kept separate
+* Desktop interface in English, Simplified Chinese, Arabic, Russian, Spanish,
+  Turkish, Japanese, Korean, Portuguese, Ukrainian, Indonesian, and Bahasa Melayu
 
 
 ## Table of Contents
