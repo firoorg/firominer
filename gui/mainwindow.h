@@ -120,6 +120,7 @@ private:
     QSystemTrayIcon* tray_ = nullptr;
     QString executable_;
     QString appearance_ = QStringLiteral("light");
+    QString language_ = QStringLiteral("system");
     QString currentState_ = QStringLiteral("Stopped");
     qint64 acceptedCount_ = 0, rejectedCount_ = 0, runtimeSeconds_ = 0;
     //! Sum and count of this session's connected readings, for its average.

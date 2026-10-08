@@ -10,7 +10,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PROJECT_VERSION "${version_line}")
 endif()
 
-find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets Network)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets Network LinguistTools)
 include(GNUInstallDirs)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -18,10 +18,32 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(firominer-gui WIN32
-    main.cpp mainwindow.cpp mainwindow.h
+    main.cpp language.cpp language.h mainwindow.cpp mainwindow.h
     minercontroller.cpp minercontroller.h resources.qrc)
 target_link_libraries(firominer-gui PRIVATE Qt6::Widgets Qt6::Network)
 target_compile_definitions(firominer-gui PRIVATE FIROMINER_GUI_VERSION="${PROJECT_VERSION}")
+set(gui_translation_sources
+    translations/firominer_en.ts
+    translations/firominer_zh_CN.ts
+    translations/firominer_ar.ts
+    translations/firominer_ru.ts
+    translations/firominer_es.ts
+    translations/firominer_tr.ts
+    translations/firominer_ja.ts
+    translations/firominer_ko.ts
+    translations/firominer_pt.ts
+    translations/firominer_uk.ts
+    translations/firominer_id.ts
+    translations/firominer_ms.ts)
+qt_add_lupdate(firominer-gui
+    TS_FILES ${gui_translation_sources}
+    SOURCES main.cpp mainwindow.cpp mainwindow.h minercontroller.cpp minercontroller.h
+    OPTIONS -no-obsolete)
+qt_add_lrelease(firominer-gui
+    TS_FILES ${gui_translation_sources}
+    QM_FILES_OUTPUT_VARIABLE gui_translation_files)
+qt_add_resources(firominer-gui gui_translations
+    PREFIX "/i18n" BASE "${CMAKE_CURRENT_BINARY_DIR}" FILES ${gui_translation_files})
 if(WIN32)
     enable_language(RC)
     target_sources(firominer-gui PRIVATE firominer-gui.rc)
@@ -81,6 +103,10 @@ endif()
 
 if(BUILD_TESTING)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
+    find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME gui-translations COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_translations.py" $<TARGET_FILE:Qt6::lupdate>
+        "${CMAKE_CURRENT_SOURCE_DIR}")
     add_executable(gui-test-miner test_miner.cpp)
     target_link_libraries(gui-test-miner PRIVATE Qt6::Core Qt6::Network)
     add_executable(test-controller test_controller.cpp minercontroller.cpp minercontroller.h)
@@ -88,7 +114,9 @@ if(BUILD_TESTING)
     add_dependencies(test-controller gui-test-miner)
     add_test(NAME gui-controller COMMAND test-controller $<TARGET_FILE:gui-test-miner>)
     add_executable(test-window test_window.cpp mainwindow.cpp mainwindow.h
-        minercontroller.cpp minercontroller.h resources.qrc)
+        language.cpp language.h minercontroller.cpp minercontroller.h resources.qrc)
+    qt_add_resources(test-window gui_translations
+        PREFIX "/i18n" BASE "${CMAKE_CURRENT_BINARY_DIR}" FILES ${gui_translation_files})
     target_link_libraries(test-window PRIVATE Qt6::Widgets Qt6::Network Qt6::Test)
     add_dependencies(test-window gui-test-miner)
     target_compile_definitions(test-window PRIVATE FIROMINER_GUI_VERSION="${PROJECT_VERSION}")

@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "language.h"
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
@@ -10,6 +11,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSettings>
 #include <QScopeGuard>
@@ -19,6 +21,7 @@
 #include <QTableWidget>
 #include <QTcpServer>
 #include <QTemporaryDir>
+#include <QTranslator>
 #include <QtTest>
 
 namespace
@@ -109,6 +112,195 @@ private slots:
     }
 
     void init() { QSettings().clear(); }
+
+    void languageSelection_data()
+    {
+        QTest::addColumn<QString>("preference");
+        QTest::addColumn<QStringList>("systemLanguages");
+        QTest::addColumn<QString>("expected");
+        QTest::addColumn<QString>("expectedLocale");
+        QTest::newRow("saved-language") << "ru" << QStringList{"es_ES"} << "ru" << "ru";
+        QTest::newRow("simplified-region") << "system" << QStringList{"zh_CN"} << "zh_CN" << "zh_CN";
+        QTest::newRow("simplified-script") << "system" << QStringList{"zh-Hans-SG"} << "zh_CN" << "zh-Hans-SG";
+        QTest::newRow("traditional-fallback") << "system" << QStringList{"zh-Hant-TW"} << "en" << "en";
+        QTest::newRow("preferred-supported") << "system" << QStringList{"fr_FR", "es_MX"} << "es" << "es_MX";
+        QTest::newRow("english-first") << "system" << QStringList{"en_GB", "ar_SA"} << "en" << "en_GB";
+        QTest::newRow("unsupported") << "system" << QStringList{"fr_FR"} << "en" << "en";
+        QTest::newRow("invalid-setting") << "invalid" << QStringList{"ar_SA"} << "ar" << "ar_SA";
+        QTest::newRow("empty-system-list") << "system" << QStringList{} << "en" << "en";
+        for (const auto* code : {"tr", "ja", "ko", "pt", "uk", "id", "ms"})
+        {
+            const QString language(code);
+            const auto locale = QLocale(language).name();
+            QTest::newRow(qPrintable("saved-" + language)) << language << QStringList{"en_GB"} << language << language;
+            QTest::newRow(qPrintable("system-" + language)) << "system" << QStringList{locale} << language << locale;
+        }
+        QTest::newRow("portuguese-portugal") << "system" << QStringList{"pt_PT"} << "pt" << "pt_PT";
+        QTest::newRow("portuguese-brazil") << "system" << QStringList{"pt_BR"} << "pt" << "pt_BR";
+        QTest::newRow("malay-singapore") << "system" << QStringList{"ms_SG"} << "ms" << "ms_SG";
+    }
+
+    void languageSelection()
+    {
+        QFETCH(QString, preference);
+        QFETCH(QStringList, systemLanguages);
+        QFETCH(QString, expected);
+        QFETCH(QString, expectedLocale);
+        const QLocale original;
+        const auto originalDirection = QApplication::layoutDirection();
+        QTranslator translator;
+        const auto restore = qScopeGuard([&] {
+            qApp->removeTranslator(&translator);
+            QLocale::setDefault(original);
+            QApplication::setLayoutDirection(originalDirection);
+        });
+        QCOMPARE(installGuiLanguage(translator, preference, systemLanguages), expected);
+        QVERIFY(!translator.isEmpty());
+        QCOMPARE(QApplication::layoutDirection(), expected == "ar" ? Qt::RightToLeft : Qt::LeftToRight);
+        QCOMPARE(QLocale(), QLocale(expectedLocale));
+    }
+
+    void languagePreferenceRequiresSaveAndRestart_data()
+    {
+        QTest::addColumn<QString>("language");
+        for (const auto* language : {"es", "tr", "ja", "ko", "pt", "uk", "id", "ms"})
+            QTest::newRow(language) << language;
+    }
+
+    void languagePreferenceRequiresSaveAndRestart()
+    {
+        QFETCH(QString, language);
+        MainWindow window;
+        auto choose = [&](const QString& value, QDialogButtonBox::StandardButton action) {
+            bool selected = false;
+            QTimer::singleShot(0, &window, [&] {
+                auto* dialog = window.findChild<QDialog*>("settingsDialog");
+                auto* language = dialog->findChild<QComboBox*>("languageInput");
+                QCOMPARE(language->count(), 13);
+                language->setCurrentIndex(language->findData(value));
+                selected = language->currentData().toString() == value;
+                dialog->findChild<QDialogButtonBox*>()->button(action)->click();
+            });
+            window.findChild<QPushButton*>("settingsButton")->click();
+            return selected;
+        };
+        QVERIFY(choose("ar", QDialogButtonBox::Cancel));
+        QVERIFY(!QSettings().contains("ui/language"));
+        window.setMiningState("Mining");
+        QVERIFY(choose(language, QDialogButtonBox::Save));
+        QCOMPARE(QSettings().value("ui/language").toString(), language);
+        QCOMPARE(window.findChild<QLabel*>("miningState")->text(), QString("Mining"));
+        QCOMPARE(window.findChild<QListWidget*>("navigation")->item(0)->text(), QString("Overview"));
+        QVERIFY(choose("ru", QDialogButtonBox::Cancel));
+        QCOMPARE(QSettings().value("ui/language").toString(), language);
+    }
+
+    void localizedInterface_data()
+    {
+        QTest::addColumn<QString>("language");
+        for (const auto* language : {"zh_CN", "ar", "ru", "es", "en", "tr", "ja", "ko", "pt", "uk", "id", "ms"})
+            QTest::newRow(language) << language;
+    }
+
+    void localizedInterface()
+    {
+        QFETCH(QString, language);
+        const QLocale original;
+        const auto originalDirection = QApplication::layoutDirection();
+        QTranslator translator;
+        const auto restore = qScopeGuard([&] {
+            qApp->removeTranslator(&translator);
+            QLocale::setDefault(original);
+            QApplication::setLayoutDirection(originalDirection);
+        });
+        QSettings().setValue("ui/language", language);
+        QCOMPARE(installGuiLanguage(translator, QSettings().value("ui/language").toString()), language);
+        QVERIFY(!translator.isEmpty());
+        useTestMiner();
+        MainWindow window;
+        window.resize(1120, 800);
+        window.show();
+        auto* navigation = window.findChild<QListWidget*>("navigation");
+        QCOMPARE(navigation->item(0)->text(), MainWindow::tr("Overview"));
+        for (int i = 0; i < navigation->count(); ++i)
+            QCOMPARE(navigation->item(i)->toolTip(), navigation->item(i)->data(Qt::AccessibleTextRole).toString());
+        if (language != "en")
+        {
+            QVERIFY(navigation->item(0)->text() != "Overview");
+            MiningConfig invalid;
+            invalid.executable = QSettings().value("miner/executable").toString();
+            const auto error = MinerController::validate(invalid);
+            QVERIFY(!error.isEmpty());
+            QVERIFY(!error.startsWith("Enter a Stratum"));
+        }
+        QCOMPARE(window.layoutDirection(), language == "ar" ? Qt::RightToLeft : Qt::LeftToRight);
+        for (const auto* name : {"poolInput", "walletInput", "nodeInput", "rpcUserInput", "rpcPasswordInput", "rewardInput", "devicesInput"})
+            QCOMPARE(window.findChild<QLineEdit*>(name)->layoutDirection(), Qt::LeftToRight);
+        QCOMPARE(window.findChild<QPlainTextEdit*>("activityLog")->layoutDirection(), Qt::LeftToRight);
+        window.findChild<QLineEdit*>("poolInput")->setText("stratum+tcp://pool.example:3333");
+        window.findChild<QLineEdit*>("walletInput")->setText("test-account");
+        window.setMiningState("Mining");
+        window.updateStatistics(statistics());
+        QCOMPARE(window.findChild<QLabel*>("miningState")->text(), MainWindow::tr("Mining"));
+        QCOMPARE(window.findChild<QLabel*>("acceptedLabel")->text(), MainWindow::tr("Accepted shares"));
+        QVERIFY(!window.findChild<QLabel*>("heroDetail")->text().contains('%'));
+        for (const int count : {0, 1, 2, 5, 11, 21, 101})
+        {
+            const auto text = MainWindow::tr("%1 blocks", nullptr, count).arg(QLocale().toString(count));
+            QVERIFY(!text.isEmpty());
+            QVERIFY(!text.contains("%n"));
+        }
+        const auto directory = qEnvironmentVariable("FIROMINER_GUI_SCREENSHOT_DIR");
+        if (!directory.isEmpty())
+        {
+            QVERIFY(QDir().mkpath(directory));
+            QTest::qWait(30);
+            QVERIFY(window.grab().save(QDir(directory).filePath("overview-" + language + ".png")));
+        }
+        window.setMiningState("Stopped");
+        window.findChild<QPushButton*>("soloMode")->click();
+        QCOMPARE(window.findChild<QLabel*>("acceptedLabel")->text(), MainWindow::tr("Blocks accepted"));
+        auto largeCount = statistics();
+        auto mining = largeCount["mining"].toObject();
+        const qint64 count = 2147483701LL;
+        mining["shares"] = QJsonArray{count, 0, 0, 12};
+        largeCount["mining"] = mining;
+        window.setMiningState("Mining");
+        window.updateStatistics(largeCount);
+        bool countPreserved = false;
+        for (auto* text : window.findChildren<QLabel*>())
+            countPreserved |= text->text() == MainWindow::tr("%1 blocks found this session", nullptr, 101).arg(QLocale().toString(count));
+        QVERIFY(countPreserved);
+        window.setMiningState("Stopped");
+        QCOMPARE(window.findChild<QComboBox*>("backendInput")->currentData().toString(), QString("auto"));
+        navigation->setCurrentRow(1);
+        window.findChild<QPushButton*>("nodeGuideButton")->click();
+        for (const QSize size : {QSize(640, 480), QSize(1120, 800)})
+        {
+            window.resize(size);
+            QTest::qWait(30);
+            auto* shell = window.findChild<QScrollArea*>("shellScroll");
+            auto* start = window.findChild<QPushButton*>("startMining");
+            QVERIFY(shell->viewport()->rect().contains(QRect(start->mapTo(shell->viewport(), QPoint()), start->size())));
+            if (!directory.isEmpty())
+                QVERIFY(window.grab().save(QDir(directory).filePath(QString("setup-%1-%2.png").arg(language).arg(size.width()))));
+        }
+        bool settingsChecked = false;
+        QTimer::singleShot(0, &window, [&] {
+            auto* dialog = window.findChild<QDialog*>("settingsDialog");
+            QCOMPARE(dialog->findChild<QComboBox*>("languageInput")->currentData().toString(), language);
+            QCOMPARE(dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->text(), MainWindow::tr("Save"));
+            if (!directory.isEmpty())
+            {
+                QTest::qWait(30);
+                QVERIFY(dialog->grab().save(QDir(directory).filePath("settings-" + language + ".png")));
+            }
+            settingsChecked = true;
+            dialog->reject();
+        });
+        window.findChild<QPushButton*>("settingsButton")->click();
+        QVERIFY(settingsChecked);
+    }
 
     void soloDefaultsHelpAndSettingsStaySeparate()
     {
@@ -990,6 +1182,8 @@ int main(int argc, char** argv)
     if (!settings.isValid())
         return 1;
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings.path());
+    QTranslator translator;
+    installGuiLanguage(translator, "en");
     WindowTest test;
     return QTest::qExec(&test, argc, argv);
 }

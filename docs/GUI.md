@@ -96,10 +96,23 @@ vertically and setup labels wrap above their fields. Navigation and start/stop
 controls remain outside page scrolling. GPU cards flow into as many columns as fit,
 and the GPUs page table sizes its columns and rows to their content.
 
+Settings also offers **Language**: System, English, 简体中文 (Simplified Chinese),
+العربية (Arabic), Русский (Russian), Español (Spanish), Türkçe (Turkish), 日本語
+(Japanese), 한국어 (Korean), Português (Portuguese), Українська (Ukrainian),
+Bahasa Indonesia (Indonesian), and Bahasa Melayu (Malay). Save your choice and
+restart the GUI to apply it. Changing the preference does not interrupt a mining
+session. System uses the first supported language in your operating system's
+preferred language list, with English as the fallback. Arabic mirrors the
+interface; addresses, endpoints, configuration examples, and activity logs keep
+their left-to-right direction. The GUI's labels, help, and validation messages
+are translated. Command-line miner output, raw activity logs, and driver or
+operating system error details retain their original language.
+
 ## Building the GUI only
 
-The build requires CMake 3.18+, a C++17 compiler, and Qt 6.2+ with Widgets and
-Network. Enable tests to include Qt Test. These are developer requirements,
+The build requires CMake 3.18+, a C++17 compiler, and Qt 6.2+ with Widgets,
+Network, and LinguistTools. Enable tests to include Qt Test and Python 3.9+.
+These are developer requirements,
 not separate installations required by users of the bundled packages.
 
 For Windows, use a Qt kit matching your compiler, for example Qt 6.8.3
@@ -122,7 +135,8 @@ requirements below or use the source-inclusive CI package. Building from an
 MSYS2 Qt package may require additional third-party DLLs supplied by that distribution;
 `windeployqt` does not collect all of those libraries.
 
-On Linux, install your distribution's Qt 6 development packages, then run:
+On Linux, install your distribution's Qt 6 development packages (on Ubuntu,
+`qt6-base-dev qt6-tools-dev qt6-l10n-tools`), then run:
 
 ```sh
 cmake -S gui -B build-gui -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
@@ -175,6 +189,14 @@ This includes distribution patches, build rules and dependency copyright notices
 CI verifies both the offscreen and X11 plugins from a relocated archive and
 rejects dependencies that fall back to the build machine outside the documented
 platform runtime and graphics stack.
+
+Translations live in `gui/translations/firominer_*.ts`. Qt LinguistTools compiles
+and embeds them in the GUI, so installed packages need no external translation
+files. After changing source text, run `cmake --build build-gui --target
+firominer-gui_lupdate`, translate the new messages with Qt Linguist, and rerun
+the tests. The English catalog supplies plural forms; all translated
+catalogs must cover every extracted source message. `gui-translations` checks
+coverage, plural forms, and placeholders.
 
 Keep these archives and all license notices with any redistributed package.
 If using another Qt build, include its matching source, all applied patches,
