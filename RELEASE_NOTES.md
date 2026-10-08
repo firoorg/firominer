@@ -1,11 +1,11 @@
-Firominer v1.5.3 reduces repeated GPU work and fixes mining telemetry and hashrate reporting.
+Firominer v1.6.0 restyles the desktop launcher in the Firo Core wallet's identity and rebuilds its overview around the miner's state.
 
 ### Changes
 
-- CUDA and OpenCL continue from the next unscheduled nonce when a pool resends unchanged work, including a new share target, or mining resumes after a pause. This avoids searching the same range again. Progress is kept within the running miner, not across process restarts.
-- Resumed GPU launches stay within bounded nonce ranges. CUDA searches remaining whole blocks with smaller launches; OpenCL waits for new work when its assigned range is spent.
-- Default spacing between GPUs increases from 2^32 to 2^40 nonces, delaying overlap on unchanged ordinary jobs to over five hours at 60 MH/s per device. Ordinary jobs still have no hard segment limit and can eventually overlap; pool extranonce jobs use bounded ranges.
-- Miner stop/start cycles within the same process preserve device telemetry rows and cumulative share counters, and stopped hashrates clear to zero. JSON and HTTP statistics and pool submissions use 64-bit hashrate conversions to avoid truncating large rates.
+- The launcher uses the Firo Core wallet's colors, typefaces (Saira SemiCondensed and Source Sans Pro), icons and status badges in the Light and Dark themes. System and high-contrast settings keep your platform's colors. The sidebar collapses to icons in narrow windows.
+- The overview leads with the miner's state. Until setup is complete it says what is missing and the start button reads **Set up mining**; a saved solo setup asks only for its RPC password, which is never saved. Once ready, it names the pool or node and the payout address, and shows the last session's runtime, accepted shares and average hashrate, which are kept across restarts.
+- While mining, a summary banner shows total hashrate, accepted shares, the last share and GPU power with efficiency, the hashrate chart shows its average, and each GPU has a card with its recent hashrate, temperature, fan, power and shares. Connecting, paused, reconnecting and stopping read consistently across the page, and readings that are no longer current are shown as unavailable rather than stale.
+- The bundled fonts are licensed under the SIL Open Font License 1.1; their license texts are installed in `share/firominer-gui/licenses`. Mining, pool and node code is unchanged from v1.5.3.
 
 ### Downloads and compatibility
 
@@ -18,12 +18,12 @@ Packages target compatible Ubuntu 22.04 or newer x86-64 systems and Windows 10/1
 
 Extract the entire archive and keep its directory layout intact. Start `./bin/firominer-gui` on Linux or `bin\firominer-gui.exe` on Windows. The GUI supports Mainnet Stratum pool mining and direct solo mining against your own Firo node. Other networks and advanced options remain available through `./bin/firominer` or `.\bin\firominer.exe`. Windows packages also include the editable `bin\mine_firo.bat` launcher.
 
-See the included `docs/GUI.md` for launcher use and `docs/TESTING.md` for command-line examples and verification. `SHA256SUMS-v1.5.3.txt` covers all four downloadable archives, and each archive includes an internal manifest. Keep the bundled `sources/` directory and license notices with redistributed packages.
+See the included `docs/GUI.md` for launcher use and `docs/TESTING.md` for command-line examples and verification. `SHA256SUMS-v1.6.0.txt` covers all four downloadable archives, and each archive includes an internal manifest. Keep the bundled `sources/` directory and license notices with redistributed packages.
 
 ### Validation
 
-Publication is gated on core tests, AddressSanitizer/UndefinedBehaviorSanitizer, ThreadSanitizer, Linux and Windows CUDA/OpenCL package builds, GUI and solo-node tests, relocated-package smoke tests, and checksum verification. Linux package checks load both the bundled offscreen and X11 Qt plugins. The workflow also verifies that the tag matches the source version and is on main.
+Publication is gated on core tests, AddressSanitizer/UndefinedBehaviorSanitizer, ThreadSanitizer, Linux and Windows CUDA/OpenCL package builds, GUI and solo-node tests, relocated-package smoke tests, and checksum verification. Linux package checks load both the bundled offscreen and X11 Qt plugins. GUI tests run on Qt 6.2 and 6.4 on Linux and Qt 6.8 on Windows. The workflow also verifies that the tag matches the source version and is on main.
 
-The release workflow does not exercise physical GPU mining or accepted live-pool or solo blocks. No measured hashrate increase is claimed. Keep host solution verification enabled, and use `--cl-no-subgroup` if needed for driver compatibility.
+The release workflow does not exercise physical GPU mining or accepted live-pool or solo blocks. Keep host solution verification enabled, and use `--cl-no-subgroup` if needed for driver compatibility.
 
-[Full changes since v1.5.2](https://github.com/firoorg/firominer/compare/v1.5.2...v1.5.3). Includes [#36](https://github.com/firoorg/firominer/pull/36) and [#37](https://github.com/firoorg/firominer/pull/37).
+[Full changes since v1.5.3](https://github.com/firoorg/firominer/compare/v1.5.3...v1.6.0). Includes [#39](https://github.com/firoorg/firominer/pull/39).

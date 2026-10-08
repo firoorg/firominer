@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## Unreleased
+## 1.6.0
 
 ### Added
 
@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Restyled the desktop launcher with the Firo Core wallet's colors, typefaces, icons and status badges in the Light and Dark themes; System and high-contrast settings keep the platform's colors.
 - Led the overview with a summary banner of total hashrate, accepted shares, last share and GPU power, and fit it within the default window.
 - Bundled the Saira SemiCondensed and Source Sans Pro fonts with their SIL Open Font License texts.
+- A saved solo setup asks only for its RPC password before starting, and a missing miner executable opens Settings.
 
 ## 1.5.3
 
