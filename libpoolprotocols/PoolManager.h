@@ -26,7 +26,7 @@ namespace eth
 struct PoolSettings
 {
     std::vector<std::shared_ptr<URI>> connections;  // List of connection definitions
-    unsigned getWorkPollInterval = 1000;            // Interval (ms) between getwork requests
+    unsigned getWorkPollInterval = 500;             // Interval (ms) between getwork requests
     unsigned noWorkTimeout = 600;                   // If no new jobs in this number of seconds drop connection
     unsigned noResponseTimeout = 2;                 // If no response in this number of seconds drop connection
     unsigned poolFailoverTimeout = 0;               // Return to primary pool after this number of minutes
